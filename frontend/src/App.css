@@ -1,0 +1,100 @@
+body {
+  margin: 0;
+  background: #f3f4f6;
+  color: #1c1c1c;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+main {
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 16px 48px;
+}
+
+header h1 {
+  margin-bottom: 4px;
+  font-size: 1.8rem;
+}
+
+#status-line {
+  margin: 0 0 8px;
+  color: #4b5563;
+}
+
+a {
+  color: #1d4ed8;
+}
+
+form,
+section {
+  margin-top: 24px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+button {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+#send {
+  border-radius: 6px;
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #991b1b;
+}
+
+.route {
+  margin: 0 0 8px;
+  color: #4b5563;
+  font-size: 0.9rem;
+}
+
+#answer {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+pre {
+  overflow: auto;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 6px;
+}

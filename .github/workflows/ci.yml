@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ruff
+        run: ruff check app mcp_server tests scripts
+
+      - name: Pytest
+        run: pytest
+
+      - name: Audit dependencies
+        run: |
+          set +e
+          pip-audit -r requirements.txt --format json -o audit.json
+          set -e
+          python scripts/audit_gate.py audit.json
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t langgraph-support-agent:ci .
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: langgraph-support-agent:ci
+          format: table
+          exit-code: "0"
+          severity: HIGH,CRITICAL
