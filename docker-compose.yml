@@ -4,6 +4,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-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}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-astra}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.5}
+
 
