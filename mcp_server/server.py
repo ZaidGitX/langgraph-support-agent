@@ -101,14 +101,29 @@ def shipping_eta(status: str) -> dict[str, Any]:
 
 @mcp.tool()
 def plan_benefits(plan_type: str) -> dict[str, Any]:
-    """Return the benefits for a free, pro, or enterprise plan."""
+    """Return benefits for a plan.
+
+    plan_type may be free, pro, enterprise, paid, or all.
+    paid returns the Pro and Enterprise plans.
+    all returns Free, Pro, and Enterprise.
+    """
     try:
         cleaned = plan_type.strip().lower()
+        if cleaned in {"paid", "premium"}:
+            return {
+                "plan_type": "paid",
+                "plans": [dict(_PLAN_BENEFITS["pro"]), dict(_PLAN_BENEFITS["enterprise"])],
+            }
+        if cleaned in {"all", "any"}:
+            return {
+                "plan_type": "all",
+                "plans": [dict(plan) for plan in _PLAN_BENEFITS.values()],
+            }
         benefits = _PLAN_BENEFITS.get(cleaned)
         if benefits is None:
             return {
                 "error": f"Unknown plan {plan_type!r}.",
-                "allowed_plans": sorted(_PLAN_BENEFITS),
+                "allowed_plans": ["free", "pro", "enterprise", "paid", "all"],
             }
         return dict(benefits)
     except (TypeError, ValueError, AttributeError) as exc:

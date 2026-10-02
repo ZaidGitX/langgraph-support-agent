@@ -5,55 +5,28 @@ import json
 import logging
 import re
 import sys
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
 from . import config, tools
+from .schemas import (
+    TOOL_OUTPUT_SPECS,
+    AgentRequest,
+    AgentState,
+    SearchKnowledgeBaseArgs,
+    SearchOrdersArgs,
+    SearchProductsArgs,
+    ToolArgs,
+    model_tool_output_schema,
+)
 
 logger = logging.getLogger("support_agent")
 
 Route = Literal["orders", "products", "knowledge", "mcp", "general"]
 _STATUSES = ("pending", "shipped", "delivered", "refunded")
-_CATEGORIES = ("electronics", "accessories", "furniture")
-_EMAIL = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
-_ORDER_ID = re.compile(r"\b(\d{3,})\b")
-_PRODUCT_STOPWORDS = {
-    "a",
-    "an",
-    "any",
-    "are",
-    "catalog",
-    "do",
-    "have",
-    "how",
-    "in",
-    "is",
-    "me",
-    "much",
-    "of",
-    "price",
-    "product",
-    "products",
-    "show",
-    "stock",
-    "the",
-    "there",
-    "what",
-    "you",
-}
-
-
-class AgentState(TypedDict, total=False):
-    query: str
-    route: Route
-    tool_name: str
-    arguments: dict[str, Any]
-    tool_result: str
-    answer: str
-    trace: list[dict[str, Any]]
 
 
 def classify(query: str) -> Route:
@@ -68,6 +41,30 @@ def classify(query: str) -> Route:
     if any(word in text for word in ("return", "refund", "shipping", "warranty", "policy", "faq", "pricing")):
         return "knowledge"
     return "general"
+
+
+def _has_word(text: str, word: str) -> bool:
+    return re.search(rf"\b{re.escape(word)}\b", text) is not None
+
+
+def _is_plan_question(text: str) -> bool:
+    if re.search(r"\b(plans?|subscription|membership)\b", text):
+        return True
+    if not _has_word(text, "pricing"):
+        return False
+    product_names = (
+        "keyboard",
+        "mouse",
+        "webcam",
+        "chair",
+        "desk",
+        "headphone",
+        "headphones",
+        "charger",
+        "hub",
+        "stand",
+    )
+    return not any(_has_word(text, name) for name in product_names)
 
 
 def _is_mcp(text: str) -> bool:
@@ -87,9 +84,7 @@ def _is_mcp(text: str) -> bool:
         return True
     if re.search(r"\beta\b", text):
         return True
-    return "plan" in text and any(
-        word in text for word in ("benefit", "include", "includes", "included", "free", "pro", "enterprise")
-    )
+    return _is_plan_question(text)
 
 
 def _is_orders(text: str) -> bool:
@@ -107,13 +102,15 @@ def _is_products(text: str) -> bool:
 
 def select_mcp_tool(query: str) -> tuple[str, dict[str, Any]]:
     text = query.lower()
-    if "plan" in text:
-        plan = "free"
-        for name in ("enterprise", "pro", "free"):
-            if name in text:
-                plan = name
-                break
-        return "plan_benefits", {"plan_type": plan}
+    if _is_plan_question(text):
+        named = {name for name in ("enterprise", "pro", "free") if _has_word(text, name)}
+        if len(named) == 1:
+            plan_type = next(iter(named))
+        elif named == {"pro", "enterprise"} or (_has_word(text, "paid") and "free" not in named):
+            plan_type = "paid"
+        else:
+            plan_type = "all"
+        return "plan_benefits", {"plan_type": plan_type}
 
     if any(phrase in text for phrase in ("eta", "when will", "arrive")):
         status = "shipped"
@@ -139,38 +136,6 @@ def _refund_arguments(query: str) -> dict[str, Any]:
     if total is None or days is None:
         return {}
     return {"order_total": total, "days_since_delivery": days}
-
-
-def _order_arguments(query: str) -> dict[str, Any]:
-    arguments: dict[str, Any] = {}
-    email = _EMAIL.search(query)
-    if email:
-        arguments["customer_email"] = email.group(0)
-    order_id = _ORDER_ID.search(query)
-    if order_id:
-        arguments["order_id"] = int(order_id.group(1))
-    for status in _STATUSES:
-        if status in query.lower():
-            arguments["order_status"] = status
-            break
-    return arguments
-
-
-def _product_arguments(query: str) -> dict[str, Any]:
-    text = query.lower()
-    arguments: dict[str, Any] = {"in_stock_only": "in stock" in text}
-    for category in _CATEGORIES:
-        if category in text:
-            arguments["product_category"] = category.capitalize()
-            break
-    words = [
-        word
-        for word in re.findall(r"[a-z0-9]+", text)
-        if word not in _PRODUCT_STOPWORDS and word not in _CATEGORIES
-    ]
-    if words:
-        arguments["product_name_fuzzy"] = " ".join(words[:4])
-    return arguments
 
 
 def load_mcp_connection() -> dict[str, Any]:
@@ -275,30 +240,106 @@ def _tool_update(route: str, tool_name: str, arguments: dict[str, Any], result: 
     }
 
 
+_FILL_GUIDE = {
+    SearchOrdersArgs: (
+        "Extract only an email, order id, or status the customer actually gave. "
+        "Leave a field empty when the question does not contain it."
+    ),
+    SearchProductsArgs: (
+        "Catalog categories are Electronics, Accessories, and Furniture. "
+        "Set product_name_fuzzy only when that exact word appears in a product name. "
+        "For a theme such as gaming, set product_category to Electronics and leave "
+        "product_name_fuzzy empty so Wireless Mouse and Mechanical Keyboard are included."
+    ),
+    SearchKnowledgeBaseArgs: (
+        "Set query to a few keywords that would appear in a policy document, "
+        "such as return, shipping, warranty, or pricing."
+    ),
+}
+
+
+def _missed(result: Any) -> bool:
+    return isinstance(result, dict) and isinstance(result.get("message"), str)
+
+
+async def fill_tool_args(schema: type[ToolArgs], state: AgentState, hint: str = "") -> ToolArgs:
+    """Ask the model to fill the Pydantic tool schema for this question."""
+    name, description = TOOL_OUTPUT_SPECS[schema]
+    schema_payload = model_tool_output_schema(name, description, schema)
+    model = ChatOpenAI(
+        model=config.openai_model(),
+        api_key=config.get_openai_api_key(),
+        use_responses_api=True,
+    ).with_structured_output(schema)
+    prompt = (
+        "Fill only the tool arguments described by this schema:\n"
+        f"{json.dumps(schema_payload)}\n\n"
+        f"Catalog: {tools.catalog_for_prompt()}\n"
+        f"{_FILL_GUIDE[schema]}\n"
+        f"{hint}".strip()
+    )
+    filled = await model.ainvoke(
+        [
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": state.query},
+        ]
+    )
+    if isinstance(filled, schema):
+        return filled
+    return schema.model_validate(filled)
+
+
+async def _lookup_with_schema(
+    state: AgentState,
+    schema: type[ToolArgs],
+    search,
+    route: str,
+) -> dict[str, Any]:
+    tool_name = TOOL_OUTPUT_SPECS[schema][0]
+    hint = ""
+    args: ToolArgs | None = None
+    result: Any = {"message": "No lookup was run."}
+    attempts = max(1, min(state.iterations, 2))
+    for _ in range(attempts):
+        args = await fill_tool_args(schema, state, hint)
+        payload = args.model_dump()
+        if schema is SearchKnowledgeBaseArgs:
+            result = search(payload["query"])
+        else:
+            result = search(**payload)
+        if not _missed(result):
+            break
+        hint = (
+            f"These arguments matched nothing: {payload}. "
+            "Broaden the search. Do not repeat a keyword that is not in the catalog."
+        )
+    assert args is not None
+    return _tool_update(route, tool_name, args.model_dump(), result)
+
+
 def classify_node(state: AgentState) -> dict[str, Any]:
-    return {"route": classify(state["query"])}
+    return {"route": classify(state.query)}
 
 
-def orders_node(state: AgentState) -> dict[str, Any]:
-    arguments = _order_arguments(state["query"])
-    result = tools.search_orders(**arguments)
-    return _tool_update("orders", "search_orders", arguments, result)
+async def orders_node(state: AgentState) -> dict[str, Any]:
+    return await _lookup_with_schema(state, SearchOrdersArgs, tools.search_orders, "orders")
 
 
-def products_node(state: AgentState) -> dict[str, Any]:
-    arguments = _product_arguments(state["query"])
-    result = tools.search_products(**arguments)
-    return _tool_update("products", "search_products", arguments, result)
+async def products_node(state: AgentState) -> dict[str, Any]:
+    return await _lookup_with_schema(state, SearchProductsArgs, tools.search_products, "products")
 
 
-def knowledge_node(state: AgentState) -> dict[str, Any]:
-    arguments = {"query": state["query"]}
-    result = tools.search_knowledge_base(state["query"])
-    return _tool_update("knowledge", "search_knowledge_base", arguments, result)
+async def knowledge_node(state: AgentState) -> dict[str, Any]:
+    return await _lookup_with_schema(
+        state,
+        SearchKnowledgeBaseArgs,
+        tools.search_knowledge_base,
+        "knowledge",
+    )
 
 
 async def mcp_node(state: AgentState) -> dict[str, Any]:
-    tool_name, arguments = select_mcp_tool(state["query"])
+    tool_name, arguments = select_mcp_tool(state.query)
     result = await call_mcp_tool(tool_name, arguments)
     return _tool_update("mcp", tool_name, arguments, result)
 
@@ -328,7 +369,12 @@ def _message_text(message: Any) -> str:
     return str(content).strip()
 
 
-async def compose_answer(query: str, route: str, tool_result: str) -> str:
+async def compose_answer(
+    query: str,
+    route: str,
+    tool_result: str,
+    system_instructions: str | None = None,
+) -> str:
     api_key = config.get_openai_api_key()
     if not api_key:
         raise RuntimeError(
@@ -341,8 +387,9 @@ async def compose_answer(query: str, route: str, tool_result: str) -> str:
         api_key=api_key,
         use_responses_api=True,
     )
+    instructions = system_instructions or tools.get_instructions()
     prompt = (
-        f"{tools.get_instructions()}\n\n"
+        f"{instructions}\n\n"
         f"The router selected the {route} path.\n"
         f"Tool result:\n{tool_result or 'No tool was called.'}\n\n"
         "Answer the customer in plain language. Use only the tool result for store facts. "
@@ -363,15 +410,16 @@ async def compose_answer(query: str, route: str, tool_result: str) -> str:
 
 async def respond_node(state: AgentState) -> dict[str, Any]:
     answer = await compose_answer(
-        query=state["query"],
-        route=state.get("route", "general"),
-        tool_result=state.get("tool_result", ""),
+        query=state.query,
+        route=state.route or "general",
+        tool_result=state.tool_result,
+        system_instructions=state.system_instructions,
     )
     return {"answer": answer}
 
 
 def _route(state: AgentState) -> str:
-    return state.get("route") or "general"
+    return state.route or "general"
 
 
 def build_graph():
@@ -404,10 +452,11 @@ def build_graph():
 graph = build_graph()
 
 
-async def run_agent(query: str) -> dict[str, Any]:
-    result = await graph.ainvoke({"query": query, "trace": []})
+async def run_agent(request: AgentRequest) -> dict[str, Any]:
+    result = await graph.ainvoke(AgentState.model_validate(request.model_dump()))
+    trace = result.get("trace") or []
     return {
         "answer": result.get("answer") or "",
         "route": result.get("route") or "general",
-        "tool_trace": result.get("trace") or [],
+        "tool_trace": trace if request.include_trace else None,
     }

@@ -4,11 +4,14 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app import config
 from app.graph import classify, load_mcp_connection, select_mcp_tool
 from app.main import app
+from app.schemas import SearchProductsArgs, model_tool_output_schema
 from app.tools import search_knowledge_base, search_orders, search_products
 from mcp_server.server import estimate_refund, plan_benefits, shipping_eta
 from scripts.audit_gate import fixable_vulnerabilities
@@ -41,6 +44,8 @@ def test_classify_routes():
     assert classify("What is your return policy?") == "knowledge"
     assert classify("Estimate a refund for 40 delivered 45 days ago") == "mcp"
     assert classify("What does the pro plan include?") == "mcp"
+    assert classify("What are the paid plans?") == "mcp"
+    assert classify("Find me relevant gaming products") == "products"
     assert classify("Hello there") == "general"
 
 
@@ -48,6 +53,22 @@ def test_select_mcp_tool_parses_refund():
     name, arguments = select_mcp_tool("Estimate a refund for 40 delivered 45 days ago")
     assert name == "estimate_refund"
     assert arguments == {"order_total": 40.0, "days_since_delivery": 45}
+
+
+def test_paid_plans_select_both_paid_tiers():
+    name, arguments = select_mcp_tool("What are the paid plans?")
+    assert name == "plan_benefits"
+    assert arguments == {"plan_type": "paid"}
+    result = plan_benefits("paid")
+    tiers = {plan["plan_type"] for plan in result["plans"]}
+    assert tiers == {"pro", "enterprise"}
+    assert plan_benefits("Pro")["price"] == "$29/month"
+    pro_name, pro_arguments = select_mcp_tool("What does the pro plan include?")
+    assert pro_name == "plan_benefits"
+    assert pro_arguments == {"plan_type": "pro"}
+    all_name, all_arguments = select_mcp_tool("What are your pricing plans?")
+    assert all_name == "plan_benefits"
+    assert all_arguments == {"plan_type": "all"}
 
 
 def test_refund_policy_boundaries():
@@ -98,12 +119,36 @@ def test_ask_requires_api_key(monkeypatch):
     assert response.status_code == 400
 
 
+def test_product_tool_schema_comes_from_pydantic():
+    payload = model_tool_output_schema(
+        "search_products",
+        "Search products.",
+        SearchProductsArgs,
+    )
+    assert payload["parameters"]["properties"]["product_category"]["description"].startswith(
+        "Product category"
+    )
+    with pytest.raises(ValidationError):
+        SearchProductsArgs(not_a_field=True)
+
+
+def test_electronics_args_include_mouse_and_keyboard():
+    args = SearchProductsArgs(product_category="Electronics")
+    results = search_products(**args.model_dump())
+    names = {row["product_name"] for row in results}
+    assert {"Wireless Mouse", "Mechanical Keyboard"} <= names
+
+
 def test_ask_order_route_uses_mocked_model(monkeypatch):
-    async def fake_compose(query: str, route: str, tool_result: str) -> str:
+    async def fake_compose(query: str, route: str, tool_result: str, system_instructions=None) -> str:
         return f"{route}:{tool_result}"
+
+    async def fake_fill(schema, state, hint=""):
+        return schema(customer_email="alice@example.com")
 
     monkeypatch.setattr("app.main.config.get_openai_api_key", lambda: "test-key")
     monkeypatch.setattr("app.graph.compose_answer", fake_compose)
+    monkeypatch.setattr("app.graph.fill_tool_args", fake_fill)
     response = client.post("/ask", json={"query": "Where is the order for alice@example.com?"})
     assert response.status_code == 200
     body = response.json()
@@ -112,8 +157,46 @@ def test_ask_order_route_uses_mocked_model(monkeypatch):
     assert "alice@example.com" in body["answer"]
 
 
+def test_ask_gaming_products_uses_structured_category(monkeypatch):
+    async def fake_compose(query: str, route: str, tool_result: str, system_instructions=None) -> str:
+        return tool_result
+
+    async def fake_fill(schema, state, hint=""):
+        assert schema is SearchProductsArgs
+        assert "gaming" in state.query.lower()
+        return SearchProductsArgs(product_category="Electronics")
+
+    monkeypatch.setattr("app.main.config.get_openai_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.graph.compose_answer", fake_compose)
+    monkeypatch.setattr("app.graph.fill_tool_args", fake_fill)
+    response = client.post("/ask", json={"query": "Find me relevant gaming products"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "products"
+    assert "Wireless Mouse" in body["answer"]
+    assert "Mechanical Keyboard" in body["answer"]
+    assert body["tool_trace"][0]["arguments"]["product_category"] == "Electronics"
+    assert body["tool_trace"][0]["arguments"]["product_name_fuzzy"] is None
+
+
+def test_ask_paid_plans_uses_mcp(monkeypatch):
+    async def fake_compose(query: str, route: str, tool_result: str, system_instructions=None) -> str:
+        return tool_result
+
+    monkeypatch.setattr("app.main.config.get_openai_api_key", lambda: "test-key")
+    monkeypatch.setattr("app.graph.compose_answer", fake_compose)
+    response = client.post("/ask", json={"query": "What are the paid plans?"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route"] == "mcp"
+    assert body["tool_trace"][0]["tool_name"] == "plan_benefits"
+    assert body["tool_trace"][0]["arguments"]["plan_type"] == "paid"
+    assert "29" in body["answer"]
+    assert "enterprise" in body["answer"].lower()
+
+
 def test_ask_refund_routes_through_mcp(monkeypatch):
-    async def fake_compose(query: str, route: str, tool_result: str) -> str:
+    async def fake_compose(query: str, route: str, tool_result: str, system_instructions=None) -> str:
         return f"{route}:{tool_result}"
 
     monkeypatch.setattr("app.main.config.get_openai_api_key", lambda: "test-key")

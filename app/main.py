@@ -6,10 +6,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 
 from . import config, tools
 from .graph import run_agent
+from .schemas import AgentRequest, AgentResponse
 
 app = FastAPI(title="LangGraph Support Agent", version="1.0.0")
 app.add_middleware(
@@ -21,16 +21,6 @@ app.add_middleware(
 
 DIST_DIR = config.PROJECT_DIR / "frontend" / "dist"
 OrderStatus = Literal["pending", "shipped", "delivered", "refunded"]
-
-
-class AgentRequest(BaseModel):
-    query: str = Field(..., min_length=1)
-
-
-class AgentResponse(BaseModel):
-    answer: str
-    route: str
-    tool_trace: list[dict[str, Any]] | None = None
 
 
 @app.get("/status")
@@ -49,7 +39,7 @@ async def ask_agent(request: AgentRequest) -> AgentResponse:
             ),
         )
     try:
-        result = await run_agent(request.query)
+        result = await run_agent(request)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

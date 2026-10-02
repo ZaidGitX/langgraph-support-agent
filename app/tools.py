@@ -6,6 +6,7 @@ from threading import Lock
 from typing import Any
 
 from . import config
+from .schemas import SearchKnowledgeBaseArgs, SearchOrdersArgs, SearchProductsArgs
 
 _lock = Lock()
 _conn = sqlite3.connect(":memory:", check_same_thread=False)
@@ -157,6 +158,11 @@ def search_orders(
     order_id: int | None = None,
     order_status: str | None = None,
 ) -> list[dict[str, Any]] | dict[str, str]:
+    args = SearchOrdersArgs(
+        customer_email=customer_email,
+        order_id=order_id,
+        order_status=order_status,
+    )
     query = """
         SELECT
             o.id AS order_id,
@@ -173,17 +179,17 @@ def search_orders(
     """
     params: list[Any] = []
 
-    if customer_email:
+    if args.customer_email:
         query += " AND LOWER(c.email) = LOWER(?)"
-        params.append(customer_email)
+        params.append(args.customer_email)
 
-    if order_id is not None:
+    if args.order_id is not None:
         query += " AND o.id = ?"
-        params.append(order_id)
+        params.append(args.order_id)
 
-    if order_status:
+    if args.order_status:
         query += " AND o.status = ?"
-        params.append(order_status)
+        params.append(args.order_status)
 
     query += " ORDER BY o.created_at DESC"
 
@@ -201,6 +207,11 @@ def search_products(
     product_name_fuzzy: str | None = None,
     in_stock_only: bool = False,
 ) -> list[dict[str, Any]] | dict[str, str]:
+    args = SearchProductsArgs(
+        product_category=product_category,
+        product_name_fuzzy=product_name_fuzzy,
+        in_stock_only=in_stock_only,
+    )
     query = """
         SELECT
             p.id AS product_id,
@@ -213,15 +224,15 @@ def search_products(
     """
     params: list[Any] = []
 
-    if product_category:
+    if args.product_category:
         query += " AND LOWER(p.category) = LOWER(?)"
-        params.append(product_category)
+        params.append(args.product_category)
 
-    if product_name_fuzzy:
+    if args.product_name_fuzzy:
         query += " AND LOWER(p.name) LIKE LOWER(?)"
-        params.append(f"%{product_name_fuzzy}%")
+        params.append(f"%{args.product_name_fuzzy}%")
 
-    if in_stock_only:
+    if args.in_stock_only:
         query += " AND p.in_stock = 1"
 
     query += " ORDER BY p.price ASC"
@@ -235,8 +246,16 @@ def search_products(
     return results
 
 
+def catalog_for_prompt() -> str:
+    rows = search_products()
+    if isinstance(rows, dict):
+        return "No products are loaded."
+    return "; ".join(f"{row['product_name']} ({row['product_category']})" for row in rows)
+
+
 def search_knowledge_base(query: str) -> list[dict[str, Any]] | dict[str, str]:
-    keywords = [word for word in query.lower().split() if word]
+    args = SearchKnowledgeBaseArgs(query=query)
+    keywords = [word for word in args.query.lower().split() if word]
     if not keywords:
         return {"message": "No searchable keywords were provided."}
 
