@@ -40,4 +40,4 @@ def get_openai_api_key() -> str:
 
 def openai_model() -> str:
     load_env_files()
-    return os.getenv("OPENAI_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+    return os.getenv("OPENAI_MODEL", "gpt-6-astra").strip() or "gpt-6-astra"
