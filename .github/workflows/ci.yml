@@ -23,7 +23,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Ruff
-        run: ruff check app mcp_server tests scripts
+        run: ruff check app mcp_server orchestrator tests scripts
 
       - name: Pytest
         run: pytest

@@ -1,0 +1,23 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Write a local release plan
+        run: python -m orchestrator.local_ops release
+
+      - name: Stop before any registry push
+        run: echo "ECR push is deferred. This workflow does not publish an image."

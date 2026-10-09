@@ -38,6 +38,29 @@ def get_openai_api_key() -> str:
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
+def get_typesafe_api_key() -> str:
+    load_env_files()
+    return os.getenv("TYPESAFE_API_KEY", "").strip()
+
+
 def openai_model() -> str:
     load_env_files()
     return os.getenv("OPENAI_MODEL", "gpt-6-astra").strip() or "gpt-6-astra"
+
+
+def astra_model() -> str:
+    """Strongest model this app is configured to call.
+
+    Used by the CI/CD orchestrator for plan synthesis and failure diagnosis.
+    """
+    return openai_model()
+
+
+def jev_model() -> str:
+    """TypeSafe Jev model used by TypeSafeClassifier.
+
+    Override with TYPESAFE_MODEL. The default, jev-latest, is the hosted
+    Jev model at https://api.typesafe.ai. This is not an OpenAI chat model.
+    """
+    load_env_files()
+    return os.getenv("TYPESAFE_MODEL", "jev-latest").strip() or "jev-latest"

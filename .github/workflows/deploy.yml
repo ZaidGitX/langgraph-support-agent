@@ -1,0 +1,43 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Promotion target. Production is not a choice.
+        required: true
+        type: choice
+        default: uat
+        options:
+          - local
+          - dev
+          - staging
+          - uat
+
+permissions:
+  contents: read
+
+jobs:
+  gated-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Refuse production
+        env:
+          TARGET: ${{ inputs.environment }}
+        run: |
+          case "$TARGET" in
+            production|prod)
+              echo "No path past UAT. Refusing $TARGET."
+              exit 2
+              ;;
+          esac
+          python -m orchestrator.local_ops deploy --target "$TARGET"
+
+      - name: Record that AWS was not called
+        run: echo "ECS, EKS, ECR, and S3 were not called. This job writes dist/deploy-plan.json only."

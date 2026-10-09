@@ -1,0 +1,41 @@
+name: DAST
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  http-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Probe the FastAPI surface
+        run: |
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          pid=$!
+          trap 'kill $pid' EXIT
+          ok=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if curl -sf http://127.0.0.1:8000/status -o /tmp/status.json; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          test "$ok" = 1
+          curl -sf http://127.0.0.1:8000/openapi.json -o /dev/null
+          python -c 'import json; assert isinstance(json.load(open("/tmp/status.json")), dict)'

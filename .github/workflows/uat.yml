@@ -1,0 +1,25 @@
+name: UAT
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  uat:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Write the UAT checklist
+        run: python -m orchestrator.local_ops uat --target uat
+
+      - name: Stop at UAT
+        run: |
+          echo "UAT checklist is in dist/uat-checklist.json."
+          echo "A human sign-off is required. This workflow has no production job."

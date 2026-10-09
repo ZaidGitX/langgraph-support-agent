@@ -7,3 +7,5 @@ __pycache__/
 audit.json
 frontend/node_modules/
 frontend/dist/
+dist/
+var/
