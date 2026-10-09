@@ -5,6 +5,52 @@ body {
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 
+.app-nav {
+  display: flex;
+  gap: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px 16px 0;
+}
+
+.app-nav a {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.app-nav a[aria-current="page"] {
+  text-decoration: underline;
+}
+
+main.dashboard {
+  max-width: 1100px;
+}
+
+.dashboard table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.dashboard th,
+.dashboard td {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.file-label input {
+  font: inherit;
+}
+
 main {
   max-width: 720px;
   margin: 40px auto;

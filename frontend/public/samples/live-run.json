@@ -1,0 +1,562 @@
+{
+  "run_id": "8479b362-cf82-43af-8a40-1483f54e326f",
+  "status": "passed",
+  "trace": [
+    "checkout",
+    "discover_ecosystem",
+    "clarify_with_user",
+    "plan_pipeline",
+    "approve_pipeline",
+    "dispatch_stages",
+    "build",
+    "quality_gate",
+    "dispatch_stages",
+    "test",
+    "quality_gate",
+    "dispatch_stages",
+    "uat",
+    "quality_gate",
+    "report"
+  ],
+  "jev_decisions": [
+    {
+      "kind": "clarify",
+      "model": "jev-1.13.0",
+      "client": "langchain_typesafe.TypeSafeClassifier",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "schema": "ClarifyDecision",
+      "primitives": [
+        "Noul",
+        "Choice"
+      ],
+      "noul": {
+        "needs_human": 0.98
+      },
+      "choice": {
+        "action": {
+          "choice": "ask",
+          "confidence": 1.0,
+          "probabilities": {
+            "skip": 0.0,
+            "ask": 1.0
+          }
+        }
+      },
+      "request_id": "req_01a122cd64c477fca80b203183556375",
+      "decision": {
+        "action": "ask",
+        "rationale": "TypeSafe Choice action=ask confidence=1.000; Noul needs_human=0.980; model=jev-1.13.0; request_id=req_01a122cd64c477fca80b203183556375"
+      }
+    },
+    {
+      "kind": "rank",
+      "model": "jev-1.13.0",
+      "client": "langchain_typesafe.TypeSafeClassifier",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "schema": "RankDecision",
+      "primitives": [
+        "Choice"
+      ],
+      "noul": {},
+      "choice": {
+        "pipeline": {
+          "choice": "local-unit-uat",
+          "confidence": 1.0,
+          "probabilities": {
+            "local-unit-uat": 1.0,
+            "local-container-uat": 0.0
+          }
+        }
+      },
+      "request_id": "req_01a122cd9a8f7bef9bc3932c08e105cd",
+      "decision": {
+        "chosen_id": "local-unit-uat",
+        "ordered_ids": [
+          "local-unit-uat",
+          "local-container-uat"
+        ],
+        "drop_stages": [],
+        "rationale": "TypeSafe Choice pipeline=local-unit-uat confidence=1.000; model=jev-1.13.0; request_id=req_01a122cd9a8f7bef9bc3932c08e105cd"
+      }
+    },
+    {
+      "kind": "gate",
+      "model": "jev-1.13.0",
+      "client": "langchain_typesafe.TypeSafeClassifier",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "schema": "GateDecision",
+      "primitives": [
+        "Choice"
+      ],
+      "noul": {},
+      "choice": {
+        "route": {
+          "choice": "pass",
+          "confidence": 0.4,
+          "probabilities": {
+            "pass": 0.55,
+            "skip": 0.44,
+            "remediate": 0.0,
+            "escalate": 0.01
+          }
+        }
+      },
+      "request_id": "req_01a122cdc91d7348a2c7fbcd1f782ab2",
+      "decision": {
+        "route": "pass",
+        "retry": false,
+        "retry_stages": [],
+        "replan": false,
+        "rationale": "TypeSafe Choice route=pass confidence=0.400; model=jev-1.13.0; request_id=req_01a122cdc91d7348a2c7fbcd1f782ab2"
+      },
+      "applied": {
+        "route": "pass",
+        "retry": false,
+        "retry_stages": [],
+        "replan": false,
+        "rationale": "TypeSafe Choice route=pass confidence=0.400; model=jev-1.13.0; request_id=req_01a122cdc91d7348a2c7fbcd1f782ab2"
+      }
+    },
+    {
+      "kind": "gate",
+      "model": "jev-1.13.0",
+      "client": "langchain_typesafe.TypeSafeClassifier",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "schema": "GateDecision",
+      "primitives": [
+        "Choice"
+      ],
+      "noul": {},
+      "choice": {
+        "route": {
+          "choice": "pass",
+          "confidence": 0.56,
+          "probabilities": {
+            "pass": 0.67,
+            "skip": 0.3,
+            "remediate": 0.0,
+            "escalate": 0.03
+          }
+        }
+      },
+      "request_id": "req_01a122cde5ac70c2bbc388467e07d1cb",
+      "decision": {
+        "route": "pass",
+        "retry": false,
+        "retry_stages": [],
+        "replan": false,
+        "rationale": "TypeSafe Choice route=pass confidence=0.560; model=jev-1.13.0; request_id=req_01a122cde5ac70c2bbc388467e07d1cb"
+      },
+      "applied": {
+        "route": "pass",
+        "retry": false,
+        "retry_stages": [],
+        "replan": false,
+        "rationale": "TypeSafe Choice route=pass confidence=0.560; model=jev-1.13.0; request_id=req_01a122cde5ac70c2bbc388467e07d1cb"
+      }
+    },
+    {
+      "kind": "gate",
+      "model": "jev-1.13.0",
+      "client": "langchain_typesafe.TypeSafeClassifier",
+      "endpoint": "https://api.typesafe.ai/v1/systemone",
+      "schema": "GateDecision",
+      "primitives": [
+        "Choice"
+      ],
+      "noul": {},
+      "choice": {
+        "route": {
+          "choice": "pass",
+          "confidence": 0.69,
+          "probabilities": {
+            "pass": 0.77,
+            "skip": 0.1,
+            "remediate": 0.0,
+            "escalate": 0.13
+          }
+        }
+      },
+      "request_id": "req_01a122cde67177c4ac593a15328b043f",
+      "decision": {
+        "route": "pass",
+        "retry": false,
+        "retry_stages": [],
+        "replan": false,
+        "rationale": "TypeSafe Choice route=pass confidence=0.690; model=jev-1.13.0; request_id=req_01a122cde67177c4ac593a15328b043f"
+      },
+      "applied": {
+        "route": "pass",
+        "retry": false,
+        "retry_stages": [],
+        "replan": false,
+        "rationale": "TypeSafe Choice route=pass confidence=0.690; model=jev-1.13.0; request_id=req_01a122cde67177c4ac593a15328b043f"
+      }
+    }
+  ],
+  "candidates": [
+    {
+      "id": "local-unit-uat",
+      "summary": "Minimal local workflow: build, run unit tests, then stop at UAT.",
+      "stages": [
+        {
+          "name": "build",
+          "depends_on": [],
+          "purpose": "Prepare Python dependencies and build frontend assets."
+        },
+        {
+          "name": "test",
+          "depends_on": [
+            "build"
+          ],
+          "purpose": "Validate the build with the repository's unit tests."
+        },
+        {
+          "name": "uat",
+          "depends_on": [
+            "test"
+          ],
+          "purpose": "Perform local user acceptance validation after unit tests pass; stop here."
+        }
+      ]
+    },
+    {
+      "id": "local-container-uat",
+      "summary": "Container-based local workflow: gate container creation on unit tests, then stop at UAT.",
+      "stages": [
+        {
+          "name": "build",
+          "depends_on": [],
+          "purpose": "Prepare Python dependencies and build frontend assets."
+        },
+        {
+          "name": "test",
+          "depends_on": [
+            "build"
+          ],
+          "purpose": "Run unit tests before creating the container artifact."
+        },
+        {
+          "name": "container",
+          "depends_on": [
+            "test"
+          ],
+          "purpose": "Create the Docker artifact for local acceptance validation."
+        },
+        {
+          "name": "uat",
+          "depends_on": [
+            "container"
+          ],
+          "purpose": "Perform local user acceptance validation of the containerized application; stop here without production deployment."
+        }
+      ]
+    }
+  ],
+  "chosen_pipeline": {
+    "id": "local-unit-uat-1",
+    "summary": "Minimal local workflow: build, run unit tests, then stop at UAT.",
+    "stages": [
+      {
+        "name": "build",
+        "depends_on": [],
+        "purpose": "Prepare Python dependencies and build frontend assets.",
+        "tool": "compileall, ruff, pip-audit, secret scan, and CI scanners",
+        "commands": [
+          "compileall",
+          "ruff",
+          "pip-audit",
+          "secrets",
+          "semgrep",
+          "trivy",
+          "gitleaks"
+        ]
+      },
+      {
+        "name": "test",
+        "depends_on": [
+          "build"
+        ],
+        "purpose": "Validate the build with the repository's unit tests.",
+        "tool": "pytest",
+        "commands": [
+          "pytest"
+        ]
+      },
+      {
+        "name": "uat",
+        "depends_on": [
+          "test"
+        ],
+        "purpose": "Perform local user acceptance validation after unit tests pass; stop here.",
+        "tool": "checklist plus human sign-off",
+        "commands": [
+          "uat"
+        ]
+      }
+    ],
+    "uat_restored": false,
+    "router_model": "jev-1.13.0",
+    "router_client": "langchain_typesafe.TypeSafeClassifier",
+    "planner_model": "gpt-6-astra"
+  },
+  "stage_evidence": [
+    {
+      "stage": "build",
+      "status": "pass",
+      "exit_code": 0,
+      "attempt": 1,
+      "blocked": false,
+      "evidence": "[compileall] exit=0\n\n\n[ruff] exit=0\nAll checks passed!\n\n\n[pip-audit] exit=0\nNo fixable vulnerabilities reported.\n\nNo known vulnerabilities found\n\n[secrets] exit=0\n{\n  \"action\": \"secrets\",\n  \"tool\": \"local-redacted-scan\",\n  \"gitleaks\": \"used in CI when this binary is absent\",\n  \"findings\": [],\n  \"count\": 0,\n  \"note\": \"Match text is not printed. .env is not scanned.\"\n}\n\n\n[semgrep] exit=0\n{\n  \"action\": \"skip-tool\",\n  \"tool\": \"semgrep\",\n  \"status\": \"skipped\",\n  \"reason\": \"semgrep is not on PATH in t"
+    },
+    {
+      "stage": "test",
+      "status": "pass",
+      "exit_code": 0,
+      "attempt": 1,
+      "blocked": false,
+      "evidence": "[pytest] exit=0\n.................................                                        [100%]\n=============================== warnings summary ===============================\n../../../../../opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47\n  /opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotat"
+    },
+    {
+      "stage": "uat",
+      "status": "pass",
+      "exit_code": 0,
+      "attempt": 1,
+      "blocked": false,
+      "evidence": "[uat] exit=0\n{\n  \"action\": \"uat\",\n  \"target\": \"local\",\n  \"checklist\": [\n    \"build evidence attached\",\n    \"tests recorded\",\n    \"human sign-off still required in the graph interrupt\",\n    \"no production promotion exists\"\n  ],\n  \"aws_called\": false,\n  \"past_uat\": false\n}\n\n"
+    }
+  ],
+  "stage_results": [
+    {
+      "stage": "build",
+      "status": "pass",
+      "exit_code": 0,
+      "attempt": 1,
+      "plan_id": "local-unit-uat-1",
+      "blocked": false,
+      "evidence": "[compileall] exit=0\n\n\n[ruff] exit=0\nAll checks passed!\n\n\n[pip-audit] exit=0\nNo fixable vulnerabilities reported.\n\nNo known vulnerabilities found\n\n[secrets] exit=0\n{\n  \"action\": \"secrets\",\n  \"tool\": \"local-redacted-scan\",\n  \"gitleaks\": \"used in CI when this binary is absent\",\n  \"findings\": [],\n  \"count\": 0,\n  \"note\": \"Match text is not printed. .env is not scanned.\"\n}\n\n\n[semgrep] exit=0\n{\n  \"action\": \"skip-tool\",\n  \"tool\": \"semgrep\",\n  \"status\": \"skipped\",\n  \"reason\": \"semgrep is not on PATH in this local demo\",\n  \"ci\": \".github/workflows/scanners.yml\",\n  \"past_uat\": false\n}\n\n\n[trivy] exit=0\n{\n  \"action\": \"skip-tool\",\n  \"tool\": \"trivy\",\n  \"status\": \"skipped\",\n  \"reason\": \"trivy is not on PATH in this local demo\",\n  \"ci\": \".github/workflows/scanners.yml\",\n  \"past_uat\": false\n}\n\n\n[gitleaks] exit=0\n{\n  \"action\": \"skip-tool\",\n  \"tool\": \"gitleaks\",\n  \"status\": \"skipped\",\n  \"reason\": \"gitleaks is not on PATH in this local demo\",\n  \"ci\": \".github/workflows/scanners.yml\",\n  \"past_uat\": false\n}\n\n",
+      "commands": [
+        {
+          "label": "compileall",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "compileall",
+            "-q",
+            "app",
+            "mcp_server",
+            "orchestrator"
+          ],
+          "exit_code": 0,
+          "evidence": "\n"
+        },
+        {
+          "label": "ruff",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "ruff",
+            "check",
+            "app",
+            "mcp_server",
+            "orchestrator",
+            "tests",
+            "scripts"
+          ],
+          "exit_code": 0,
+          "evidence": "All checks passed!\n\n"
+        },
+        {
+          "label": "pip-audit",
+          "argv": [
+            "bash",
+            "-c",
+            "set +e; /opt/hostedtoolcache/Python/3.12.15/x64/bin/pip-audit -r requirements.txt --format json -o var/audit.json; set -e; /opt/hostedtoolcache/Python/3.12.15/x64/bin/python scripts/audit_gate.py var/audit.json"
+          ],
+          "exit_code": 0,
+          "evidence": "No fixable vulnerabilities reported.\n\nNo known vulnerabilities found\n"
+        },
+        {
+          "label": "secrets",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "orchestrator.local_ops",
+            "secrets"
+          ],
+          "exit_code": 0,
+          "evidence": "{\n  \"action\": \"secrets\",\n  \"tool\": \"local-redacted-scan\",\n  \"gitleaks\": \"used in CI when this binary is absent\",\n  \"findings\": [],\n  \"count\": 0,\n  \"note\": \"Match text is not printed. .env is not scanned.\"\n}\n\n"
+        },
+        {
+          "label": "semgrep",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "orchestrator.local_ops",
+            "skip-tool",
+            "--tool",
+            "semgrep",
+            "--ci",
+            ".github/workflows/scanners.yml"
+          ],
+          "exit_code": 0,
+          "evidence": "{\n  \"action\": \"skip-tool\",\n  \"tool\": \"semgrep\",\n  \"status\": \"skipped\",\n  \"reason\": \"semgrep is not on PATH in this local demo\",\n  \"ci\": \".github/workflows/scanners.yml\",\n  \"past_uat\": false\n}\n\n"
+        },
+        {
+          "label": "trivy",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "orchestrator.local_ops",
+            "skip-tool",
+            "--tool",
+            "trivy",
+            "--ci",
+            ".github/workflows/scanners.yml"
+          ],
+          "exit_code": 0,
+          "evidence": "{\n  \"action\": \"skip-tool\",\n  \"tool\": \"trivy\",\n  \"status\": \"skipped\",\n  \"reason\": \"trivy is not on PATH in this local demo\",\n  \"ci\": \".github/workflows/scanners.yml\",\n  \"past_uat\": false\n}\n\n"
+        },
+        {
+          "label": "gitleaks",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "orchestrator.local_ops",
+            "skip-tool",
+            "--tool",
+            "gitleaks",
+            "--ci",
+            ".github/workflows/scanners.yml"
+          ],
+          "exit_code": 0,
+          "evidence": "{\n  \"action\": \"skip-tool\",\n  \"tool\": \"gitleaks\",\n  \"status\": \"skipped\",\n  \"reason\": \"gitleaks is not on PATH in this local demo\",\n  \"ci\": \".github/workflows/scanners.yml\",\n  \"past_uat\": false\n}\n\n"
+        }
+      ]
+    },
+    {
+      "stage": "test",
+      "status": "pass",
+      "exit_code": 0,
+      "attempt": 1,
+      "plan_id": "local-unit-uat-1",
+      "blocked": false,
+      "evidence": "[pytest] exit=0\n.................................                                        [100%]\n=============================== warnings summary ===============================\n../../../../../opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47\n  /opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n    warnings.warn(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n33 passed, 1 warning in 4.86s\n\n",
+      "commands": [
+        {
+          "label": "pytest",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "pytest",
+            "-q"
+          ],
+          "exit_code": 0,
+          "evidence": ".................................                                        [100%]\n=============================== warnings summary ===============================\n../../../../../opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47\n  /opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotation contains an unresolved forward reference, so settings sources may fail to correctly resolve its value. Call `model_rebuild()` on the model where the field is defined, once all the referenced types are defined.\n    warnings.warn(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n33 passed, 1 warning in 4.86s\n\n"
+        }
+      ]
+    },
+    {
+      "stage": "uat",
+      "status": "pass",
+      "exit_code": 0,
+      "attempt": 1,
+      "plan_id": "local-unit-uat-1",
+      "blocked": false,
+      "evidence": "[uat] exit=0\n{\n  \"action\": \"uat\",\n  \"target\": \"local\",\n  \"checklist\": [\n    \"build evidence attached\",\n    \"tests recorded\",\n    \"human sign-off still required in the graph interrupt\",\n    \"no production promotion exists\"\n  ],\n  \"aws_called\": false,\n  \"past_uat\": false\n}\n\n",
+      "commands": [
+        {
+          "label": "uat",
+          "argv": [
+            "/opt/hostedtoolcache/Python/3.12.15/x64/bin/python",
+            "-m",
+            "orchestrator.local_ops",
+            "uat",
+            "--target",
+            "local"
+          ],
+          "exit_code": 0,
+          "evidence": "{\n  \"action\": \"uat\",\n  \"target\": \"local\",\n  \"checklist\": [\n    \"build evidence attached\",\n    \"tests recorded\",\n    \"human sign-off still required in the graph interrupt\",\n    \"no production promotion exists\"\n  ],\n  \"aws_called\": false,\n  \"past_uat\": false\n}\n\n"
+        }
+      ],
+      "signoff": {
+        "decision": "approved",
+        "signer": "demo"
+      }
+    }
+  ],
+  "quality_gate": {
+    "route": "pass",
+    "retry": false,
+    "retry_stages": [],
+    "replan": false,
+    "rationale": "TypeSafe Choice route=pass confidence=0.690; model=jev-1.13.0; request_id=req_01a122cde67177c4ac593a15328b043f"
+  },
+  "approvals": {
+    "pipeline": "approved",
+    "deploy": "pending",
+    "uat": "approved"
+  },
+  "past_uat": false,
+  "aws_called": false,
+  "diagnosis": "",
+  "report_markdown": "Agentic CI/CD run 8479b362-cf82-43af-8a40-1483f54e326f\nStatus: passed\nJev (router): clarify via langchain_typesafe.TypeSafeClassifier model=jev-1.13.0 schema=ClarifyDecision primitives=Noul, Choice choice={'action': {'choice': 'ask', 'confidence': 1.0, 'probabilities': {'skip': 0.0, 'ask': 1.0}}} noul={'needs_human': 0.98} | rank via langchain_typesafe.TypeSafeClassifier model=jev-1.13.0 schema=RankDecision primitives=Choice choice={'pipeline': {'choice': 'local-unit-uat', 'confidence': 1.0, 'probabilities': {'local-unit-uat': 1.0, 'local-container-uat': 0.0}}} noul={} | gate via langchain_typesafe.TypeSafeClassifier model=jev-1.13.0 schema=GateDecision primitives=Choice choice={'route': {'choice': 'pass', 'confidence': 0.4, 'probabilities': {'pass': 0.55, 'skip': 0.44, 'remediate': 0.0, 'escalate': 0.01}}} noul={} | gate via langchain_typesafe.TypeSafeClassifier model=jev-1.13.0 schema=GateDecision primitives=Choice choice={'route': {'choice': 'pass', 'confidence': 0.56, 'probabilities': {'pass': 0.67, 'skip': 0.3, 'remediate': 0.0, 'escalate': 0.03}}} noul={} | gate via langchain_typesafe.TypeSafeClassifier model=jev-1.13.0 schema=GateDecision primitives=Choice choice={'route': {'choice': 'pass', 'confidence': 0.69, 'probabilities': {'pass': 0.77, 'skip': 0.1, 'remediate': 0.0, 'escalate': 0.13}}} noul={}\nAstra (planner): gpt-6-astra\nCheckpointer: sqlite. Aurora PostgreSQL is the deferred production binding.\nAgentCore, OpenSearch, ECR, ECS, and S3 were not called.\nPast UAT: false. This graph has no production edge.\n\nRepo\n  root: /home/runner/work/langgraph-support-agent/langgraph-support-agent\n  languages: Python, JavaScript\n  build tools: pip, pytest, npm, docker, github-actions\n  dependency signals: Dockerfile, docker-compose.yml, frontend/package.json, requirements-dev.txt, requirements.txt\n\nEcosystem\n  retrieval: Local filesystem scan of this checkout. graphify and OpenSearch are deferred and were not queried.\n  entry points: app/main.py, tests/test_app.py, mcp_server/server.py, Dockerfile, frontend/package.json, frontend scripts: build, dev\n  dast: FastAPI exposes /status, so .github/workflows/dast.yml runs an HTTP smoke. ZAP is omitted: it is not installed and this sprint does not run an active scanner.\n\nQuestions\n  env_target: Which environment should this run target: local, dev, staging, or uat?\n  test_depth: What test depth should this run use: unit, or unit plus the HTTP smoke?\n  release_policy: Confirm the release policy. This system stops at UAT and has no production edge.\nAnswers\n  env_target: local\n  test_depth: unit\n  release_policy: Stop at UAT. Do not deploy to production.\n\nCandidates\n  - local-unit-uat: build, test, uat\n  - local-container-uat: build, test, container, uat\n\nChosen pipeline\n  id: local-unit-uat-1\n  summary: Minimal local workflow: build, run unit tests, then stop at UAT.\n  - build after [none] via compileall, ruff, pip-audit, secret scan, and CI scanners (compileall, ruff, pip-audit, secrets, semgrep, trivy, gitleaks)\n  - test after [build] via pytest (pytest)\n  - uat after [test] via checklist plus human sign-off (uat)\n\nStage evidence\n  - build attempt 1 pass exit 0\n    compileall exit=0\n    ruff exit=0\n    pip-audit exit=0\n    secrets exit=0\n    semgrep skipped (binary not on PATH; CI workflow runs it)\n    trivy skipped (binary not on PATH; CI workflow runs it)\n    gitleaks skipped (binary not on PATH; CI workflow runs it)\n  - test attempt 1 pass exit 0\n    pytest exit=0\n  - uat attempt 1 pass exit 0\n    uat exit=0\n\nQuality gate\n  route: pass\n  retry: False\n  rationale: TypeSafe Choice route=pass confidence=0.690; model=jev-1.13.0; request_id=req_01a122cde67177c4ac593a15328b043f\n\nApprovals\n  pipeline: approved\n  deploy: pending\n  uat: approved\n\nTrace\n  checkout \u2192 discover_ecosystem \u2192 clarify_with_user \u2192 plan_pipeline \u2192 approve_pipeline \u2192 dispatch_stages \u2192 build \u2192 quality_gate \u2192 dispatch_stages \u2192 test \u2192 quality_gate \u2192 dispatch_stages \u2192 uat \u2192 quality_gate \u2192 report\n",
+  "langsmith": {
+    "tracing_configured": false,
+    "note": "TypeSafe classifications are LangSmith-traced when a LangSmith key is configured. This panel shows the graph trace and the TypeSafe request ids this run actually produced.",
+    "trace": [
+      "checkout",
+      "discover_ecosystem",
+      "clarify_with_user",
+      "plan_pipeline",
+      "approve_pipeline",
+      "dispatch_stages",
+      "build",
+      "quality_gate",
+      "dispatch_stages",
+      "test",
+      "quality_gate",
+      "dispatch_stages",
+      "uat",
+      "quality_gate",
+      "report"
+    ],
+    "request_ids": [
+      "req_01a122cd64c477fca80b203183556375",
+      "req_01a122cd9a8f7bef9bc3932c08e105cd",
+      "req_01a122cdc91d7348a2c7fbcd1f782ab2",
+      "req_01a122cde5ac70c2bbc388467e07d1cb",
+      "req_01a122cde67177c4ac593a15328b043f"
+    ]
+  },
+  "cloudwatch": {
+    "called": false,
+    "note": "AWS CloudWatch was not called. The signals below are the stage evidence this run produced.",
+    "stage_evidence": [
+      {
+        "stage": "build",
+        "status": "pass",
+        "exit_code": 0,
+        "attempt": 1,
+        "blocked": false,
+        "evidence": "[compileall] exit=0\n\n\n[ruff] exit=0\nAll checks passed!\n\n\n[pip-audit] exit=0\nNo fixable vulnerabilities reported.\n\nNo known vulnerabilities found\n\n[secrets] exit=0\n{\n  \"action\": \"secrets\",\n  \"tool\": \"local-redacted-scan\",\n  \"gitleaks\": \"used in CI when this binary is absent\",\n  \"findings\": [],\n  \"count\": 0,\n  \"note\": \"Match text is not printed. .env is not scanned.\"\n}\n\n\n[semgrep] exit=0\n{\n  \"action\": \"skip-tool\",\n  \"tool\": \"semgrep\",\n  \"status\": \"skipped\",\n  \"reason\": \"semgrep is not on PATH in t"
+      },
+      {
+        "stage": "test",
+        "status": "pass",
+        "exit_code": 0,
+        "attempt": 1,
+        "blocked": false,
+        "evidence": "[pytest] exit=0\n.................................                                        [100%]\n=============================== warnings summary ===============================\n../../../../../opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47\n  /opt/hostedtoolcache/Python/3.12.15/x64/lib/python3.12/site-packages/pydantic_settings/sources/utils.py:47: IncompleteFieldDefinitionWarning: Field 'lifespan' has an incomplete definition: its annotat"
+      },
+      {
+        "stage": "uat",
+        "status": "pass",
+        "exit_code": 0,
+        "attempt": 1,
+        "blocked": false,
+        "evidence": "[uat] exit=0\n{\n  \"action\": \"uat\",\n  \"target\": \"local\",\n  \"checklist\": [\n    \"build evidence attached\",\n    \"tests recorded\",\n    \"human sign-off still required in the graph interrupt\",\n    \"no production promotion exists\"\n  ],\n  \"aws_called\": false,\n  \"past_uat\": false\n}\n\n"
+      }
+    ]
+  }
+}

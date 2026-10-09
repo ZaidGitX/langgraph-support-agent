@@ -76,6 +76,18 @@ Astra (`gpt-6-astra`, whatever `OPENAI_MODEL` is) only proposes candidate stage 
 
 `.github/workflows/orchestrator.yml` runs on `push` and `pull_request`. It installs `requirements-dev.txt` and runs `python -m orchestrator.demo` with `TYPESAFE_API_KEY` and `OPENAI_API_KEY` from repository secrets. The job uploads `var/report.md` and `var/report.json`. It does not call AWS or Bedrock AgentCore. The stage commands stay the ones in the other workflow files.
 
+## Dashboard
+
+The support UI stays on `#/support`. The orchestrator dashboard is `#/orchestrator`.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173/#/orchestrator`. It loads `frontend/public/samples/live-run.json`, the report from the push-triggered Actions run. **Load var/report.json** reads a local demo report while `npm run dev` is running. A file picker loads any other `report.json`. The LangSmith panel shows this run's graph trace and TypeSafe request ids. The CloudWatch panel states that AWS was not called and lists the stage evidence instead.
+
 ## Tests
 
 ```bash
