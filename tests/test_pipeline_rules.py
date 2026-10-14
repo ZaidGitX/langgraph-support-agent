@@ -45,8 +45,11 @@ def test_scanners_workflow_runs_trivy_and_snyk():
     assert "aquasecurity/trivy-action@v0.36.0" in scanners
     assert "scan-type: fs" in scanners
     assert "snyk/actions/setup@v1.0.0" in scanners
-    assert "snyk test --file=requirements.txt --command=python3" in scanners
-    assert "snyk test --file=frontend/package.json" in scanners
+    assert "snyk test --file=requirements.txt --command=python3 --fail-on=upgradable" in scanners
+    assert "snyk test --file=frontend/package.json --fail-on=upgradable" in scanners
+    assert 'python -m venv "$RUNNER_TEMP/semgrep-venv"' in scanners
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    assert "mcp==1.30.0" in requirements
     assert "secrets.SNYK_TOKEN" in scanners
     assert "snyk_uat" not in scanners
     dependabot = (root / ".github" / "dependabot.yml").read_text(encoding="utf-8")

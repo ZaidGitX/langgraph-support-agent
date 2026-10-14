@@ -25,10 +25,14 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-          pip install semgrep
 
+      # Semgrep pins mcp==1.29.0. Keep it out of the app environment so
+      # Snyk inspects the mcp pin in requirements.txt.
       - name: SAST (Semgrep)
-        run: semgrep scan --config p/python --metrics=off app mcp_server orchestrator
+        run: |
+          python -m venv "$RUNNER_TEMP/semgrep-venv"
+          "$RUNNER_TEMP/semgrep-venv/bin/python" -m pip install semgrep
+          "$RUNNER_TEMP/semgrep-venv/bin/semgrep" scan --config p/python --metrics=off app mcp_server orchestrator
 
       - name: SCA (pip-audit)
         run: |
@@ -40,15 +44,16 @@ jobs:
       - name: Install Snyk CLI
         uses: snyk/actions/setup@v1.0.0
 
+      # Fail only when Snyk has an upgrade, matching scripts/audit_gate.py.
       - name: Snyk Open Source (Python requirements)
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk test --file=requirements.txt --command=python3
+        run: snyk test --file=requirements.txt --command=python3 --fail-on=upgradable
 
       - name: Snyk Open Source (frontend npm)
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk test --file=frontend/package.json
+        run: snyk test --file=frontend/package.json --fail-on=upgradable
 
       - name: Vulnerabilities (Trivy filesystem)
         uses: aquasecurity/trivy-action@v0.36.0
