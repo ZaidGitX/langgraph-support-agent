@@ -30,7 +30,7 @@ This repo is two products in one process: a customer-support agent and an agenti
 | `.github/workflows/orchestrator.yml` | Yes | Every push. Builds Compose, opens the tunnel, waits for the UI. |
 | `.github/workflows/build.yml` | No | `workflow_dispatch`, and only if Jev's approved DAG includes `build`. |
 | `.github/workflows/test.yml` | No | Same, for `test`. |
-| `.github/workflows/scanners.yml` | No | Same, for `scanners`. CodeQL, SonarQube Cloud, Semgrep, pip-audit, Trivy, Gitleaks. |
+| `.github/workflows/scanners.yml` | No | Same, for `scanners`. CodeQL, SonarQube Cloud, Semgrep, pip-audit, Trivy, Snyk Open Source, Gitleaks. |
 | `.github/workflows/dast.yml` | No | Same, for `dast`. Smokes the Compose URL, then OWASP ZAP and StackHawk. |
 | `.github/workflows/package.yml` | No | Same, for `package`. |
 | `.github/workflows/release.yml` | No | Same, for `release`. |

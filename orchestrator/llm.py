@@ -82,6 +82,7 @@ _SECRET_ENVS = (
     "HAWK_APP_ID",
     "GITHUB_TOKEN",
     "GH_TOKEN",
+    "SNYK_TOKEN",
 )
 
 _SECRET_MARK = "api" + "key_"
@@ -97,6 +98,7 @@ def scrub(text: str) -> str:
     cleaned = re.sub(_SECRET_MARK + r"[A-Za-z0-9_]+", "[redacted]", cleaned)
     cleaned = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
     cleaned = re.sub(r"hawk\.[A-Za-z0-9]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
+    cleaned = re.sub(r"snyk_uat\.[A-Za-z0-9._\-]+", "[redacted]", cleaned)
     cleaned = re.sub(r"(?i)(api[_-]?key\s*[=:]\s*)\S+", r"\1[redacted]", cleaned)
     return cleaned
 

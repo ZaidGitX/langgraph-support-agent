@@ -123,7 +123,7 @@ def discover(root: str) -> dict:
         "dast": dast_note,
         "scanners": {
             "sast": "CodeQL, SonarQube Cloud, and Semgrep in scanners.yml when that stage is designated.",
-            "sca": "pip-audit via scripts/audit_gate.py, plus Trivy in scanners.yml.",
+            "sca": "pip-audit via scripts/audit_gate.py, Trivy, and Snyk Open Source in scanners.yml.",
             "secrets": "Gitleaks in scanners.yml. The local scan redacts matches and skips .env.",
             "dast": dast_note,
         },

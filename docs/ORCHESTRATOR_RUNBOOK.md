@@ -54,7 +54,7 @@ Astra (`gpt-6-astra`, whatever `OPENAI_MODEL` is) writes the ecosystem questions
 | Checkpointer | Sqlite (`langgraph-checkpoint-sqlite`) | Aurora PostgreSQL |
 | Jev | `TypeSafeClassifier` calling `jev-latest` at `https://api.typesafe.ai` | same binding |
 | Astra | `gpt-6-astra` | same binding, via `OPENAI_MODEL` |
-| Scanners | ruff, pip-audit, local secret scan; Semgrep/Trivy/Gitleaks when installed | the workflows under `.github/workflows/` |
+| Scanners | ruff, pip-audit, local secret scan; Semgrep, Trivy, Snyk Open Source, and Gitleaks in scanners.yml | the workflows under `.github/workflows/` |
 | DAST | `.github/workflows/dast.yml` smokes the Compose URL, then runs OWASP ZAP and StackHawk. It runs only when `dast` is in the approved DAG. | — |
 | Package / image / release / deploy | plans and a local tarball in `dist/` | S3, ECR, ECS |
 | Tool bus | subprocess | AgentCore Gateway MCP |

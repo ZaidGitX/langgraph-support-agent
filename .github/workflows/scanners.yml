@@ -37,6 +37,19 @@ jobs:
           set -e
           python scripts/audit_gate.py audit.json
 
+      - name: Install Snyk CLI
+        uses: snyk/actions/setup@v1.0.0
+
+      - name: Snyk Open Source (Python requirements)
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: snyk test --file=requirements.txt --command=python3
+
+      - name: Snyk Open Source (frontend npm)
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: snyk test --file=frontend/package.json
+
       - name: Vulnerabilities (Trivy filesystem)
         uses: aquasecurity/trivy-action@v0.36.0
         with:

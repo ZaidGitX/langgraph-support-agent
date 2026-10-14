@@ -41,7 +41,7 @@ from .state import (
 TOOL_BINDINGS = {
     "build": "compileall, ruff, pip-audit, and a redacted secret scan",
     "test": "pytest",
-    "scanners": "CodeQL, SonarQube Cloud, Semgrep, Trivy, and Gitleaks",
+    "scanners": "CodeQL, SonarQube Cloud, Semgrep, Trivy, Snyk Open Source, and Gitleaks",
     "dast": "smoke, then OWASP ZAP and StackHawk against the Compose app",
     "package": "tar artifact (S3 not called)",
     "container": "Dockerfile check (image push not called)",

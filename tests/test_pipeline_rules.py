@@ -25,6 +25,35 @@ FORBIDDEN_WORKFLOWS = (
 )
 
 
+def test_scan_stage_dispatches_scanners_only_when_designated():
+    designated = commands_for_stages(["build", "scanners"], {"env_target": "local"}, "")
+    blob = " ".join(" ".join(command) for command in designated)
+    assert "scanners.yml" in blob
+    assert "build.yml" in blob
+    assert workflows_for(["build", "scanners"]) == ["build.yml", "scanners.yml"]
+    absent = commands_for_stages(["build", "test"], {}, "")
+    absent_blob = " ".join(" ".join(command) for command in absent)
+    assert "scanners.yml" not in absent_blob
+    assert workflows_for(["build", "test"]) == ["build.yml", "test.yml"]
+
+
+def test_scanners_workflow_runs_trivy_and_snyk():
+    root = Path(__file__).resolve().parents[1]
+    scanners = (root / ".github" / "workflows" / "scanners.yml").read_text(encoding="utf-8")
+    assert "workflow_dispatch" in scanners
+    assert "\n  push:" not in scanners
+    assert "aquasecurity/trivy-action@v0.36.0" in scanners
+    assert "scan-type: fs" in scanners
+    assert "snyk/actions/setup@v1.0.0" in scanners
+    assert "snyk test --file=requirements.txt --command=python3" in scanners
+    assert "snyk test --file=frontend/package.json" in scanners
+    assert "secrets.SNYK_TOKEN" in scanners
+    assert "snyk_uat" not in scanners
+    dependabot = (root / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    for ecosystem in ("pip", "npm", "github-actions"):
+        assert f"package-ecosystem: {ecosystem}" in dependabot
+
+
 def test_build_and_test_do_not_dispatch_later_workflows():
     commands = commands_for_stages(["build", "test"], {"env_target": "local"}, "https://example.test")
     blob = " ".join(" ".join(command) for command in commands)
@@ -130,6 +159,13 @@ def test_redact_hawk_shaped_token():
     sample = "hawk." + ("a" * 8) + "." + ("b" * 8)
     cleaned = redact_secrets(f"token {sample} end")
     assert "a" * 8 not in cleaned
+    assert "[redacted]" in cleaned
+
+
+def test_redact_snyk_shaped_token():
+    sample = "snyk_uat." + ("a" * 8) + ".bbb.ccc"
+    cleaned = redact_secrets(f"token {sample} end")
+    assert "snyk_uat." not in cleaned
     assert "[redacted]" in cleaned
 
 
