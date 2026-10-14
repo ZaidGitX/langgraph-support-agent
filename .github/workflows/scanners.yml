@@ -50,6 +50,16 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: snyk test --file=requirements.txt --command=python3 --fail-on=upgradable
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Snyk Open Source (frontend npm)
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}

@@ -47,6 +47,9 @@ def test_scanners_workflow_runs_trivy_and_snyk():
     assert "snyk/actions/setup@v1.0.0" in scanners
     assert "snyk test --file=requirements.txt --command=python3 --fail-on=upgradable" in scanners
     assert "snyk test --file=frontend/package.json --fail-on=upgradable" in scanners
+    assert "actions/setup-node@v4" in scanners
+    assert "working-directory: frontend" in scanners
+    assert "npm ci" in scanners
     assert 'python -m venv "$RUNNER_TEMP/semgrep-venv"' in scanners
     requirements = (root / "requirements.txt").read_text(encoding="utf-8")
     assert "mcp==1.30.0" in requirements
