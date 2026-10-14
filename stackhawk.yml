@@ -1,0 +1,6 @@
+app:
+  applicationId: ${HAWK_APP_ID}
+  env: Development
+  host: ${APP_URL}
+hawk:
+  startupTimeoutMinutes: 2

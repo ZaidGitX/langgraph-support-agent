@@ -8,8 +8,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .state import Question
-
 SKIP_DIRS = {
     ".git",
     ".venv",
@@ -22,25 +20,6 @@ SKIP_DIRS = {
     ".ruff_cache",
     ".mypy_cache",
 }
-
-POLICY_QUESTIONS: tuple[Question, ...] = (
-    {
-        "id": "env_target",
-        "prompt": "Which environment should this run target: local, dev, staging, or uat?",
-        "reason": "The repo has no deployment-target document. Production is not a target.",
-    },
-    {
-        "id": "test_depth",
-        "prompt": "What test depth should this run use: unit, or unit plus the HTTP smoke?",
-        "reason": "pytest is present, but the release bar is not written down.",
-    },
-    {
-        "id": "release_policy",
-        "prompt": "Confirm the release policy. This system stops at UAT and has no production edge.",
-        "reason": "No release-policy file is in the checkout.",
-    },
-)
-
 
 def _walk(root: Path):
     for path in root.rglob("*"):
@@ -118,31 +97,34 @@ def _entry_points(root: Path) -> list[str]:
     return found
 
 
-def discover(root: str, answers: dict | None) -> tuple[dict, list[Question]]:
+def discover(root: str) -> dict:
+    """Facts from the checkout. Astra writes the questions; this function does not."""
     base = Path(root)
     profile = scan_checkout(root)
-    given = answers or {}
-    questions = [question for question in POLICY_QUESTIONS if not str(given.get(question["id"], "")).strip()]
     dast_note = (
-        "FastAPI exposes /status, so .github/workflows/dast.yml runs an HTTP smoke. "
-        "ZAP is omitted: it is not installed and this sprint does not run an active scanner."
+        "DAST runs only when that stage is in the approved pipeline. "
+        ".github/workflows/dast.yml smokes the Compose app URL, then runs "
+        "OWASP ZAP and StackHawk. A push does not start that workflow."
     )
-    ecosystem = {
+    return {
         "languages": profile["languages"],
         "manifests": profile["dependency_signals"],
         "entry_points": _entry_points(base),
         "build_tools": profile["build_tools"],
-        "gaps": [question["reason"] for question in questions],
+        "gaps": [
+            "No deployment-target document. Production is not a target.",
+            "pytest is present, but the release bar is not written down.",
+            "No release-policy file is in the checkout.",
+        ],
         "retrieval": (
             "Local filesystem scan of this checkout. "
             "graphify and OpenSearch are deferred and were not queried."
         ),
         "dast": dast_note,
         "scanners": {
-            "sast": "Semgrep in scanners.yml; ruff runs locally and in build.yml.",
-            "sca": "pip-audit via scripts/audit_gate.py, plus Trivy filesystem scan in CI.",
-            "secrets": "Gitleaks in CI. Local scan redacts matches and skips .env.",
+            "sast": "CodeQL, SonarQube Cloud, and Semgrep in scanners.yml when that stage is designated.",
+            "sca": "pip-audit via scripts/audit_gate.py, plus Trivy in scanners.yml.",
+            "secrets": "Gitleaks in scanners.yml. The local scan redacts matches and skips .env.",
             "dast": dast_note,
         },
     }
-    return ecosystem, questions

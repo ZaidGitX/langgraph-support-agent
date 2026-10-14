@@ -3,7 +3,7 @@ import Dashboard from "./Dashboard.jsx"
 import SupportApp from "./SupportApp.jsx"
 
 function routeFromHash() {
-  return window.location.hash.startsWith("#/orchestrator") ? "orchestrator" : "support"
+  return window.location.hash.startsWith("#/support") ? "support" : "orchestrator"
 }
 
 export default function App() {
@@ -15,20 +15,19 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHash)
   }, [])
 
+  const orchestrator = route === "orchestrator"
+
   return (
-    <>
+    <div className={orchestrator ? "app-shell app-shell--orchestrator" : "app-shell"}>
       <nav className="app-nav">
         <a href="#/support" aria-current={route === "support" ? "page" : undefined}>
           Support
         </a>
-        <a
-          href="#/orchestrator"
-          aria-current={route === "orchestrator" ? "page" : undefined}
-        >
+        <a href="#/orchestrator" aria-current={orchestrator ? "page" : undefined}>
           Orchestrator
         </a>
       </nav>
-      {route === "orchestrator" ? <Dashboard /> : <SupportApp />}
-    </>
+      {orchestrator ? <Dashboard /> : <SupportApp />}
+    </div>
   )
 }

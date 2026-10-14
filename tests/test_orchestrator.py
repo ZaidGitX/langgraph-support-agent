@@ -14,7 +14,7 @@ from langgraph.types import Command, Send
 
 from app import config
 from orchestrator.checkpoints import open_checkpointer
-from orchestrator.demo import demo_resume, drive
+from orchestrator.demo import drive
 from orchestrator.graph import (
     build_graph,
     interrupt_payload,
@@ -26,9 +26,12 @@ from orchestrator.local_ops import deploy
 from orchestrator.schemas import (
     CandidatePipeline,
     ClarifyDecision,
+    EcosystemQuestion,
     GateDecision,
     PlanProposal,
+    QuestionSet,
     RankDecision,
+    StageBrief,
     StageSpec,
 )
 from orchestrator.state import STAGE_NAMES, initial_state
@@ -52,6 +55,33 @@ class FakeAstra:
             StageSpec(name="package", depends_on=["build"], purpose="artifact"),
             StageSpec(name="uat", depends_on=["test", "package"], purpose="sign-off"),
         ]
+
+    def write_questions(self, payload: dict) -> QuestionSet:
+        return QuestionSet(
+            questions=[
+                EcosystemQuestion(
+                    id="env_target",
+                    prompt="Which environment should this run target?",
+                    reason="No deployment-target document is in the checkout.",
+                ),
+                EcosystemQuestion(
+                    id="test_depth",
+                    prompt="What test depth should this run use?",
+                    reason="The release bar is not written down.",
+                ),
+                EcosystemQuestion(
+                    id="release_policy",
+                    prompt="What release policy should this run follow?",
+                    reason="No release-policy file is in the checkout.",
+                ),
+            ]
+        )
+
+    def brief(self, payload: dict) -> StageBrief:
+        return StageBrief(
+            summary=f"Brief for {payload.get('stage')}.",
+            watch_for="A non-zero exit needs a bounded retry.",
+        )
 
     def propose(self, payload: dict) -> PlanProposal:
         primary = CandidatePipeline(id="primary", summary="primary", stages=self.stages)
@@ -95,6 +125,19 @@ class FakeJev:
             replan=False,
             rationale="evidence passed",
         )
+
+
+def _resume_for_test(payload: dict) -> dict:
+    """Test-only answers. The CI workflow does not call this."""
+    gate = payload.get("gate")
+    if gate == "ecosystem_qa":
+        return {
+            question["id"]: f"test-answer-{question['id']}"
+            for question in payload.get("questions") or []
+        }
+    if gate in {"pipeline_approval", "uat_signoff"}:
+        return {"decision": "approved"}
+    raise AssertionError(f"unexpected gate {gate}")
 
 
 def _thread(run_id: str) -> dict:
@@ -162,9 +205,10 @@ def test_interrupt_resumes_from_sqlite(tmp_path):
         assert payload["gate"] == "ecosystem_qa"
     with open_checkpointer(db_path) as saver:
         graph = build_graph(saver, jev=FakeJev(), astra=FakeAstra(), commands=_echo())
-        graph.invoke(Command(resume=demo_resume(payload)), thread)
+        graph.invoke(Command(resume=_resume_for_test(payload)), thread)
         resumed = graph.get_state(thread)
-        assert resumed.values["answers"]["env_target"] == "local"
+        assert resumed.values["answers"]["env_target"] == "test-answer-env_target"
+        assert resumed.config["configurable"]["thread_id"] == state["run_id"]
         assert interrupt_payload(graph, thread)["gate"] == "pipeline_approval"
 
 
@@ -178,7 +222,7 @@ def test_bounded_retry_stops(tmp_path):
         commands=_fail(),
     )
     state = initial_state(str(tmp_path))
-    values = drive(graph, state, demo_resume, echo=False)
+    values = drive(graph, state, _resume_for_test, echo=False)
     build_rows = [row for row in values["stage_results"] if row["stage"] == "build"]
     assert len(build_rows) == 2
     assert values["attempt"]["build"] == 2
@@ -241,7 +285,7 @@ def test_deploy_refuses_production(tmp_path):
 
 def test_scripted_fake_run_stops_at_uat(tmp_path):
     graph = build_graph(MemorySaver(), jev=FakeJev(), astra=FakeAstra(), commands=_echo())
-    values = drive(graph, initial_state(str(tmp_path)), demo_resume, echo=False)
+    values = drive(graph, initial_state(str(tmp_path)), _resume_for_test, echo=False)
     assert values["status"] == "passed"
     assert values["env_state"]["past_uat"] is False
     assert values["approvals"]["uat"] == "approved"

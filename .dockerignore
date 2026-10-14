@@ -4,7 +4,8 @@
 .git
 .env
 frontend/node_modules/
-tests/
+var/
+*.sqlite
 .pytest_cache/
 .ruff_cache/
 audit.json

@@ -1,41 +1,66 @@
 name: DAST
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
+    inputs:
+      app_url:
+        description: Public URL of the already-running Compose app
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  http-smoke:
+  scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Smoke the running app
+        env:
+          APP_URL: ${{ inputs.app_url }}
+        run: |
+          base="${APP_URL%/}"
+          case "$base" in
+            https://*|http://*) ;;
+            *)
+              echo "app_url must be an http or https URL of the Compose app."
+              exit 1
+              ;;
+          esac
+          curl -sf "$base/status" -o /tmp/status.json
+          python3 -c 'import json; assert isinstance(json.load(open("/tmp/status.json")), dict)'
+          echo "APP_BASE=$base" >> "$GITHUB_ENV"
+
+      - name: OWASP ZAP baseline
+        uses: zaproxy/action-baseline@v0.15.0
         with:
-          python-version: "3.12"
+          target: ${{ env.APP_BASE }}
+          allow_issue_writing: false
+          fail_action: false
+          artifact_name: zap-baseline
 
-      - name: Install
+      - name: Require StackHawk application id
+        env:
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+          HAWK_APP_ID: ${{ secrets.HAWK_APP_ID }}
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -z "$HAWK_API_KEY" ]; then
+            echo "StackHawk needs GitHub secret HAWK_API_KEY."
+            exit 1
+          fi
+          if [ -z "$HAWK_APP_ID" ]; then
+            echo "StackHawk needs the application UUID from app.stackhawk.com."
+            echo "Set GitHub secret HAWK_APP_ID to that id. Do not invent one."
+            exit 1
+          fi
 
-      - name: Probe the FastAPI surface
-        run: |
-          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
-          pid=$!
-          trap 'kill $pid' EXIT
-          ok=0
-          for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-            if curl -sf http://127.0.0.1:8000/status -o /tmp/status.json; then
-              ok=1
-              break
-            fi
-            sleep 1
-          done
-          test "$ok" = 1
-          curl -sf http://127.0.0.1:8000/openapi.json -o /dev/null
-          python -c 'import json; assert isinstance(json.load(open("/tmp/status.json")), dict)'
+      - name: StackHawk
+        uses: stackhawk/hawkscan-action@v3.1.1
+        env:
+          HAWK_APP_ID: ${{ secrets.HAWK_APP_ID }}
+          APP_URL: ${{ env.APP_BASE }}
+        with:
+          apiKey: ${{ secrets.HAWK_API_KEY }}

@@ -1,13 +1,18 @@
 """LangGraph supervisor for one local CI/CD run.
 
 Jev (`langchain_typesafe.TypeSafeClassifier`) chooses the clarify edge,
-ranks one pipeline, and routes the quality gate. Astra proposes the
-candidate DAGs and diagnoses failures. Stage nodes run shell commands.
+ranks one pipeline, and routes the quality gate. Astra writes the
+ecosystem questions, proposes the candidate DAGs, briefs each designated
+stage, and diagnoses failures. Astra does not invent shell commands.
+Designated stages run their GitHub Actions workflow, or the same fixed
+commands locally.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import time
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
@@ -16,9 +21,9 @@ from app import config
 
 from . import scan
 from .catalog import commands_for
+from .dispatch import execute_stage
 from .guardrails import apply_guardrails
-from .llm import OpenAIAstra, TypeSafeJev
-from .runner import run_commands
+from .llm import OpenAIAstra, TypeSafeJev, scrub
 from .schemas import GateDecision
 from .state import (
     MAX_ATTEMPTS,
@@ -34,8 +39,10 @@ from .state import (
 )
 
 TOOL_BINDINGS = {
-    "build": "compileall, ruff, pip-audit, secret scan, and CI scanners",
+    "build": "compileall, ruff, pip-audit, and a redacted secret scan",
     "test": "pytest",
+    "scanners": "CodeQL, SonarQube Cloud, Semgrep, Trivy, and Gitleaks",
+    "dast": "smoke, then OWASP ZAP and StackHawk against the Compose app",
     "package": "tar artifact (S3 not called)",
     "container": "Dockerfile check (image push not called)",
     "release": "release plan (ECR not called)",
@@ -121,6 +128,8 @@ def route_dispatch(state: dict):
     by_name = {stage["name"]: stage for stage in state["pipeline"]["stages"]}
     sends = []
     for name in state["ready_stages"]:
+        if name not in by_name:
+            continue
         stage = by_name[name]
         sends.append(
             Send(
@@ -139,40 +148,104 @@ def route_dispatch(state: dict):
     return sends
 
 
-def normalize_stages(stages: list[dict]) -> tuple[list[dict], bool]:
+def _question_id(raw: str, used: set[str]) -> str:
+    slug = re.sub(r"[^a-z0-9_]+", "_", (raw or "").strip().lower()).strip("_")
+    if not slug or not slug[0].isalpha():
+        slug = f"q_{slug}" if slug else "question"
+    base = slug[:40]
+    ident = base
+    number = 2
+    while ident in used:
+        ident = f"{base[:36]}_{number}"
+        number += 1
+    used.add(ident)
+    return ident
+
+
+def questions_from_astra(planner, ecosystem: dict, answers: dict | None) -> list[dict]:
+    """Astra writes the prompts. Already-answered ids are not asked again."""
+    proposed = planner.write_questions(
+        {
+            "ecosystem": {
+                "languages": ecosystem.get("languages"),
+                "entry_points": ecosystem.get("entry_points"),
+                "gaps": ecosystem.get("gaps"),
+                "build_tools": ecosystem.get("build_tools"),
+            },
+            "already_answered": sorted((answers or {}).keys()),
+        }
+    )
+    used: set[str] = set()
+    questions: list[dict] = []
+    for item in proposed.questions:
+        ident = _question_id(item.id, used)
+        if str((answers or {}).get(ident, "")).strip():
+            continue
+        prompt = (item.prompt or "").strip()
+        if not prompt:
+            continue
+        questions.append(
+            {
+                "id": ident,
+                "prompt": prompt,
+                "reason": (item.reason or "").strip(),
+            }
+        )
+    return questions
+
+
+def normalize_stages(stages: list[dict]) -> tuple[list[dict], list[str]]:
+    """Order approved stages into an acyclic DAG.
+
+    Stages that were not proposed are not added. A dependency on a missing
+    stage, or an edge that closes a cycle, is removed.
+    """
     by_name: dict[str, dict] = {}
+    removed: list[str] = []
     for stage in stages:
         name = stage.get("name")
         if name not in STAGE_NAMES or name in by_name:
             continue
+        deps: list[str] = []
+        for dep in stage.get("depends_on") or []:
+            if dep == name or dep not in STAGE_NAMES:
+                removed.append(f"{name}->{dep}")
+                continue
+            deps.append(dep)
         by_name[name] = {
             "name": name,
-            "depends_on": [dep for dep in stage.get("depends_on") or [] if dep in STAGE_NAMES and dep != name],
+            "depends_on": deps,
             "purpose": stage.get("purpose") or "",
         }
-    restored = False
-    if "uat" not in by_name:
-        restored = True
-        anchor = next(reversed(by_name), None)
-        by_name["uat"] = {
-            "name": "uat",
-            "depends_on": [anchor] if anchor else [],
-            "purpose": "UAT sign-off. No promotion past this stage.",
-        }
+    for stage in by_name.values():
+        kept: list[str] = []
+        for dep in stage["depends_on"]:
+            if dep not in by_name:
+                removed.append(f"{stage['name']}->{dep}")
+                continue
+            kept.append(dep)
+        stage["depends_on"] = kept
     pending = dict(by_name)
     ordered: list[dict] = []
     while pending:
-        ready = [name for name, stage in pending.items() if all(dep not in pending for dep in stage["depends_on"])]
+        ready = sorted(
+            name
+            for name, stage in pending.items()
+            if all(dep not in pending for dep in stage["depends_on"])
+        )
         if not ready:
-            name = next(iter(pending))
-            pending[name]["depends_on"] = [dep for dep in pending[name]["depends_on"] if dep not in pending]
-            ready = [name]
+            name = min(pending)
+            dep = next(item for item in pending[name]["depends_on"] if item in pending)
+            pending[name]["depends_on"] = [
+                item for item in pending[name]["depends_on"] if item != dep
+            ]
+            removed.append(f"{name}->{dep}")
+            continue
         for name in ready:
             stage = pending.pop(name)
-            stage["depends_on"] = [dep for dep in stage["depends_on"] if dep in by_name]
             stage["tool"] = TOOL_BINDINGS[name]
             ordered.append(stage)
-    return ordered, restored
+    return ordered, removed
 
 
 def pipeline_view(pipeline: dict) -> dict:
@@ -222,6 +295,8 @@ def evidence_rows(state: dict) -> list[dict]:
                 "attempt": row.get("attempt"),
                 "blocked": bool(row.get("blocked")),
                 "evidence": (row.get("evidence") or "")[:500],
+                "brief": row.get("brief") or "",
+                "watch_for": row.get("watch_for") or "",
             }
         )
     return rows
@@ -256,7 +331,7 @@ def machine_report(state: dict) -> dict:
         "chosen_pipeline": {
             **pipeline_view(pipeline),
             "summary": pipeline.get("summary"),
-            "uat_restored": bool(pipeline.get("uat_restored")),
+            "uat_restored": False,
             "router_model": pipeline.get("router_model"),
             "router_client": pipeline.get("router_client"),
             "planner_model": pipeline.get("planner_model"),
@@ -279,6 +354,7 @@ def machine_report(state: dict) -> dict:
             "trace": list(state.get("trace") or []),
             "request_ids": [item.get("request_id") for item in decisions if item.get("request_id")],
         },
+        "approved_stages": [stage.get("name") for stage in (pipeline.get("stages") or []) if stage.get("name")],
         "cloudwatch": {
             "called": False,
             "note": (
@@ -288,6 +364,29 @@ def machine_report(state: dict) -> dict:
             "stage_evidence": evidence_rows(state),
         },
     }
+
+
+def visible_report(state: dict) -> dict:
+    """Report limited to stages that were actually in the approved pipeline."""
+    report = machine_report(state)
+    approved = (state.get("approvals") or {}).get("pipeline") == "approved"
+    names = list(report.get("approved_stages") or [])
+    allowed = set(names)
+
+    def keep(rows: list[dict] | None) -> list[dict]:
+        if not approved:
+            return []
+        return [row for row in rows or [] if row.get("stage") in allowed]
+
+    report["stage_evidence"] = keep(report.get("stage_evidence"))
+    report["stage_results"] = keep(report.get("stage_results"))
+    cloud = dict(report.get("cloudwatch") or {})
+    cloud["stage_evidence"] = keep(cloud.get("stage_evidence"))
+    report["cloudwatch"] = cloud
+    report["chosen_pipeline_ran"] = approved
+    if not approved:
+        report["approved_stages"] = []
+    return report
 
 
 def conclude(state: dict) -> str:
@@ -426,7 +525,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         }
 
     def discover_ecosystem(state: PipelineState) -> dict:
-        ecosystem, questions = scan.discover(state["repo"]["root"], state.get("answers"))
+        ecosystem = scan.discover(state["repo"]["root"])
+        questions = questions_from_astra(planner, ecosystem, state.get("answers") or {})
         payload = {
             "open_questions": questions,
             "languages": ecosystem["languages"],
@@ -447,9 +547,16 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         questions = state.get("open_questions") or []
         if not questions:
             return {"trace": ["clarify_with_user"], "hops": 1}
+        paused = time.time()
         payload = interrupt({"gate": "ecosystem_qa", "questions": questions})
+        waited = max(0.0, time.time() - paused)
         answers = payload if isinstance(payload, dict) else {"raw": str(payload)}
-        return {"answers": answers, "trace": ["clarify_with_user"], "hops": 1}
+        return {
+            "answers": answers,
+            "trace": ["clarify_with_user"],
+            "hops": 1,
+            "held_seconds": waited,
+        }
 
     def plan_pipeline(state: PipelineState) -> dict:
         if budget_reason(state):
@@ -501,9 +608,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 "attempt": {"plan": int(state["attempt"].get("plan", 0)) + 1},
             }
         chosen = next(item for item in proposal.candidates if item.id == decision.chosen_id)
-        dropped = {name for name in decision.drop_stages if name != "uat"}
+        dropped = set(decision.drop_stages)
         kept = [stage.model_dump() for stage in chosen.stages if stage.name not in dropped]
-        ordered, restored = normalize_stages(kept)
+        ordered, removed_edges = normalize_stages(kept)
         for stage in ordered:
             stage["commands"] = commands_for(stage["name"], state.get("answers"), commands)
         plan_number = int(state["attempt"].get("plan", 0)) + 1
@@ -512,7 +619,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
             "summary": chosen.summary,
             "stages": ordered,
             "jev": decision.model_dump(),
-            "uat_restored": restored,
+            "uat_restored": False,
+            "dropped_edges": removed_edges,
             "router_model": (getattr(router, "last_call", None) or {}).get("model") or "injected",
             "router_client": (getattr(router, "last_call", None) or {}).get("client")
             or type(router).__name__,
@@ -529,17 +637,20 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         }
 
     def approve_pipeline(state: PipelineState) -> dict:
+        paused = time.time()
         payload = interrupt(
             {
                 "gate": "pipeline_approval",
                 "pipeline": pipeline_view(state.get("pipeline") or {}),
             }
         )
+        waited = max(0.0, time.time() - paused)
         approved = isinstance(payload, dict) and payload.get("decision") == "approved"
         update = {
             "approvals": {"pipeline": "approved" if approved else "rejected"},
             "trace": ["approve_pipeline"],
             "hops": 1,
+            "held_seconds": waited,
         }
         if isinstance(payload, dict) and payload.get("feedback"):
             update["answers"] = {"pipeline_feedback": payload["feedback"]}
@@ -584,7 +695,19 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
 
     def make_runner(stage_name: str):
         def node(state: dict) -> dict:
-            ran = run_commands(state.get("commands") or [], state["repo"]["root"])
+            brief = planner.brief(
+                {
+                    "stage": stage_name,
+                    "purpose": state.get("purpose") or "",
+                    "answers": state.get("answers") or {},
+                }
+            )
+            ran = execute_stage(
+                stage_name,
+                state.get("commands") or [],
+                state["repo"]["root"],
+                state.get("answers") or {},
+            )
             result = {
                 "stage": stage_name,
                 "status": ran["status"],
@@ -594,6 +717,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 "blocked": ran["blocked"],
                 "evidence": ran["evidence"],
                 "commands": ran["commands"],
+                "brief": scrub(brief.summary),
+                "watch_for": scrub(brief.watch_for),
             }
             update: dict = {
                 "stage_results": [result],
@@ -606,6 +731,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 update["approvals"] = {"deploy": "refused" if refused else "gated-plan"}
                 update["env_state"]["target"] = target_of(state.get("answers"))
             if stage_name == "uat" and ran["status"] == "pass":
+                paused = time.time()
                 signoff = interrupt(
                     {
                         "gate": "uat_signoff",
@@ -613,10 +739,12 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                         "target": target_of(state.get("answers")),
                     }
                 )
+                waited = max(0.0, time.time() - paused)
                 approved = isinstance(signoff, dict) and signoff.get("decision") == "approved"
                 result["status"] = "pass" if approved else "fail"
                 result["signoff"] = signoff if isinstance(signoff, dict) else {"raw": str(signoff)}
                 update["approvals"] = {"uat": "approved" if approved else "rejected"}
+                update["held_seconds"] = waited
             elif stage_name == "uat":
                 update["approvals"] = {"uat": "rejected"}
             return update
@@ -667,7 +795,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         }
         if decision.route in {"remediate", "escalate"} and failed_stages(state):
             diagnosis = planner.diagnose(payload)
-            update["diagnosis"] = diagnosis.summary
+            update["diagnosis"] = scrub(diagnosis.summary)
         return update
 
     def report(state: PipelineState) -> dict:

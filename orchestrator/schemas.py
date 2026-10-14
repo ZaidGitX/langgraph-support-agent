@@ -1,8 +1,9 @@
 """Typed schemas for Jev routing and Astra planning.
 
-Jev fills these models from `langchain_typesafe.TypeSafeClassifier`
-answers (`Noul` and `Choice`). Astra still uses OpenAI structured output
-for `PlanProposal` and `Diagnosis` only.
+Jev fills routing models from `langchain_typesafe.TypeSafeClassifier`
+answers (`Noul` and `Choice`). Astra uses OpenAI structured output for
+questions, candidate DAGs, stage briefs, and failure diagnosis. Astra
+schemas have no command or answer fields.
 """
 
 from __future__ import annotations
@@ -13,7 +14,32 @@ from pydantic import BaseModel, Field
 
 from .state import STAGE_NAMES
 
-StageName = Literal["build", "package", "container", "release", "deploy", "test", "uat"]
+StageName = Literal[
+    "build",
+    "test",
+    "scanners",
+    "dast",
+    "package",
+    "container",
+    "release",
+    "deploy",
+    "uat",
+]
+
+
+class EcosystemQuestion(BaseModel):
+    id: str = Field(description="Short snake_case id. Not an answer.")
+    prompt: str
+    reason: str
+
+
+class QuestionSet(BaseModel):
+    questions: list[EcosystemQuestion] = Field(default_factory=list, max_length=6)
+
+
+class StageBrief(BaseModel):
+    summary: str
+    watch_for: str
 
 
 class ClarifyDecision(BaseModel):
@@ -44,7 +70,7 @@ class RankDecision(BaseModel):
     ordered_ids: list[str]
     drop_stages: list[str] = Field(
         default_factory=list,
-        description="Stage names to remove from the chosen candidate. Do not drop uat.",
+        description="Stage names to remove from the chosen candidate. Do not add stages.",
     )
     rationale: str
 

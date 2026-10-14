@@ -64,7 +64,14 @@ def apply_guardrails(state: dict, decision: GateDecision) -> GateDecision:
             return decision
         return _escalate(decision, "plan retries exhausted")
 
-    wanted = decision.retry_stages or failures
+    approved = {
+        stage.get("name")
+        for stage in (state.get("pipeline") or {}).get("stages") or []
+        if stage.get("name")
+    }
+    wanted = list(decision.retry_stages or failures)
+    if approved:
+        wanted = [name for name in wanted if name in approved]
     retryable = [
         name
         for name in wanted

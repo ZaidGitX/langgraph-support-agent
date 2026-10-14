@@ -6,8 +6,10 @@ to the TypeSafe Jev model (default ``jev-latest``) at
 ``TYPESAFE_API_KEY``. A failed call is raised. There is no ChatOpenAI
 fallback for routing.
 
-Astra (``OPENAI_MODEL``, gpt-6-astra in this app) proposes candidate DAGs
-and diagnoses failures. Astra does not choose the edge.
+Astra (``OPENAI_MODEL``, gpt-6-astra in this app) writes ecosystem
+questions, proposes candidate DAGs, briefs a stage before it runs, and
+diagnoses failures. Astra does not choose the edge and does not invent
+shell commands.
 """
 
 from __future__ import annotations
@@ -30,7 +32,9 @@ from .schemas import (
     Diagnosis,
     GateDecision,
     PlanProposal,
+    QuestionSet,
     RankDecision,
+    StageBrief,
 )
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
@@ -40,16 +44,44 @@ DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 
 PLAN_SYSTEM = (
     "You are Astra. Propose two or three different stage DAGs for this "
-    "repository. Stage names must be build, package, container, release, "
-    "deploy, test, or uat. Every candidate includes build, test, and uat. "
-    "uat is the last stage and depends on the stage before it. "
-    "No production stage and no stage after uat. "
-    "The shell will run fixed commands; you only choose the DAG."
+    "repository. Stage names must be build, test, scanners, dast, package, "
+    "container, release, deploy, or uat. Every candidate includes build, "
+    "test, and uat. uat is the last stage and depends on the stage before it. "
+    "No production stage and no stage after uat. Do not invent shell commands. "
+    "The designated workflow or the fixed local command list will run; you only choose the DAG."
+)
+
+QUESTION_SYSTEM = (
+    "You are Astra. Write the questions a human must answer before a CI/CD "
+    "pipeline can be planned for this checkout. Ask only about gaps that are "
+    "not already answered. When those topics are still open, cover the target "
+    "environment (local, dev, staging, or uat — never production), the test "
+    "depth, and the release policy (this system stops at UAT and has no "
+    "production edge). Do not answer the questions. Do not propose a pipeline. "
+    "Do not invent shell commands. Use short snake_case ids."
+)
+
+BRIEF_SYSTEM = (
+    "You are Astra. Write a short brief for one designated CI stage before it runs. "
+    "summary is one or two sentences on what this stage is for in this repository. "
+    "watch_for is one sentence on what a failure would mean. "
+    "Do not include shell commands, scripts, or argv."
 )
 
 DIAGNOSE_SYSTEM = (
     "You are Astra. Diagnose the failed stage evidence in one short summary "
-    "and one sentence of retry advice. Do not invent a production deploy."
+    "and one sentence of retry advice. Do not invent a production deploy "
+    "and do not invent shell commands."
+)
+
+_SECRET_ENVS = (
+    "TYPESAFE_API_KEY",
+    "OPENAI_API_KEY",
+    "SONAR_TOKEN",
+    "HAWK_API_KEY",
+    "HAWK_APP_ID",
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
 )
 
 _SECRET_MARK = "api" + "key_"
@@ -58,12 +90,13 @@ _SECRET_MARK = "api" + "key_"
 def scrub(text: str) -> str:
     """Remove credential material from text that may be printed or stored."""
     cleaned = text or ""
-    for name in ("TYPESAFE_API_KEY", "OPENAI_API_KEY"):
+    for name in _SECRET_ENVS:
         secret = os.getenv(name, "")
         if secret:
             cleaned = cleaned.replace(secret, "[redacted]")
     cleaned = re.sub(_SECRET_MARK + r"[A-Za-z0-9_]+", "[redacted]", cleaned)
     cleaned = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
+    cleaned = re.sub(r"hawk\.[A-Za-z0-9]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
     cleaned = re.sub(r"(?i)(api[_-]?key\s*[=:]\s*)\S+", r"\1[redacted]", cleaned)
     return cleaned
 
@@ -325,10 +358,16 @@ class TypeSafeJev:
 
 
 class OpenAIAstra:
-    """Plan synthesis and failure diagnosis. Not used for routing."""
+    """Questions, plan synthesis, stage briefs, and failure diagnosis. Not used for routing."""
+
+    def write_questions(self, payload: dict) -> QuestionSet:
+        return invoke_structured(config.astra_model(), QuestionSet, QUESTION_SYSTEM, payload)
 
     def propose(self, payload: dict) -> PlanProposal:
         return invoke_structured(config.astra_model(), PlanProposal, PLAN_SYSTEM, payload)
+
+    def brief(self, payload: dict) -> StageBrief:
+        return invoke_structured(config.astra_model(), StageBrief, BRIEF_SYSTEM, payload)
 
     def diagnose(self, payload: dict) -> Diagnosis:
         return invoke_structured(config.astra_model(), Diagnosis, DIAGNOSE_SYSTEM, payload)

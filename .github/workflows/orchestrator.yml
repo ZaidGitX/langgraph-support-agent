@@ -2,41 +2,77 @@ name: Orchestrator
 
 on:
   push:
-  pull_request:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  supervise:
+  session:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-
-      - name: Run orchestrator
+      - name: Start the Compose application
         env:
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
           OPENAI_MODEL: gpt-6-astra
           TYPESAFE_MODEL: jev-latest
-        run: python -m orchestrator.demo
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+          ORCHESTRATOR_DISPATCH: github
+          ORCHESTRATOR_AUTOSTART: "1"
+        run: docker compose up -d --build --wait
 
-      - name: Upload report
+      - name: Install cloudflared
+        run: |
+          curl -fsSL -o /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i /tmp/cloudflared.deb
+
+      - name: Open the tunnel and wait for the UI session
+        env:
+          SESSION_TIMEOUT_SECONDS: "3600"
+          APP_LOCAL_URL: http://127.0.0.1:8000
+        run: |
+          set -euo pipefail
+          nohup cloudflared tunnel --url http://127.0.0.1:8000 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          echo $! > /tmp/cloudflared.pid
+          url=""
+          for _ in $(seq 1 40); do
+            url=$(grep -oE 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -1 || true)
+            if [ -n "$url" ]; then
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$url" ]; then
+            echo "cloudflared did not print a public URL."
+            cat /tmp/cloudflared.log
+            exit 1
+          fi
+          echo "PUBLIC APP URL: $url"
+          echo "Open this URL and answer the ecosystem questions: ${url}/#/orchestrator"
+          PUBLIC_APP_URL="$url" python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          url = os.environ["PUBLIC_APP_URL"]
+          body = json.dumps({"url": url}).encode()
+          request = urllib.request.Request(
+              "http://127.0.0.1:8000/api/orchestrator/public-url",
+              data=body,
+              headers={"content-type": "application/json"},
+          )
+          urllib.request.urlopen(request, timeout=30).read()
+          PY
+          python3 scripts/wait_for_session.py
+
+      - name: Stop the application
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: orchestrator-report
-          path: |
-            var/report.md
-            var/report.json
-          if-no-files-found: warn
+        run: docker compose down

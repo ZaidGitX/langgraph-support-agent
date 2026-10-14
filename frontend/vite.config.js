@@ -30,6 +30,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      "/api": "http://127.0.0.1:8000",
       "/ask": "http://127.0.0.1:8000",
       "/status": "http://127.0.0.1:8000",
       "/orders": "http://127.0.0.1:8000",

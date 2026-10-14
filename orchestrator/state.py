@@ -13,10 +13,22 @@ from typing import Annotated, TypedDict
 
 MAX_ATTEMPTS = 2
 MAX_PLAN_ATTEMPTS = 2
-MAX_HOPS = 48
-MAX_SECONDS = 300
+MAX_HOPS = 96
+# Human pauses are subtracted in budget_reason. What remains is compute
+# plus waiting on a designated workflow, still inside the session window.
+MAX_SECONDS = 3000
 
-STAGE_NAMES = ("build", "package", "container", "release", "deploy", "test", "uat")
+STAGE_NAMES = (
+    "build",
+    "test",
+    "scanners",
+    "dast",
+    "package",
+    "container",
+    "release",
+    "deploy",
+    "uat",
+)
 ALLOWED_TARGETS = ("local", "dev", "staging", "uat")
 FORBIDDEN_TARGETS = ("production", "prod")
 
@@ -63,6 +75,7 @@ class PipelineState(TypedDict):
     ready_stages: list[str]
     diagnosis: str
     stop_at: str
+    held_seconds: Annotated[float, operator.add]
 
 
 def initial_state(root: str, run_id: str | None = None) -> PipelineState:
@@ -105,6 +118,7 @@ def initial_state(root: str, run_id: str | None = None) -> PipelineState:
         "ready_stages": [],
         "diagnosis": "",
         "stop_at": "",
+        "held_seconds": 0.0,
     }
 
 
@@ -141,7 +155,8 @@ def budget_reason(state: dict) -> str | None:
     if hops >= MAX_HOPS:
         return f"hop budget {MAX_HOPS} reached"
     started = float(state.get("started_at") or time.time())
-    elapsed = time.time() - started
+    held = float(state.get("held_seconds") or 0)
+    elapsed = max(0.0, time.time() - started - held)
     if elapsed >= MAX_SECONDS:
         return f"time budget {MAX_SECONDS}s reached"
     return None

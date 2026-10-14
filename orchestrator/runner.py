@@ -33,7 +33,16 @@ def redact_secrets(text: str) -> str:
     marker = "api" + "key_"
     cleaned = re.sub(marker + r"[A-Za-z0-9_]+", "[redacted]", cleaned)
     cleaned = re.sub(r"(?i)(api[_-]?key\s*[=:]\s*)\S+", r"\1[redacted]", cleaned)
-    for name in ("TYPESAFE_API_KEY", "OPENAI_API_KEY"):
+    cleaned = re.sub(r"hawk\.[A-Za-z0-9]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
+    for name in (
+        "TYPESAFE_API_KEY",
+        "OPENAI_API_KEY",
+        "SONAR_TOKEN",
+        "HAWK_API_KEY",
+        "HAWK_APP_ID",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+    ):
         secret = os.getenv(name, "")
         if secret:
             cleaned = cleaned.replace(secret, "[redacted]")

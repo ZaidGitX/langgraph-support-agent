@@ -1,0 +1,596 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Agentic CI/CD Orchestrator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: single reading column (~860px) with full-bleed diagram panels; engineering-doc treatment */
+:root{
+  --bg:#f3f5f7; --surface:#ffffff; --ink:#19222c; --muted:#5a6878; --line:#d7dee5;
+  --accent:#0b7e8a; --accent-ink:#09626b; --amber:#b45309; --ok:#1a7f45;
+  --code-bg:#edf1f4; --plane:#f8fafb;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1419; --surface:#151d25; --ink:#e6edf3; --muted:#9aa8b5; --line:#2b3845;
+    --accent:#45bcc8; --accent-ink:#6fd3dd; --amber:#e8a33d; --ok:#4cc38a;
+    --code-bg:#101821; --plane:#121a22; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1419; --surface:#151d25; --ink:#e6edf3; --muted:#9aa8b5; --line:#2b3845;
+  --accent:#45bcc8; --accent-ink:#6fd3dd; --amber:#e8a33d; --ok:#4cc38a;
+  --code-bg:#101821; --plane:#121a22; color-scheme:dark;
+}
+body{background:var(--bg); color:var(--ink); font:400 15.5px/1.6 'IBM Plex Sans',system-ui,sans-serif;}
+.wrap{max-width:980px; margin:0 auto; padding-block:40px 72px; padding-inline:20px;}
+h1,h2,h3{text-wrap:balance; line-height:1.25;}
+h1{font-size:clamp(26px,4.5vw,38px); font-weight:700; margin:10px 0 6px;}
+h2{font-size:21px; font-weight:600; margin:52px 0 12px; padding-top:18px; border-top:1px solid var(--line);}
+h3{font-size:16.5px; font-weight:600; margin:26px 0 8px;}
+p{max-width:72ch; margin:10px 0;}
+.eyebrow{font:500 11px 'IBM Plex Mono',monospace; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink);}
+.meta{display:flex; flex-wrap:wrap; gap:8px 18px; margin:14px 0 4px; font:400 12.5px 'IBM Plex Mono',monospace; color:var(--muted);}
+.meta b{color:var(--ink); font-weight:500;}
+.pill{display:inline-block; border:1px solid var(--line); border-radius:999px; padding:1px 10px; background:var(--surface);}
+.lede{font-size:17px; color:var(--muted); max-width:72ch;}
+code, pre{font-family:'IBM Plex Mono',monospace;}
+code{background:var(--code-bg); border-radius:4px; padding:1px 5px; font-size:.86em;}
+pre{background:var(--code-bg); border:1px solid var(--line); border-radius:10px; padding:16px 18px; overflow-x:auto; font-size:12.5px; line-height:1.55;}
+pre code{background:none; padding:0;}
+.fig{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px 18px 8px; margin:20px 0; overflow-x:auto;}
+.fig svg{display:block; color:var(--ink); min-width:880px; width:100%; height:auto;}
+figure{margin:0;}
+figcaption{font:400 12.5px 'IBM Plex Mono',monospace; color:var(--muted); padding:10px 4px 8px; max-width:none;}
+table{border-collapse:collapse; width:100%; margin:14px 0; font-size:13.5px;}
+th{text-align:left; font:500 11px 'IBM Plex Mono',monospace; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); border-bottom:1.5px solid var(--line); padding:8px 10px;}
+td{border-bottom:1px solid var(--line); padding:9px 10px; vertical-align:top;}
+td:first-child{white-space:nowrap; font-weight:500;}
+.tablewrap{overflow-x:auto;}
+.tablewrap table{min-width:640px;}
+ul{max-width:76ch; padding-left:22px;}
+li{margin:5px 0;}
+li::marker{color:var(--accent);}
+.note{border-left:3px solid var(--amber); background:var(--surface); border-radius:0 10px 10px 0; padding:12px 16px; margin:18px 0; font-size:14px; max-width:76ch;}
+.good{color:var(--ok); font-weight:600;} .bad{color:var(--amber); font-weight:600;}
+a{color:var(--accent-ink);}
+.cols{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; margin:16px 0;}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px;}
+.card h4{margin:0 0 6px; font-size:14px; font-weight:600;}
+.card p{font-size:13.5px; color:var(--muted); margin:0;}
+.kv{font:400 12px 'IBM Plex Mono',monospace; color:var(--muted);}
+/* SVG vocabulary */
+.nb{fill:var(--surface); stroke:var(--line); stroke-width:1.3;}
+.nbA{stroke:var(--accent); stroke-width:1.5;}
+.nbW{stroke:var(--amber); stroke-width:1.5;}
+.band{fill:var(--plane); stroke:var(--line); stroke-width:1; stroke-dasharray:3 4;}
+.t1{font:600 13px 'IBM Plex Sans'; fill:var(--ink);}
+.t2{font:400 10.5px 'IBM Plex Mono'; fill:var(--muted);}
+.t3{font:500 10px 'IBM Plex Mono'; fill:var(--accent-ink); letter-spacing:.08em;}
+.tE{font:400 10.5px 'IBM Plex Mono'; fill:var(--muted);}
+.tW{fill:var(--amber);} .tA{fill:var(--accent-ink);}
+.e{stroke:currentColor; stroke-width:1.4; fill:none;}
+.eC{stroke:var(--accent); stroke-width:1.4; fill:none;}
+.eW{stroke:var(--amber); stroke-width:1.4; fill:none;}
+.dash{stroke-dasharray:5 4;}
+.mk{fill:currentColor;} .mkC{fill:var(--accent);} .mkW{fill:var(--amber);}
+footer{margin-top:56px; padding-top:16px; border-top:1px solid var(--line); font-size:13px; color:var(--muted);}
+</style>
+
+<div class="wrap">
+<span class="eyebrow">Architecture · ADR-001 + system design</span>
+<h1>Agentic CI/CD Orchestrator</h1>
+<p class="lede">A LangGraph-orchestrated, fully autonomous DevOps system: one supervisor agent interrogates a freshly checked-out repo, asks the user only what it cannot infer, derives a pipeline configuration, and fans work out to specialist subagents that build, scan, package, containerize, release, deploy, test, and stage UAT across local and AWS environments.</p>
+<div class="meta">
+  <span><b>Status</b> Proposed</span>
+  <span><b>Date</b> 2026-10-05</span>
+  <span><b>Cloud scope</b> AWS only</span>
+  <span class="pill">engine: Jev (router/selector)</span>
+  <span class="pill">workers: GPT-6 Astra</span>
+  <span class="pill">tool bus: MCP</span>
+</div>
+
+<h2>Context</h2>
+<p>The trigger is a Git event, not a ticket: on push or PR merge, the orchestrator checks out the code, retrieves what the knowledge base already knows about the ecosystem (languages, build tools, dependency graph, prior run history), and opens a human-in-the-loop exchange only for the gaps. Its output is a <em>pipeline configuration</em> — a stage DAG spanning build + scans (SAST, DAST, dependency, vulnerability, secrets), package, containerize, release, deploy, test-script execution, and UAT promotion — which it then executes through subagents holding real tools.</p>
+<p>Two forces shape the design. First, the control flow is genuinely stateful and cyclic (clarify loops, remediation loops, approval gates), which rules out linear chain frameworks and favors an explicit state graph. Second, agents that run shell commands, push images, and deploy to AWS need isolation, scoped credentials, and durable sessions — the problem Amazon Bedrock AgentCore (GA 2026) was built for: microVM runtime sessions with direct shell execution for deterministic ops, a Gateway that fronts tools as MCP servers, per-agent Identity, and managed Memory.</p>
+<p><code>Jev</code> and <code>GPT-6 Astra</code> are used here as you specified: Jev as the fast selection/routing engine governing edge transitions, Astra as the heavyweight reasoning model inside each worker. The architecture is model-agnostic — both are swappable bindings in config, not structural commitments.</p>
+
+<h2>1 · Control plane — the LangGraph state machine</h2>
+<p>Every node reads and writes one shared <code>PipelineState</code>; Jev governs the conditional edges (skip, route, retry, escalate). Human interaction is a first-class graph primitive — <code>interrupt()</code> pauses the run durably at the checkpointer, and the user's answer resumes it, which is what makes the same graph work in chat, CLI, or a dashboard.</p>
+
+<div class="fig"><figure>
+<svg role="img" aria-label="LangGraph orchestrator state machine: webhook trigger flows through checkout, ecosystem discovery with knowledge-base retrieval, a human-in-the-loop clarify node, Jev-ranked pipeline planning, Send fan-out to seven stage subagents, a quality gate with a remediation loop back to planning, and a final report; a Postgres checkpointer snapshots state after every super-step." viewBox="0 0 1160 915">
+<defs>
+  <marker id="f1a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="f1c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkC" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="f1w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkW" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+
+<!-- trigger -->
+<rect class="nb" x="365" y="18" width="200" height="40" rx="20"/>
+<text class="t1" x="465" y="38" text-anchor="middle" dominant-baseline="middle" font-size="12.5">git push · PR merged</text>
+<line class="e" x1="465" y1="58" x2="465" y2="94" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="80">webhook → START</text>
+
+<!-- checkout -->
+<rect class="nb" x="350" y="100" width="230" height="56" rx="8"/>
+<text class="t1" x="465" y="122" text-anchor="middle">checkout</text>
+<text class="t2" x="465" y="140" text-anchor="middle">clone · detect stack signals</text>
+<line class="e" x1="465" y1="156" x2="465" y2="190" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="178">repo profile Δ</text>
+
+<!-- discover -->
+<rect class="nb" x="350" y="196" width="230" height="56" rx="8"/>
+<text class="t1" x="465" y="218" text-anchor="middle">discover_ecosystem</text>
+<text class="t2" x="465" y="236" text-anchor="middle">RAG over code · deps · artifacts</text>
+<line class="e" x1="465" y1="252" x2="465" y2="286" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="274">gaps found</text>
+
+<!-- KB side box -->
+<rect class="nb nbA" x="700" y="185" width="250" height="72" rx="8"/>
+<text class="t1" x="825" y="207" text-anchor="middle">Knowledge base</text>
+<text class="t2" x="825" y="224" text-anchor="middle">graphify graph + OpenSearch vectors</text>
+<text class="t2" x="825" y="239" text-anchor="middle">code · deps · artifacts · history</text>
+<line class="eC" x1="580" y1="212" x2="694" y2="212" marker-end="url(#f1c)"/>
+<text class="tE tA" x="590" y="205" font-size="9.5">query</text>
+<line class="eC" x1="700" y1="236" x2="586" y2="236" marker-end="url(#f1c)"/>
+<text class="tE tA" x="620" y="250" font-size="9.5">retrieved context</text>
+
+<!-- bypass edge discover -> plan -->
+<polyline class="e dash" points="350,224 300,224 300,410 344,410" marker-end="url(#f1a)"/>
+<text class="tE" x="118" y="402" font-size="9.5">no gaps — Jev skips clarify</text>
+
+<!-- clarify -->
+<rect class="nb nbW" x="350" y="292" width="230" height="56" rx="8"/>
+<text class="t1" x="465" y="314" text-anchor="middle">clarify_with_user</text>
+<text class="t2" x="465" y="332" text-anchor="middle">interrupt() — HITL questions</text>
+<line class="e" x1="465" y1="348" x2="465" y2="382" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="370">answers merged</text>
+
+<!-- user side box -->
+<rect class="nb nbW" x="70" y="284" width="210" height="72" rx="8"/>
+<text class="t1" x="175" y="306" text-anchor="middle">User</text>
+<text class="t2" x="175" y="323" text-anchor="middle">tech ecosystem · env targets</text>
+<text class="t2" x="175" y="338" text-anchor="middle">test depth · release policy</text>
+<line class="eW" x1="350" y1="308" x2="286" y2="308" marker-end="url(#f1w)"/>
+<text class="tE tW" x="291" y="300" font-size="9.5">questions</text>
+<line class="eW" x1="280" y1="334" x2="344" y2="334" marker-end="url(#f1w)"/>
+<text class="tE tW" x="294" y="348" font-size="9.5">resume(answers)</text>
+
+<!-- plan -->
+<rect class="nb nbA" x="350" y="388" width="230" height="56" rx="8"/>
+<text class="t1" x="465" y="410" text-anchor="middle">plan_pipeline</text>
+<text class="t2" x="465" y="428" text-anchor="middle">candidate DAGs → Jev ranks one</text>
+<line class="e" x1="465" y1="444" x2="465" y2="478" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="466">pipeline config (approved)</text>
+
+<!-- Jev side box -->
+<rect class="nb nbA" x="700" y="372" width="250" height="88" rx="8"/>
+<text class="t1" x="825" y="394" text-anchor="middle">Jev — edge governor</text>
+<text class="t2" x="825" y="411" text-anchor="middle">rank candidates · filter stages</text>
+<text class="t2" x="825" y="426" text-anchor="middle">route conditionals · retry policy</text>
+<text class="t2" x="825" y="441" text-anchor="middle">cheap + fast ≠ the reasoning model</text>
+<line class="eC dash" x1="700" y1="416" x2="586" y2="416" marker-end="url(#f1c)"/>
+<polyline class="eC dash" points="900,460 900,740 586,740" marker-end="url(#f1c)"/>
+<text class="tE tA" x="640" y="732" font-size="9.5">governs gate routing</text>
+
+<!-- dispatch -->
+<rect class="nb" x="350" y="484" width="230" height="56" rx="8"/>
+<text class="t1" x="465" y="506" text-anchor="middle">dispatch_stages</text>
+<text class="t2" x="465" y="524" text-anchor="middle">Send() fan-out to subagents</text>
+
+<!-- checkpointer -->
+<rect class="nb" x="960" y="482" width="180" height="104" rx="8"/>
+<text class="t1" x="1050" y="504" text-anchor="middle">Checkpointer</text>
+<text class="t2" x="1050" y="521" text-anchor="middle">Aurora PostgreSQL</text>
+<text class="t2" x="1050" y="536" text-anchor="middle">thread_id = run_id</text>
+<text class="t2" x="1050" y="551" text-anchor="middle">resume · replay · audit</text>
+<line class="e dash" x1="580" y1="512" x2="954" y2="512" marker-end="url(#f1a)"/>
+<text class="tE" x="610" y="505" font-size="9.5">state snapshot after every super-step</text>
+
+<!-- fan-out arrows -->
+<polyline class="e" points="465,540 465,556 153,556 153,574" marker-end="url(#f1a)"/>
+<line class="e" x1="465" y1="540" x2="465" y2="574" marker-end="url(#f1a)"/>
+<polyline class="e" points="465,540 465,556 777,556 777,574" marker-end="url(#f1a)"/>
+<text class="tE" x="492" y="570" font-size="9.5">parallel where the DAG allows</text>
+
+<!-- stage container -->
+<rect class="band" x="90" y="580" width="750" height="112" rx="10"/>
+<text class="t3" x="105" y="600">GPT-6 ASTRA STAGE SUBAGENTS · EACH A LANGGRAPH SUBGRAPH WITH MCP TOOLS</text>
+<rect class="nb" x="105" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="153" y="640" text-anchor="middle" font-size="12">build</text>
+<text class="t2" x="153" y="656" text-anchor="middle" font-size="9.5">SAST·SCA·secrets</text>
+<rect class="nb" x="210" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="258" y="640" text-anchor="middle" font-size="12">package</text>
+<text class="t2" x="258" y="656" text-anchor="middle" font-size="9.5">artifacts → S3</text>
+<rect class="nb" x="315" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="363" y="640" text-anchor="middle" font-size="12">container</text>
+<text class="t2" x="363" y="656" text-anchor="middle" font-size="9.5">buildx · SBOM</text>
+<rect class="nb" x="420" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="468" y="640" text-anchor="middle" font-size="12">release</text>
+<text class="t2" x="468" y="656" text-anchor="middle" font-size="9.5">push ECR · sign</text>
+<rect class="nb" x="525" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="573" y="640" text-anchor="middle" font-size="12">deploy</text>
+<text class="t2" x="573" y="656" text-anchor="middle" font-size="9.5">ECS / EKS</text>
+<rect class="nb" x="630" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="678" y="640" text-anchor="middle" font-size="12">test</text>
+<text class="t2" x="678" y="656" text-anchor="middle" font-size="9.5">scripts · DAST</text>
+<rect class="nb" x="735" y="620" width="96" height="52" rx="6"/>
+<text class="t1" x="783" y="640" text-anchor="middle" font-size="12">uat</text>
+<text class="t2" x="783" y="656" text-anchor="middle" font-size="9.5">promote · sign-off</text>
+
+<line class="e" x1="465" y1="692" x2="465" y2="714" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="710" font-size="9.5">stage results + evidence</text>
+
+<!-- gate -->
+<rect class="nb nbW" x="350" y="720" width="230" height="56" rx="8"/>
+<text class="t1" x="465" y="742" text-anchor="middle">quality_gate</text>
+<text class="t2" x="465" y="760" text-anchor="middle">verify evidence · route pass/fail</text>
+
+<!-- fail loop -->
+<polyline class="eW" points="350,760 120,760 120,430 344,430" marker-end="url(#f1w)"/>
+<text class="tE tW" x="132" y="620" font-size="9.5">fail → remediate / re-plan</text>
+<text class="tE tW" x="132" y="634" font-size="9.5">(bounded retries per stage)</text>
+
+<line class="e" x1="465" y1="776" x2="465" y2="800" marker-end="url(#f1a)"/>
+<text class="tE" x="476" y="796" font-size="9.5">all gates pass</text>
+
+<!-- report -->
+<rect class="nb" x="350" y="806" width="230" height="48" rx="8"/>
+<text class="t1" x="465" y="826" text-anchor="middle">report</text>
+<text class="t2" x="465" y="842" text-anchor="middle">publish results · dashboard · KB</text>
+<line class="e" x1="465" y1="854" x2="465" y2="872" marker-end="url(#f1a)"/>
+<circle cx="465" cy="884" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
+<circle cx="465" cy="884" r="4" class="mk"/>
+</svg>
+<figcaption>Fig. 1 — Orchestrator graph. Amber marks human-in-the-loop surfaces; teal marks Jev-governed decisions and retrieval. Because every super-step is checkpointed, an <code>interrupt()</code> can wait hours for a UAT sign-off without holding compute.</figcaption>
+</figure></div>
+
+<h3>The shared state object</h3>
+<p>One schema carries the run end to end — this is the "environment state space embedding the A→Z completion of the pipeline" in your framing. Fan-in from parallel subagents is an append reducer, so concurrent stage results merge without clobbering.</p>
+<pre><code>class PipelineState(TypedDict):
+    run_id: str                       # thread_id for the checkpointer
+    repo: RepoProfile                 # languages, build tools, dependency graph
+    ecosystem: dict                   # KB retrieval results (graphify graph + vector)
+    open_questions: list[Question]    # drives interrupt() — empty ⇒ Jev skips clarify
+    answers: dict                     # user inputs: env targets, test depth, release policy
+    pipeline: PipelineConfig          # Jev-ranked stage DAG + per-stage tool bindings
+    stage_results: Annotated[list[StageResult], operator.add]   # fan-in reducer
+    env_state: EnvSnapshot            # A→Z pipeline completion state, local + AWS
+    approvals: dict[Gate, Decision]   # pipeline-approval, deploy, UAT sign-off
+    attempt: dict[str, int]           # bounded retry counters per stage</code></pre>
+
+<h2>2 · System planes — where everything runs on AWS</h2>
+<p>The orchestrator graph is the brain; this is the body. Control and worker planes run as Bedrock AgentCore Runtime sessions (isolated microVMs, long-lived, resumable). Every tool reaches the world through MCP servers fronted by AgentCore Gateway, and every agent gets least-privilege IAM via AgentCore Identity — a subagent that builds images cannot touch a production cluster.</p>
+
+<div class="fig"><figure>
+<svg role="img" aria-label="Six-plane AWS deployment: an interaction plane with the developer and a dashboard; a control plane with the LangGraph orchestrator on Bedrock AgentCore Runtime plus Identity and Memory; a worker plane of seven GPT-6 Astra stage subagents in isolated microVM sessions; a tool plane of MCP servers behind AgentCore Gateway; target environments spanning local Docker and AWS dev, staging, and UAT; and a state-and-knowledge plane with the checkpointer, graphify knowledge graph, vector knowledge base, and S3 artifact store. A right-hand rail feeds CloudWatch signals back to the dashboard as the maintenance loop." viewBox="0 0 1160 1000">
+<defs>
+  <marker id="f2a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="f2w" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkW" d="M0 0L10 5L0 10z"/></marker>
+  <marker id="f2c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mkC" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+
+<!-- P1 interaction -->
+<rect class="band" x="40" y="16" width="1080" height="104" rx="10"/>
+<text class="t3" x="56" y="36">INTERACTION PLANE</text>
+<rect class="nb" x="64" y="46" width="470" height="58" rx="8"/>
+<text class="t1" x="299" y="69" text-anchor="middle">Developer / release manager</text>
+<text class="t2" x="299" y="87" text-anchor="middle">answers · approvals · UAT sign-off (chat / CLI)</text>
+<rect class="nb" x="620" y="46" width="470" height="58" rx="8"/>
+<text class="t1" x="855" y="69" text-anchor="middle">Dashboard</text>
+<text class="t2" x="855" y="87" text-anchor="middle">LangSmith traces · run history · CloudWatch</text>
+
+<line class="e" x1="300" y1="120" x2="300" y2="162" marker-end="url(#f2a)"/>
+<text class="tE" x="312" y="146">answers · approvals</text>
+<line class="e" x1="855" y1="162" x2="855" y2="126" marker-end="url(#f2a)"/>
+<text class="tE" x="867" y="150">status · traces · reports</text>
+
+<!-- P2 control -->
+<rect class="band" x="40" y="168" width="1080" height="136" rx="10"/>
+<text class="t3" x="56" y="188">CONTROL PLANE — BEDROCK AGENTCORE RUNTIME</text>
+<rect class="nb nbA" x="64" y="200" width="560" height="76" rx="8"/>
+<text class="t1" x="344" y="226" text-anchor="middle">LangGraph orchestrator — supervisor graph</text>
+<text class="t2" x="344" y="244" text-anchor="middle">driving engine: Jev · state: PipelineState</text>
+<text class="t2" x="344" y="259" text-anchor="middle">hosted as a long-lived, resumable microVM session</text>
+<rect class="nb" x="660" y="200" width="200" height="76" rx="8"/>
+<text class="t1" x="760" y="228" text-anchor="middle">AgentCore Identity</text>
+<text class="t2" x="760" y="246" text-anchor="middle">least-privilege IAM</text>
+<text class="t2" x="760" y="261" text-anchor="middle">per agent, per stage</text>
+<rect class="nb" x="880" y="200" width="210" height="76" rx="8"/>
+<text class="t1" x="985" y="228" text-anchor="middle">AgentCore Memory</text>
+<text class="t2" x="985" y="246" text-anchor="middle">episodic run memory</text>
+<text class="t2" x="985" y="261" text-anchor="middle">preferences · past decisions</text>
+
+<line class="e" x1="300" y1="304" x2="300" y2="346" marker-end="url(#f2a)"/>
+<text class="tE" x="312" y="330">Send(stage task + state slice)</text>
+<line class="e" x1="855" y1="346" x2="855" y2="310" marker-end="url(#f2a)"/>
+<text class="tE" x="867" y="334">verdicts + evidence</text>
+
+<!-- P3 workers -->
+<rect class="band" x="40" y="352" width="1080" height="150" rx="10"/>
+<text class="t3" x="56" y="372">WORKER PLANE — GPT-6 ASTRA SUBAGENTS · ONE ISOLATED microVM SESSION PER STAGE</text>
+<rect class="nb" x="64" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="130" y="420" text-anchor="middle" font-size="12">build + scan</text>
+<text class="t2" x="130" y="437" text-anchor="middle" font-size="9.5">SAST·SCA·secrets</text>
+<rect class="nb" x="212" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="278" y="420" text-anchor="middle" font-size="12">package</text>
+<text class="t2" x="278" y="437" text-anchor="middle" font-size="9.5">version · publish</text>
+<rect class="nb" x="360" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="426" y="420" text-anchor="middle" font-size="12">containerize</text>
+<text class="t2" x="426" y="437" text-anchor="middle" font-size="9.5">image · SBOM</text>
+<rect class="nb" x="508" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="574" y="420" text-anchor="middle" font-size="12">release</text>
+<text class="t2" x="574" y="437" text-anchor="middle" font-size="9.5">tag · sign · ECR</text>
+<rect class="nb" x="656" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="722" y="420" text-anchor="middle" font-size="12">deploy</text>
+<text class="t2" x="722" y="437" text-anchor="middle" font-size="9.5">rollout · rollback</text>
+<rect class="nb" x="804" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="870" y="420" text-anchor="middle" font-size="12">test</text>
+<text class="t2" x="870" y="437" text-anchor="middle" font-size="9.5">scripts · DAST</text>
+<rect class="nb" x="952" y="398" width="132" height="54" rx="7"/>
+<text class="t1" x="1018" y="420" text-anchor="middle" font-size="12">uat</text>
+<text class="t2" x="1018" y="437" text-anchor="middle" font-size="9.5">env prep · sign-off</text>
+<text class="t2" x="64" y="482" font-size="10">deterministic ops (compile, docker build, kubectl) run as direct shell commands in the microVM — no LLM tokens spent on mechanical steps; Astra reasons over inputs, failures, and evidence</text>
+
+<line class="e" x1="300" y1="502" x2="300" y2="544" marker-end="url(#f2a)"/>
+<text class="tE" x="312" y="528">MCP tool calls</text>
+<line class="e" x1="855" y1="544" x2="855" y2="508" marker-end="url(#f2a)"/>
+<text class="tE" x="867" y="532">results · logs · artifacts</text>
+
+<!-- P4 tools -->
+<rect class="band" x="40" y="550" width="1080" height="140" rx="10"/>
+<text class="t3" x="56" y="570">TOOL PLANE — AGENTCORE GATEWAY (MCP TOOL BUS)</text>
+<rect class="nb" x="64" y="582" width="1026" height="86" rx="8"/>
+<text class="t2" x="80" y="602">every side effect goes through a typed, audited MCP server — agents hold no raw credentials</text>
+<rect class="nb" x="80" y="614" width="100" height="40" rx="6"/>
+<text class="t1" x="130" y="638" text-anchor="middle" font-size="11.5">Git</text>
+<rect class="nb" x="196" y="614" width="180" height="40" rx="6"/>
+<text class="t1" x="286" y="638" text-anchor="middle" font-size="11.5">build + test runners</text>
+<rect class="nb" x="392" y="614" width="180" height="40" rx="6"/>
+<text class="t1" x="482" y="638" text-anchor="middle" font-size="11.5">security scanners</text>
+<rect class="nb" x="588" y="614" width="110" height="40" rx="6"/>
+<text class="t1" x="643" y="638" text-anchor="middle" font-size="11.5">ECR / OCI</text>
+<rect class="nb" x="714" y="614" width="210" height="40" rx="6"/>
+<text class="t1" x="819" y="638" text-anchor="middle" font-size="11.5">ECS · EKS · S3 · CloudWatch</text>
+<rect class="nb" x="940" y="614" width="110" height="40" rx="6"/>
+<text class="t1" x="995" y="638" text-anchor="middle" font-size="11.5">Slack / Jira</text>
+
+<line class="e" x1="300" y1="690" x2="300" y2="732" marker-end="url(#f2a)"/>
+<text class="tE" x="312" y="716">builds · pushes · deploys</text>
+
+<!-- P5 environments -->
+<rect class="band" x="40" y="738" width="1080" height="150" rx="10"/>
+<text class="t3" x="56" y="758">TARGET ENVIRONMENTS</text>
+<rect class="nb" x="64" y="772" width="360" height="86" rx="8"/>
+<text class="t1" x="244" y="798" text-anchor="middle">Local — Docker / k3d</text>
+<text class="t2" x="244" y="816" text-anchor="middle">fast inner loop · pre-flight parity</text>
+<text class="t2" x="244" y="831" text-anchor="middle">same pipeline config, local bindings</text>
+<rect class="nb" x="460" y="772" width="630" height="86" rx="8"/>
+<text class="t1" x="480" y="794">AWS — ECR → ECS / EKS</text>
+<rect class="nb" x="480" y="806" width="150" height="38" rx="6"/>
+<text class="t1" x="555" y="829" text-anchor="middle" font-size="11.5">dev</text>
+<line class="eW" x1="630" y1="825" x2="664" y2="825" marker-end="url(#f2w)"/>
+<rect class="nb" x="670" y="806" width="150" height="38" rx="6"/>
+<text class="t1" x="745" y="829" text-anchor="middle" font-size="11.5">staging</text>
+<line class="eW" x1="820" y1="825" x2="854" y2="825" marker-end="url(#f2w)"/>
+<rect class="nb nbW" x="860" y="806" width="150" height="38" rx="6"/>
+<text class="t1" x="935" y="829" text-anchor="middle" font-size="11.5">UAT</text>
+<text class="tE tW" x="636" y="800" font-size="9.5">gated promotion · human sign-off into UAT</text>
+
+<!-- P6 state -->
+<rect class="band" x="40" y="906" width="1080" height="78" rx="10"/>
+<text class="t3" x="56" y="926">STATE &amp; KNOWLEDGE PLANE</text>
+<rect class="nb" x="64" y="932" width="246" height="44" rx="6"/>
+<text class="t1" x="187" y="950" text-anchor="middle" font-size="11.5">Aurora PostgreSQL</text>
+<text class="t2" x="187" y="966" text-anchor="middle" font-size="9.5">checkpointer · run threads</text>
+<rect class="nb nbA" x="324" y="932" width="246" height="44" rx="6"/>
+<text class="t1" x="447" y="950" text-anchor="middle" font-size="11.5">graphify knowledge graph</text>
+<text class="t2" x="447" y="966" text-anchor="middle" font-size="9.5">god nodes · communities · paths</text>
+<rect class="nb" x="584" y="932" width="246" height="44" rx="6"/>
+<text class="t1" x="707" y="950" text-anchor="middle" font-size="11.5">OpenSearch</text>
+<text class="t2" x="707" y="966" text-anchor="middle" font-size="9.5">vector KB — code · docs</text>
+<rect class="nb" x="844" y="932" width="246" height="44" rx="6"/>
+<text class="t1" x="967" y="950" text-anchor="middle" font-size="11.5">S3</text>
+<text class="t2" x="967" y="966" text-anchor="middle" font-size="9.5">artifacts · SBOMs · test reports</text>
+
+<!-- state read/write rail (left) -->
+<line class="eC dash" x1="52" y1="300" x2="52" y2="900" marker-end="url(#f2c)"/>
+<text class="tE tA" x="60" y="906" font-size="9.5" transform="rotate(-90 60 906)" text-anchor="start">state read / write — all planes</text>
+
+<!-- feedback rail (right) -->
+<polyline class="eW" points="1090,815 1134,815 1134,75 1096,75" marker-end="url(#f2w)"/>
+<text class="tE tW" x="1128" y="460" font-size="9.5" transform="rotate(-90 1128 460)" text-anchor="middle">CloudWatch signals → maintenance loop</text>
+</svg>
+<figcaption>Fig. 2 — AWS deployment view. The amber right-hand rail is the maintenance phase: CloudWatch alarms and deploy telemetry flow back to the dashboard and the KB, so the next run plans with what the last run learned.</figcaption>
+</figure></div>
+
+<h2>3 · Sequence — one run, end to end</h2>
+<pre class="mermaid">
+sequenceDiagram
+  actor Dev as Developer
+  participant Orc as Orchestrator (Jev)
+  participant KB as Knowledge base
+  participant A as Stage subagents (GPT-6 Astra)
+  participant AWS as MCP tools / AWS
+  Dev->>Orc: push / PR merged (webhook)
+  Orc->>AWS: checkout via Git MCP
+  Orc->>KB: query ecosystem (code, deps, artifacts)
+  KB-->>Orc: repo profile + open gaps
+  Orc-->>Dev: interrupt() — targeted questions only for gaps
+  Dev->>Orc: answers (runtime, env targets, test depth)
+  Orc->>Orc: Jev ranks candidate pipeline configs
+  Orc-->>Dev: proposed pipeline (approval gate)
+  Dev->>Orc: approve
+  loop per stage — build → … → UAT
+    Orc->>A: Send(stage task + state slice)
+    A->>AWS: execute via MCP tools (microVM shell for deterministic ops)
+    AWS-->>A: results, logs, artifacts
+    A-->>Orc: evidence + verdict
+    Orc->>Orc: quality gate — Jev routes pass / remediate
+  end
+  Orc-->>Dev: UAT ready + full A→Z run report
+</pre>
+
+<h2>4 · Mapping to the reference agent harness</h2>
+<p>Your harness reference decomposes an agent into five stages plus a memory layer. This architecture is that harness, instantiated for DevOps:</p>
+<div class="tablewrap"><table>
+<tr><th>Harness stage</th><th>Instantiation in this system</th></tr>
+<tr><td>1 · Input &amp; context</td><td>Webhook payload, checked-out repo, run history, prior answers — assembled into <code>PipelineState</code> at graph entry.</td></tr>
+<tr><td>2 · Retrieval &amp; candidates</td><td><code>discover_ecosystem</code>: hybrid retrieval — graphify knowledge graph for structural questions (dependency paths, impacted modules, god nodes, community boundaries) + OpenSearch vectors for unstructured code/docs; candidate pipeline configs generated, not assumed.</td></tr>
+<tr><td>3 · Jev selection layer</td><td>Jev as the fast ranking/classification model on every conditional edge: pick the pipeline config, filter irrelevant stages, route pass/fail/remediate, decide retry vs. escalate. Cheap tokens where reasoning depth isn't needed.</td></tr>
+<tr><td>4 · Agent (planning &amp; reasoning)</td><td>Orchestrator planning node plus GPT-6 Astra inside each stage subagent — the expensive model only where failure analysis and plan repair genuinely need it.</td></tr>
+<tr><td>5 · Execution &amp; validation</td><td>MCP tool calls inside AgentCore microVMs; <code>quality_gate</code> validates evidence (exit codes, scan reports, test results) before any edge advances; bounded retries.</td></tr>
+<tr><td>Memory layer</td><td>Short-term/thread: Aurora checkpointer. Long-term/semantic: OpenSearch vectors + AgentCore Memory (preferences, past decisions). Structural/graph: graphify knowledge graph of the codebase, refreshed per checkout. Artifacts: S3. Retrieval → Jev → injected context — the harness's "vector DB + structured storage + optional graph" triad, with the graph not optional here.</td></tr>
+</table></div>
+
+<h2>5 · ADR-001 — Orchestration spine</h2>
+<p><span class="kv">Status: Proposed · Deciders: Lead Engineer · Scope: AWS only</span></p>
+<h3>Decision</h3>
+<p>Use <strong>LangGraph (v1.x) as the orchestration spine, hosted on Amazon Bedrock AgentCore</strong> for runtime isolation, tool gateway (MCP), identity, and memory — rather than encoding the pipeline in Step Functions or adopting a framework-native swarm.</p>
+
+<h3>Options considered</h3>
+<div class="tablewrap"><table>
+<tr><th>Dimension</th><th>A · LangGraph on AgentCore <span class="good">(chosen)</span></th><th>B · Step Functions + Lambda + Bedrock</th><th>C · Swarm framework (CrewAI / AutoGen) or pure AgentCore harness</th></tr>
+<tr><td>Control flow</td><td>Explicit cyclic graph; <code>interrupt()</code> HITL and remediation loops are native</td><td>DAG-first; cycles and human pauses possible but verbose (callbacks, task tokens)</td><td>Emergent routing; hard to guarantee stage ordering a CI/CD pipeline requires</td></tr>
+<tr><td>State &amp; resume</td><td>Checkpointer per super-step; replay, time-travel, audit</td><td>Execution history is native but state shape is JSON-in-ASL, hard to evolve</td><td>Varies; typically weakest at durable multi-day pauses</td></tr>
+<tr><td>Complexity</td><td>Medium — two systems (graph + platform), both mainstream</td><td>Medium — but agentic logic smeared across ASL + Lambda code</td><td>Low to start, high at the gate/approval edge cases</td></tr>
+<tr><td>Cost shape</td><td>Jev on edges (cheap) + Astra in workers (scoped); microVM only while running</td><td>Cheapest infra; highest engineering cost per pipeline change</td><td>Highest token risk — chatty inter-agent dialogue</td></tr>
+<tr><td>Team leverage</td><td>Largest ecosystem, first-class supervisor/subagent pattern in 2026</td><td>Deep AWS skills transfer; weak agent ergonomics</td><td>Fast demos; thin production track record for CI/CD</td></tr>
+</table></div>
+
+<h3>Trade-off analysis</h3>
+<ul>
+<li><strong>A vs B:</strong> Step Functions excels when the pipeline is fixed; the whole point here is that the pipeline is <em>derived per run</em> from repo state + user answers. A dynamic DAG wants a programmable graph, not ASL. Keep Step Functions in reserve for fully-hardened, no-LLM sub-pipelines later.</li>
+<li><strong>A vs C:</strong> CI/CD is order- and evidence-sensitive; supervisor &gt; swarm. LangGraph's supervisor pattern has the strongest native support in 2026, and the guidance for 5+ workers (hierarchical supervisors) gives a clean growth path — the stage executor becomes a sub-supervisor if stages gain internal crews.</li>
+<li><strong>Jev/Astra split is the cost architecture:</strong> routing, ranking, and gate decisions are classification-shaped (Jev); plan synthesis and failure diagnosis are reasoning-shaped (Astra). Collapsing both into one model either overpays on every edge or under-reasons on every failure.</li>
+<li><strong>Determinism boundary:</strong> anything a Makefile can do, the microVM shell does — the LLM decides <em>what and whether</em>, the shell does <em>how</em>. This is the single biggest lever on cost, latency, and reproducibility.</li>
+</ul>
+
+<h3>Decision log — subordinate choices</h3>
+<div class="tablewrap"><table>
+<tr><th>#</th><th>Decision</th><th>Rationale</th></tr>
+<tr><td>D-02</td><td>Supervisor pattern; hierarchical supervisors only past ~5 concurrent workers</td><td>Single supervisor stays within context; matches 2026 LangGraph guidance</td></tr>
+<tr><td>D-03</td><td>All side effects via MCP servers behind AgentCore Gateway</td><td>Typed, audited, swappable tools; agents never hold raw credentials</td></tr>
+<tr><td>D-04</td><td>Three mandatory HITL gates: ecosystem Q&amp;A, pipeline approval, UAT sign-off</td><td>Autonomy inside stages, human authority at irreversible boundaries</td></tr>
+<tr><td>D-05</td><td>Aurora PostgreSQL checkpointer; <code>thread_id = run_id</code></td><td>Durable pauses, replay for debugging, audit trail for compliance</td></tr>
+<tr><td>D-06</td><td>Per-stage IAM roles via AgentCore Identity</td><td>Blast-radius containment: test agent cannot deploy; deploy agent cannot read secrets scanners use</td></tr>
+<tr><td>D-07</td><td>Promotion dev → staging → UAT; no path past UAT exists in this system</td><td>Production deploys stay a human decision until trust is earned</td></tr>
+<tr><td>D-08</td><td>Report node writes outcomes back to the KB</td><td>Closes the retrieval loop — next run's <code>discover_ecosystem</code> knows this run's results</td></tr>
+<tr><td>D-09</td><td>graphify knowledge graph as the structural memory store, refreshed incrementally per checkout</td><td>Pipeline planning is a structural question (what changed, what depends on it, which stages it touches) — graph queries answer it directly; vectors alone approximate it</td></tr>
+</table></div>
+
+<h2>6 · SDLC &amp; Agile alignment</h2>
+<div class="cols">
+<div class="card"><h4>Build / Test (shift-left)</h4><p>SAST, SCA, secrets, and vulnerability scans run inside the build stage, not after it — a failed scan is a failed build, caught before packaging.</p></div>
+<div class="card"><h4>Release / Deploy</h4><p>Signed images with SBOMs in ECR; gated promotion through dev → staging → UAT mirrors a Definition of Done per environment.</p></div>
+<div class="card"><h4>UAT = sprint review artifact</h4><p>The UAT stage produces a live environment plus evidence bundle — exactly what a sprint review demos and a product owner signs off.</p></div>
+<div class="card"><h4>Operate / Maintain = retrospective loop</h4><p>CloudWatch signals and run reports feed the KB and dashboard; recurring failures become backlog items, and the planner's candidates improve each sprint.</p></div>
+</div>
+<p>Agile fit in one sentence: the pipeline configuration is a per-iteration artifact, regenerated from the current state of the codebase every sprint, instead of a static YAML that quietly rots.</p>
+
+<h2>7 · Consequences</h2>
+<ul>
+<li><span class="good">Easier:</span> onboarding a new repo (the system interviews it), evolving pipelines (regenerate, don't refactor YAML), auditing (checkpointed state + MCP logs reconstruct every run), pausing for humans (durable interrupts).</li>
+<li><span class="bad">Harder:</span> cost governance (needs per-run token budgets and the Jev/Astra split enforced), determinism (pin tool versions in microVM images; replay from checkpoints when debugging), trust calibration (gates start strict, loosen with evidence).</li>
+<li><span class="bad">Revisit when:</span> stage count or concurrency grows past a single supervisor's context (→ hierarchical supervisors); a sub-pipeline fully stabilizes (→ compile it down to Step Functions and remove the LLM from its path); multi-cloud returns to scope.</li>
+</ul>
+<div class="note"><strong>Guardrails that are non-negotiable:</strong> bounded retries per stage (no infinite remediation loops), hard token/time budget per run enforced in the dispatcher, no deploy edge past UAT, and per-agent IAM so a compromised or confused subagent cannot exceed its stage.</div>
+
+<h2>8 · Action items</h2>
+<ul>
+<li>☐ Walking skeleton: trigger → checkout → discover → clarify → plan → report, with Aurora checkpointer and one HITL interrupt — no execution stages yet.</li>
+<li>☐ Stand up AgentCore Gateway with Git + build-runner MCP servers; wire the build+scan subagent end to end on one reference repo.</li>
+<li>☐ Add containerize/release/deploy against a dev ECS cluster; define per-stage IAM roles in AgentCore Identity.</li>
+<li>☐ Implement quality_gate evidence contracts (schema per stage) and bounded-retry policy; red-team the fail loop.</li>
+<li>☐ UAT promotion with sign-off interrupt; LangSmith + CloudWatch dashboard; report-to-KB write-back.</li>
+<li>☐ Load-test the Jev/Astra cost split with per-run budget enforcement before widening to more repos.</li>
+</ul>
+
+<footer>
+<p><strong>Sources</strong> — current-state research behind the harness choices:
+<a href="https://github.com/langchain-ai/langgraph-supervisor-py">LangGraph supervisor (langchain-ai)</a> ·
+<a href="https://focused.io/lab/multi-agent-orchestration-in-langgraph-supervisor-vs-swarm-tradeoffs-and-architecture">Supervisor vs swarm trade-offs</a> ·
+<a href="https://www.digitalapplied.com/blog/multi-agent-orchestration-5-patterns-that-work">Multi-agent orchestration patterns, 2026</a> ·
+<a href="https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/release-notes.html">Bedrock AgentCore release notes</a> ·
+<a href="https://aws.amazon.com/blogs/machine-learning/agentops-operationalize-agentic-ai-at-scale-with-amazon-bedrock-agentcore/">AgentOps with AgentCore (AWS)</a>.</p>
+<p>Model names per your specification: Jev (selection/routing engine) and GPT-6 Astra (worker reasoning model) are configuration bindings; the architecture holds for any router-class + frontier-class pairing.</p>
+</footer>
+</div>
+
+<!--claude-mermaid-runtime-begin:3477-->
+<style>.mermaid-diagram{margin-block:4px}.mermaid-diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}</style>
+<script src="/_runtime/mermaid-11.16.1.min.js"></script>
+<script>(function(){
+var CFG={"palettes":{"light":{"surface":"#f4efe4","text":"#42392e","line":"#8a7f6d","border":"#7a6c52","bg":"#fffdf8"},"dark":{"surface":"#262b34","text":"#f2f3f5","line":"#a8adb8","border":"#9aa4b8","bg":"#1f232b"}}};
+if(typeof mermaid==='undefined')return;
+var pres=Array.prototype.slice.call(document.querySelectorAll('pre.mermaid')).filter(function(p){if(p.hasAttribute('data-claude-mermaid-claimed'))return false;p.setAttribute('data-claude-mermaid-claimed','1');return true;});
+if(!pres.length)return;
+var mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+var root=document.documentElement;
+var items=pres.map(function(pre){
+var mount=document.createElement('div');mount.className='mermaid-diagram';
+return {pre:pre,mount:mount,src:pre.textContent||''};
+});
+var seq=0;
+var renderGen=0;
+var lastKey='';
+function pageBg(fallback){
+var els=[document.body,document.documentElement];
+for(var i=0;i<els.length;i++){
+var c=els[i]&&getComputedStyle(els[i]).backgroundColor;
+if(c&&c!=='transparent'&&c!=='rgba(0, 0, 0, 0)')return c;
+}
+return fallback;
+}
+function render(){
+var theme=root.getAttribute('data-theme');
+var dark=theme==='dark'||(!!(mq&&mq.matches)&&theme!=='light');
+var pal=dark?CFG.palettes.dark:CFG.palettes.light;
+var bg=pageBg(pal.bg);
+var key=(dark?'d':'l')+'|'+bg;
+if(key===lastKey)return;
+lastKey=key;
+var gen=++renderGen;
+var font=getComputedStyle(document.body).fontFamily||'sans-serif';
+var nat={useMaxWidth:false};
+mermaid.initialize({
+startOnLoad:false,securityLevel:'strict',theme:'base',
+flowchart:nat,sequence:nat,er:nat,state:nat,class:nat,pie:nat,
+gantt:nat,journey:nat,timeline:nat,gitGraph:nat,mindmap:nat,xyChart:nat,
+quadrantChart:nat,sankey:nat,c4:nat,requirement:nat,block:nat,
+packet:nat,kanban:nat,architecture:nat,radar:nat,
+themeVariables:{background:bg,mainBkg:pal.surface,primaryColor:pal.surface,
+primaryTextColor:pal.text,lineColor:pal.line,primaryBorderColor:pal.border,
+nodeBorder:pal.border,clusterBorder:pal.border,edgeLabelBackground:bg,
+clusterBkg:'rgba(127,127,127,0.07)',titleColor:pal.text,
+darkMode:dark,rowOdd:bg,rowEven:'rgba(127,127,127,0.07)',
+attributeBackgroundColorOdd:bg,attributeBackgroundColorEven:'rgba(127,127,127,0.07)',
+fontSize:'16px',fontFamily:font},
+themeCSS:'.node rect, .node circle, .node polygon, .node path, .cluster rect { stroke-width: 2px; }'
+});
+items.forEach(function(it){
+var id='claude-mermaid-'+seq++;
+mermaid.render(id,it.src).then(function(r){
+if(gen!==renderGen)return;
+var prev=it.pre.previousElementSibling;
+if(prev&&prev.className==='mermaid-diagram'&&prev!==it.mount)return;
+it.mount.innerHTML=r.svg;
+if(!it.mount.parentNode)it.pre.parentNode.insertBefore(it.mount,it.pre);
+it.pre.style.display='none';
+},function(){
+var scratch=document.getElementById(id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+scratch=document.getElementById('d'+id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+if(gen!==renderGen)return;
+if(it.mount.parentNode)it.mount.parentNode.removeChild(it.mount);
+it.pre.style.display='';
+});
+});
+}
+render();
+if(mq&&mq.addEventListener)mq.addEventListener('change',render);
+if(typeof MutationObserver!=='undefined')new MutationObserver(render).observe(root,{attributes:true,attributeFilter:['data-theme']});
+})();</script>
+<!--claude-mermaid-runtime-end-->
+
+</body></html>

@@ -1,8 +1,27 @@
+# One process serves the React UI and the orchestrator API.
+# SQLite lives on the named volume. The API process stays up and waits
+# for a person to answer in the UI.
 services:
-  support-agent:
+  orchestrator:
     build: .
     ports:
       - "8000:8000"
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.5}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-astra}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      TYPESAFE_MODEL: ${TYPESAFE_MODEL:-jev-latest}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GH_TOKEN: ${GITHUB_TOKEN:-}
+      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-}
+      GITHUB_REF: ${GITHUB_REF:-}
+      GITHUB_REF_NAME: ${GITHUB_REF_NAME:-}
+      GITHUB_SHA: ${GITHUB_SHA:-}
+      ORCHESTRATOR_DISPATCH: ${ORCHESTRATOR_DISPATCH:-local}
+      ORCHESTRATOR_AUTOSTART: ${ORCHESTRATOR_AUTOSTART:-1}
+      ORCHESTRATOR_DB: /app/var/orchestrator.sqlite
+    volumes:
+      - orchestrator-sqlite:/app/var
+
+volumes:
+  orchestrator-sqlite:

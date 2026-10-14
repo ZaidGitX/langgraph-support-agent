@@ -88,21 +88,56 @@ def commands_for(stage: str, answers: dict | None, overrides: dict | None) -> li
                 "timeout": 60,
                 "label": "secrets",
             },
+        ]
+    if stage == "scanners":
+        workflow = ".github/workflows/scanners.yml"
+        return [
             _scanner(
                 "semgrep",
-                ["semgrep", "scan", "--config", "p/python", "--metrics=off", "--quiet", "app", "mcp_server", "orchestrator"],
-                ".github/workflows/scanners.yml",
+                [
+                    "semgrep",
+                    "scan",
+                    "--config",
+                    "p/python",
+                    "--metrics=off",
+                    "--quiet",
+                    "app",
+                    "mcp_server",
+                    "orchestrator",
+                ],
+                workflow,
             ),
             _scanner(
                 "trivy",
                 ["trivy", "fs", "--quiet", "--severity", "HIGH,CRITICAL", "."],
-                ".github/workflows/scanners.yml",
+                workflow,
             ),
             _scanner(
                 "gitleaks",
                 ["gitleaks", "detect", "--no-git", "--redact", "--source", "."],
-                ".github/workflows/scanners.yml",
+                workflow,
             ),
+            _skip("codeql", workflow),
+            _skip("sonar-scanner", workflow),
+        ]
+    if stage == "dast":
+        workflow = ".github/workflows/dast.yml"
+        return [
+            {
+                "argv": [
+                    py,
+                    "-c",
+                    (
+                        "import os, urllib.request; "
+                        "base=os.environ.get('APP_PUBLIC_URL','http://127.0.0.1:8000').rstrip('/'); "
+                        "urllib.request.urlopen(base + '/status', timeout=10).read()"
+                    ),
+                ],
+                "timeout": 30,
+                "label": "smoke",
+            },
+            _skip("zap", workflow),
+            _skip("hawk", workflow),
         ]
     if stage == "test":
         return [{"argv": [py, "-m", "pytest", "-q"], "timeout": 180, "label": "pytest"}]

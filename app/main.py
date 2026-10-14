@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Query
@@ -9,9 +11,28 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, tools
 from .graph import run_agent
+from .orchestrator_api import router as orchestrator_router
 from .schemas import AgentRequest, AgentResponse
 
-app = FastAPI(title="LangGraph Support Agent", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    from orchestrator.session import SessionService
+
+    service = SessionService()
+    app.state.sessions = service
+    if os.getenv("ORCHESTRATOR_AUTOSTART") == "1":
+        service.start()
+        print(
+            "Orchestrator session is waiting for answers at http://localhost:8000/#/orchestrator",
+            flush=True,
+        )
+    yield
+    service.close()
+
+
+app = FastAPI(title="LangGraph Support Agent", version="1.0.0", lifespan=lifespan)
+app.include_router(orchestrator_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
