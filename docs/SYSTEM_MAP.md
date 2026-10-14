@@ -1,4 +1,4 @@
-# System map
+# System map - Final
 
 This repo is two products in one process: a customer-support agent and an agentic CI/CD orchestrator. A push starts only the session workflow. That workflow boots Docker, opens a public URL, and waits. Astra writes the questions and the candidate pipelines. Jev chooses one pipeline. A person answers in the UI. Only the stages in that approved pipeline run.
 
