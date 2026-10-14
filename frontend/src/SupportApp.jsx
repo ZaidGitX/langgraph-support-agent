@@ -30,7 +30,7 @@ export default function SupportApp() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    fetch("/status")
+    fetch("/api/support/status")
       .then((response) => response.json())
       .then((data) => {
         const counts = data.counts || {}
@@ -39,7 +39,7 @@ export default function SupportApp() {
         )
       })
       .catch(() => {
-        setStatusLine("API is not reachable. Start uvicorn on port 8000.")
+        setStatusLine("The support API did not respond on this host.")
       })
   }, [])
 
@@ -51,7 +51,7 @@ export default function SupportApp() {
     setRoute("")
     setTrace(null)
     try {
-      const response = await fetch("/ask", {
+      const response = await fetch("/api/support/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: question }),

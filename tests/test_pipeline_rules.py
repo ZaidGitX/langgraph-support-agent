@@ -6,7 +6,7 @@ from pathlib import Path
 
 from orchestrator import demo
 from orchestrator.catalog import commands_for
-from orchestrator.dispatch import commands_for_stages, execute_stage, workflows_for
+from orchestrator.dispatch import checks_from_jobs, commands_for_stages, execute_stage, workflows_for
 from orchestrator.graph import normalize_stages
 from orchestrator.guardrails import apply_guardrails
 from orchestrator.local_ops import package, release, secrets, uat
@@ -23,6 +23,34 @@ FORBIDDEN_WORKFLOWS = (
     "deploy.yml",
     "ci.yml",
 )
+
+
+def test_workflow_steps_become_pass_fail_and_skip_checks():
+    checks = checks_from_jobs(
+        [
+            {
+                "name": "scan",
+                "steps": [
+                    {"name": "Set up job", "conclusion": "success"},
+                    {"name": "SAST (Semgrep)", "conclusion": "success"},
+                    {"name": "Vulnerabilities (Trivy filesystem)", "conclusion": "failure"},
+                    {"name": "Secrets (Gitleaks)", "conclusion": "skipped"},
+                    {"name": "Post Run actions/checkout@v4", "conclusion": "success"},
+                    {"name": "Complete job", "conclusion": "success"},
+                ],
+            },
+            {
+                "name": "CodeQL (python)",
+                "steps": [{"name": "Perform CodeQL analysis", "conclusion": "success"}],
+            },
+        ]
+    )
+    assert checks == [
+        {"name": "SAST (Semgrep)", "status": "pass", "job": "scan"},
+        {"name": "Vulnerabilities (Trivy filesystem)", "status": "fail", "job": "scan"},
+        {"name": "Secrets (Gitleaks)", "status": "skip", "job": "scan"},
+        {"name": "Perform CodeQL analysis", "status": "pass", "job": "CodeQL (python)"},
+    ]
 
 
 def test_scan_stage_dispatches_scanners_only_when_designated():

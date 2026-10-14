@@ -36,6 +36,7 @@ app.include_router(orchestrator_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origin_regex=r"https://[-a-z0-9]+\.trycloudflare\.com",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -45,11 +46,13 @@ OrderStatus = Literal["pending", "shipped", "delivered", "refunded"]
 
 
 @app.get("/status")
+@app.get("/api/support/status")
 def status() -> dict[str, Any]:
     return tools.status_snapshot()
 
 
 @app.post("/ask", response_model=AgentResponse)
+@app.post("/api/support/ask", response_model=AgentResponse)
 async def ask_agent(request: AgentRequest) -> AgentResponse:
     if not config.get_openai_api_key():
         raise HTTPException(

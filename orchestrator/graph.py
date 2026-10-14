@@ -297,6 +297,7 @@ def evidence_rows(state: dict) -> list[dict]:
                 "evidence": (row.get("evidence") or "")[:500],
                 "brief": row.get("brief") or "",
                 "watch_for": row.get("watch_for") or "",
+                "checks": list(row.get("checks") or []),
             }
         )
     return rows
@@ -717,6 +718,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 "blocked": ran["blocked"],
                 "evidence": ran["evidence"],
                 "commands": ran["commands"],
+                "checks": ran.get("checks") or [],
                 "brief": scrub(brief.summary),
                 "watch_for": scrub(brief.watch_for),
             }

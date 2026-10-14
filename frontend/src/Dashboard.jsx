@@ -346,6 +346,8 @@ export default function Dashboard() {
             </article>
           </section>
 
+          <CheckBoard stages={resultStages} evidence={evidence} />
+
           <section className="panel">
             <h2>Stages</h2>
             {ran && resultStages.length ? (
@@ -404,6 +406,65 @@ export default function Dashboard() {
         </>
       ) : null}
     </main>
+  )
+}
+
+function CheckBoard({ stages, evidence }) {
+  const groups = (stages || [])
+    .filter((stage) => ["test", "scanners", "dast"].includes(stage.name))
+    .map((stage) => {
+      const row = latestEvidence(evidence, stage.name)
+      const checks = Array.isArray(row?.checks) ? row.checks : []
+      return {
+        name: stage.name,
+        status: row?.status || stage.status || "pending",
+        checks,
+      }
+    })
+  if (!groups.length) {
+    return null
+  }
+  return (
+    <section className="panel" aria-label="Tests and scans">
+      <div className="stage-head">
+        <h2>Tests and scans</h2>
+        <p className="legend">
+          <span className="legend-label">Key</span>
+          <Mark value="pass" />
+          <Mark value="fail" />
+          <Mark value="skip" />
+        </p>
+      </div>
+      <p className="card-note">
+        Each tile is one test or scan step from the approved pipeline. The word on the tile is the result.
+      </p>
+      <div className="check-groups">
+        {groups.map((group) => (
+          <article className="check-group" key={group.name}>
+            <header className="check-group-head">
+              <h3>{group.name}</h3>
+              <Mark value={group.status} />
+            </header>
+            {group.checks.length ? (
+              <ul className="check-board">
+                {group.checks.map((check, index) => (
+                  <li
+                    className={`check-tile tone-${toneOf(check.status)}`}
+                    key={`${group.name}-${check.job || ""}-${check.name}-${index}`}
+                  >
+                    <span className="check-name">{check.name}</span>
+                    {check.job ? <span className="check-job">{check.job}</span> : null}
+                    <Mark value={check.status || "pending"} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="empty">This stage finished as {group.status}. Step detail was not recorded.</p>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
   )
 }
 

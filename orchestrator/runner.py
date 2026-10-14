@@ -127,5 +127,13 @@ def run_commands(commands: list[dict], cwd: str) -> dict:
         "exit_code": worst,
         "blocked": blocked,
         "commands": records,
+        "checks": [
+            {
+                "name": record["label"],
+                "status": "pass" if record["exit_code"] == 0 else "fail",
+                "job": "",
+            }
+            for record in records
+        ],
         "evidence": redact(evidence, limit=8000),
     }

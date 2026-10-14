@@ -42,17 +42,18 @@ jobs:
           fail_action: false
           artifact_name: zap-baseline
 
-      # ZAP is the required scan. StackHawk stays in the workflow, but a
-      # missing application id must not fail DAST after ZAP has passed.
+      # ZAP is the required scan. StackHawk needs an application UUID from
+      # app.stackhawk.com. An API key in HAWK_APP_ID is not that id and must
+      # not fail DAST after ZAP has passed.
       - name: Decide whether to run StackHawk
         id: hawk
         env:
           HAWK_APP_ID: ${{ secrets.HAWK_APP_ID }}
         run: |
-          if [ -n "${HAWK_APP_ID//[[:space:]]/}" ]; then
+          if printf '%s' "$HAWK_APP_ID" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "StackHawk skipped: HAWK_APP_ID is not set. OWASP ZAP is the required DAST scan."
+            echo "StackHawk skipped: HAWK_APP_ID must be the application UUID from app.stackhawk.com. OWASP ZAP is the required DAST scan."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           fi
 

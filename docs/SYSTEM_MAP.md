@@ -12,7 +12,7 @@ This repo is two products in one process: a customer-support agent and an agenti
 6. After approval, each stage in that DAG runs its designated workflow with `gh workflow run`, or the same fixed local commands when `ORCHESTRATOR_DISPATCH` is not `github`. A stage that was not in the approved DAG is not dispatched.
 7. A failed stage may retry until the attempt cap of 2. A retry cannot add a stage Jev did not approve. The DAG is kept acyclic. There is no production edge and no path past UAT.
 8. If UAT is in the approved pipeline, the UI waits for a human sign-off.
-9. The results screen lists only the approved stages, their evidence, the Jev route, and the final status. When that screen has been shown, the Actions job exits. If 60 minutes pass first, the job fails and does not submit answers.
+9. The results screen lists only the approved stages, the Jev route, and a board of each test and scan step with its pass, fail, or skip status. The support tab calls `/api/support/status` and `/api/support/ask` on that same public host. After the results screen has been shown, the tunnel stays up for 10 minutes so the support agent can still be used, then the Actions job exits. If 60 minutes pass first, the job fails and does not submit answers.
 
 ## Who decides what
 
@@ -31,7 +31,7 @@ This repo is two products in one process: a customer-support agent and an agenti
 | `.github/workflows/build.yml` | No | `workflow_dispatch`, and only if Jev's approved DAG includes `build`. |
 | `.github/workflows/test.yml` | No | Same, for `test`. |
 | `.github/workflows/scanners.yml` | No | Same, for `scanners`. CodeQL, SonarQube Cloud, Semgrep, pip-audit, Trivy, Snyk Open Source, Gitleaks. |
-| `.github/workflows/dast.yml` | No | Same, for `dast`. Smokes the Compose URL, then OWASP ZAP and StackHawk. |
+| `.github/workflows/dast.yml` | No | Same, for `dast`. Smokes the Compose URL, then OWASP ZAP. StackHawk runs only when `HAWK_APP_ID` is an application UUID. |
 | `.github/workflows/package.yml` | No | Same, for `package`. |
 | `.github/workflows/release.yml` | No | Same, for `release`. |
 | `.github/workflows/deploy.yml` | No | Same, for `deploy`. Targets are local, dev, staging, or uat. |
@@ -59,7 +59,7 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | --- | --- | --- |
 | `app/__init__.py` | Marks the support API package. | Imported by the process. |
 | `app/config.py` | Loads this repo's `.env` only. Exposes OpenAI and TypeSafe keys and the Astra and Jev model names. | Read by the support agent and by `orchestrator/llm.py`. |
-| `app/main.py` | FastAPI app. Support routes (`/status`, `/ask`, `/orders`, `/products`, `/knowledge-base/search`) and the built UI at `/`. Starts the orchestrator session when `ORCHESTRATOR_AUTOSTART=1`. | Mounts `app/orchestrator_api.py`. Serves `frontend/dist`. |
+| `app/main.py` | FastAPI app. Support routes at `/status` and `/ask`, and the same handlers at `/api/support/status` and `/api/support/ask`, plus orders, products, and knowledge search. Serves the built UI at `/`. Starts the orchestrator session when `ORCHESTRATOR_AUTOSTART=1`. | Mounts `app/orchestrator_api.py`. Serves `frontend/dist`. |
 | `app/orchestrator_api.py` | Session HTTP API used by the React UI and by the tests. | Calls `orchestrator/session.py`. |
 | `app/graph.py` | Support-agent LangGraph: classify the question, then orders, products, knowledge, or MCP. | Uses `app/tools.py`, `app/schemas.py`, and `mcp_server/`. Not the CI graph. |
 | `app/schemas.py` | Pydantic models for the support agent request, response, and tool args. | Used by `app/graph.py` and `app/main.py`. |
@@ -105,8 +105,8 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | `frontend/index.html` | HTML shell and the IBM Plex fonts. | Vite entry. |
 | `frontend/src/main.jsx` | Mounts React. | `App.jsx`. |
 | `frontend/src/App.jsx` | Hash router. `#/support` is the support agent. Everything else is the orchestrator session. | `Dashboard.jsx` and `SupportApp.jsx`. |
-| `frontend/src/Dashboard.jsx` | Question screen, pipeline approval, UAT sign-off, and the results screen. Results list only approved stages. | Polls `/api/orchestrator/session` and posts answers to the same API. |
-| `frontend/src/SupportApp.jsx` | Existing support chat. | `POST /ask` and the support routes. |
+| `frontend/src/Dashboard.jsx` | Question screen, pipeline approval, UAT sign-off, and the results screen. Results list only approved stages, plus a tile board of each test and scan step. | Polls `/api/orchestrator/session` and posts answers to the same API. |
+| `frontend/src/SupportApp.jsx` | Existing support chat. | `GET /api/support/status` and `POST /api/support/ask` on the same host as the tunnel. |
 | `frontend/src/App.css` | Support layout, plus the dark engineering theme for the orchestrator. | Both views. |
 | `frontend/vite.config.js` | Dev server. Proxies `/api` and the support routes to port 8000. | Local `npm run dev` only. Docker serves the built files from FastAPI. |
 | `frontend/package.json` | Frontend dependencies and scripts. | The Docker frontend stage. |
@@ -131,7 +131,7 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | `tests/test_session_api.py` | HTTP answers, SQLite pause and resume on the same thread, PipelineState round-trip, and an internal checkpoint on the same database file. | The session API. |
 | `scripts/__init__.py` | Package marker. | — |
 | `scripts/audit_gate.py` | Fails the build only for fixable pip-audit findings. | `build` locally and `scanners.yml`. |
-| `scripts/wait_for_session.py` | Polls the session until the results screen was viewed, or fails at 60 minutes. Never posts answers. | The push workflow. |
+| `scripts/wait_for_session.py` | Polls the session until the results screen was viewed, waits 10 minutes so the support tab can still call the API, or fails at 60 minutes. Never posts answers. | The push workflow. |
 | `README.md` | How to run the support agent. | The support half of the app. |
 | `docs/ORCHESTRATOR_RUNBOOK.md` | Presenter notes for the orchestrator. | Points at the UI session. |
 | `docs/orchestrator-dashboard.png` | Earlier dashboard screenshot. | Documentation only. |

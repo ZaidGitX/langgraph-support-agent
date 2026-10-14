@@ -566,6 +566,70 @@ main.dashboard {
   color: var(--muted);
 }
 
+.dashboard .check-groups {
+  display: grid;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.dashboard .check-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dashboard .check-group-head h3 {
+  margin: 0;
+  font-size: 16px;
+  text-transform: capitalize;
+}
+
+.dashboard .check-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.dashboard .check-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 92px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--plane);
+  border-top: 4px solid var(--line);
+}
+
+.dashboard .check-tile.tone-ok {
+  border-top-color: var(--ok);
+}
+
+.dashboard .check-tile.tone-bad {
+  border-top-color: #d86b6b;
+}
+
+.dashboard .check-tile.tone-skip,
+.dashboard .check-tile.tone-warn {
+  border-top-color: var(--amber);
+}
+
+.dashboard .check-name {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.dashboard .check-job {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .dashboard .stage-rail {
   display: flex;
   align-items: stretch;

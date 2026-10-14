@@ -20,7 +20,7 @@ def wait_for(
     clock=time.time,
     sleep=time.sleep,
     opener=urllib.request.urlopen,
-    grace_seconds: float = 20,
+    grace_seconds: float = 600,
 ) -> int:
     deadline = clock() + timeout_seconds
     url = base_url.rstrip("/") + "/api/orchestrator/session"

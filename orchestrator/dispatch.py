@@ -85,6 +85,76 @@ def commands_for_stages(
     ]
 
 
+def checks_from_jobs(jobs: list[dict]) -> list[dict]:
+    """Turn GitHub job steps into pass, fail, or skip checks for the results board."""
+    checks: list[dict] = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        job_name = str(job.get("name") or "job")
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            name = str(step.get("name") or "").strip()
+            if not name or name in {"Set up job", "Complete job"} or name.startswith("Post "):
+                continue
+            conclusion = str(step.get("conclusion") or step.get("status") or "").lower()
+            if conclusion == "success":
+                status = "pass"
+            elif conclusion in {"failure", "cancelled", "timed_out", "startup_failure"}:
+                status = "fail"
+            elif conclusion == "skipped":
+                status = "skip"
+            else:
+                status = conclusion or "pending"
+            checks.append({"name": name, "status": status, "job": job_name})
+    return checks
+
+
+def checks_from_commands(commands: list[dict]) -> list[dict]:
+    checks: list[dict] = []
+    for command in commands:
+        if not isinstance(command, dict):
+            continue
+        code = command.get("exit_code")
+        if code == 0:
+            status = "pass"
+        elif code is None:
+            status = "pending"
+        else:
+            status = "fail"
+        checks.append({"name": str(command.get("label") or "command"), "status": status, "job": ""})
+    return checks
+
+
+def _workflow_checks(run_id: str) -> list[dict]:
+    command = ["gh", "run", "view", str(run_id), "--json", "jobs"]
+    repo = os.getenv("GITHUB_REPOSITORY", "").strip()
+    if repo:
+        command.extend(["--repo", repo])
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+            env=_gh_env(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if completed.returncode != 0:
+        return []
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        return []
+    jobs = payload.get("jobs") if isinstance(payload, dict) else None
+    if not isinstance(jobs, list):
+        return []
+    return checks_from_jobs(jobs)
+
+
 def _failed(stage: str, message: str) -> dict:
     evidence = redact(message)
     workflow = STAGE_WORKFLOWS.get(stage, stage)
@@ -101,6 +171,14 @@ def _failed(stage: str, message: str) -> dict:
             }
         ],
         "evidence": evidence,
+        "checks": checks_from_commands(
+            [
+                {
+                    "label": stage,
+                    "exit_code": 1,
+                }
+            ]
+        ),
     }
 
 
@@ -212,6 +290,11 @@ def run_workflow(stage: str, answers: dict | None, public_url: str) -> dict:
         f"workflow {STAGE_WORKFLOWS[stage]} run {run.get('url') or run.get('databaseId')} "
         f"exit {watched.returncode}\n{watched.stdout}\n{watched.stderr}"
     )
+    checks = _workflow_checks(str(run.get("databaseId") or ""))
+    if not checks:
+        checks = checks_from_commands(
+            [{"label": STAGE_WORKFLOWS[stage], "exit_code": int(watched.returncode)}]
+        )
     return {
         "status": "pass" if watched.returncode == 0 else "fail",
         "exit_code": int(watched.returncode),
@@ -224,6 +307,7 @@ def run_workflow(stage: str, answers: dict | None, public_url: str) -> dict:
                 "evidence": evidence,
             }
         ],
+        "checks": checks,
         "evidence": evidence,
     }
 
