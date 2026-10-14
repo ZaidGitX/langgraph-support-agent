@@ -630,6 +630,26 @@ main.dashboard {
   color: var(--muted);
 }
 
+.dashboard .check-findings,
+.dashboard .check-next {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.dashboard .check-findings span,
+.dashboard .check-next span {
+  display: block;
+  margin-bottom: 4px;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .dashboard .stage-rail {
   display: flex;
   align-items: stretch;

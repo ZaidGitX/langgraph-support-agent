@@ -12,6 +12,7 @@ from orchestrator.dispatch import (
     execute_stage,
     workflows_for,
 )
+from orchestrator.findings import apply_astra_advice, extract_result
 from orchestrator.graph import normalize_stages
 from orchestrator.guardrails import apply_guardrails
 from orchestrator.local_ops import package, release, secrets, uat
@@ -56,6 +57,74 @@ def test_workflow_steps_become_pass_fail_and_skip_checks():
         {"name": "Secrets (Gitleaks)", "status": "skip", "job": "scan"},
         {"name": "Perform CodeQL analysis", "status": "pass", "job": "CodeQL (python)"},
     ]
+
+
+def test_scan_extract_keeps_real_findings_and_asks_astra_only_then():
+    semgrep, semgrep_step, semgrep_needs = extract_result(
+        "semgrep",
+        [
+            "orchestrator/dispatch.py",
+            "❯❯❱ python.lang.security.audit.example",
+            "• Findings: 1 (1 blocking)",
+        ],
+    )
+    assert "dispatch.py" in semgrep
+    assert "Findings: 1" in semgrep
+    assert semgrep_needs is True
+    assert "scanners" in semgrep_step
+
+    zap, zap_step, zap_needs = extract_result(
+        "zap",
+        [
+            "WARN-NEW: Missing Anti-clickjacking Header [10020] x 2",
+            "FAIL-NEW: 0\tWARN-NEW: 10\tPASS: 57",
+        ],
+    )
+    assert "Anti-clickjacking" in zap
+    assert zap_needs is True
+    assert "headers" in zap_step
+
+    clean, clean_step, clean_needs = extract_result("pytest", ["53 passed in 4.82s"])
+    assert "53 passed" in clean
+    assert clean_needs is False
+    assert "No test change" in clean_step
+
+    class Advice:
+        def __init__(self, name, findings, next_step):
+            self.name = name
+            self.findings = findings
+            self.next_step = next_step
+
+    class AdviceSet:
+        def __init__(self):
+            self.checks = [Advice("SAST (Semgrep)", "One subprocess finding.", "Change that call.")]
+
+    def advise(_payload):
+        return AdviceSet()
+
+    advised = apply_astra_advice(
+        [
+            {
+                "name": "SAST (Semgrep)",
+                "status": "pass",
+                "findings": semgrep,
+                "next_step": semgrep_step,
+                "needs_astra": True,
+            },
+            {
+                "name": "Pytest",
+                "status": "pass",
+                "findings": clean,
+                "next_step": clean_step,
+                "needs_astra": False,
+            },
+        ],
+        advise,
+    )
+    assert advised[0]["next_step"] == "Change that call."
+    assert advised[0]["astra"] is True
+    assert advised[1]["next_step"] == clean_step
+    assert "astra" not in advised[1]
 
 
 def test_scan_stage_dispatches_scanners_only_when_designated():

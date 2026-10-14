@@ -3,7 +3,8 @@
 Jev (`langchain_typesafe.TypeSafeClassifier`) chooses the clarify edge,
 ranks one pipeline, and routes the quality gate. Astra writes the
 ecosystem questions, proposes the candidate DAGs, briefs each designated
-stage, and diagnoses failures. Astra does not invent shell commands.
+stage, writes next steps for test and scan findings, and diagnoses failures.
+Astra does not invent shell commands or findings that were not in the log.
 Designated stages run their GitHub Actions workflow, or the same fixed
 commands locally.
 """
@@ -22,6 +23,7 @@ from app import config
 from . import scan
 from .catalog import commands_for
 from .dispatch import execute_stage
+from .findings import apply_astra_advice
 from .guardrails import apply_guardrails
 from .llm import OpenAIAstra, TypeSafeJev, scrub
 from .schemas import GateDecision
@@ -709,6 +711,10 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 state["repo"]["root"],
                 state.get("answers") or {},
             )
+            checks = apply_astra_advice(list(ran.get("checks") or []), getattr(planner, "advise", None))
+            for check in checks:
+                check["findings"] = scrub(str(check.get("findings") or ""))
+                check["next_step"] = scrub(str(check.get("next_step") or ""))
             result = {
                 "stage": stage_name,
                 "status": ran["status"],
@@ -718,7 +724,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 "blocked": ran["blocked"],
                 "evidence": ran["evidence"],
                 "commands": ran["commands"],
-                "checks": ran.get("checks") or [],
+                "checks": checks,
                 "brief": scrub(brief.summary),
                 "watch_for": scrub(brief.watch_for),
             }

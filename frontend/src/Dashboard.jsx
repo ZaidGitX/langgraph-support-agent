@@ -436,7 +436,7 @@ function CheckBoard({ stages, evidence }) {
         </p>
       </div>
       <p className="card-note">
-        Each tile is one test or scan step from the approved pipeline. The word on the tile is the result.
+        Each tile is one test or scan. It shows the status, the findings that tool printed, and the next step. Astra writes the next step when the extract contains a finding or the step failed.
       </p>
       <div className="check-groups">
         {groups.map((group) => (
@@ -455,6 +455,18 @@ function CheckBoard({ stages, evidence }) {
                     <span className="check-name">{check.name}</span>
                     {check.job ? <span className="check-job">{check.job}</span> : null}
                     <Mark value={check.status || "pending"} />
+                    {check.findings ? (
+                      <p className="check-findings">
+                        <span>Findings</span>
+                        {check.findings}
+                      </p>
+                    ) : null}
+                    {check.next_step ? (
+                      <p className="check-next">
+                        <span>Next step</span>
+                        {check.next_step}
+                      </p>
+                    ) : null}
                   </li>
                 ))}
               </ul>

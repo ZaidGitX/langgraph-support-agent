@@ -2,7 +2,8 @@
 
 Jev fills routing models from `langchain_typesafe.TypeSafeClassifier`
 answers (`Noul` and `Choice`). Astra uses OpenAI structured output for
-questions, candidate DAGs, stage briefs, and failure diagnosis. Astra
+questions, candidate DAGs, stage briefs, failure diagnosis, and
+next steps for test or scan findings. Astra
 schemas have no command or answer fields.
 """
 
@@ -88,6 +89,16 @@ class GateDecision(BaseModel):
 class Diagnosis(BaseModel):
     summary: str
     retry_advice: str
+
+
+class CheckAdvice(BaseModel):
+    name: str
+    findings: str = Field(description="Only findings present in the extract. Do not add new ones.")
+    next_step: str
+
+
+class CheckAdviceSet(BaseModel):
+    checks: list[CheckAdvice] = Field(default_factory=list)
 
 
 def stage_menu() -> list[str]:

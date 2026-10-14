@@ -12,6 +12,7 @@ import subprocess
 import time
 from datetime import datetime, timezone
 
+from .findings import enrich_checks
 from .runner import redact, run_commands
 from .state import FORBIDDEN_TARGETS, target_of
 
@@ -152,7 +153,29 @@ def _workflow_checks(run_id: str) -> list[dict]:
     jobs = payload.get("jobs") if isinstance(payload, dict) else None
     if not isinstance(jobs, list):
         return []
-    return checks_from_jobs(jobs)
+    checks = checks_from_jobs(jobs)
+    return enrich_checks(checks, _workflow_log(run_id))
+
+
+def _workflow_log(run_id: str) -> str:
+    command = ["gh", "run", "view", str(run_id), "--log"]
+    repo = os.getenv("GITHUB_REPOSITORY", "").strip()
+    if repo:
+        command.extend(["--repo", repo])
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+            env=_gh_env(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout or ""
 
 
 def _failed(stage: str, message: str) -> dict:

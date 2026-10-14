@@ -28,6 +28,7 @@ from pydantic import BaseModel, ValidationError
 from app import config
 
 from .schemas import (
+    CheckAdviceSet,
     ClarifyDecision,
     Diagnosis,
     GateDecision,
@@ -70,8 +71,17 @@ BRIEF_SYSTEM = (
 
 DIAGNOSE_SYSTEM = (
     "You are Astra. Diagnose the failed stage evidence in one short summary "
-    "and one sentence of retry advice. Do not invent a production deploy "
-    "and do not invent shell commands."
+    "and one sentence of retry advice. Use the check findings when they are "
+    "present. Do not invent a vulnerability, file, or package that is not in "
+    "the evidence. Do not invent a production deploy and do not invent shell commands."
+)
+
+ADVISE_SYSTEM = (
+    "You are Astra. Each check already has extracted findings from one test or scan. "
+    "For each check, findings must restate only what the extract says. "
+    "next_step is one sentence the engineer should take. "
+    "If the extract has no finding, next_step says no change is required. "
+    "Do not invent a CVE, path, package, or command that is not in the extract."
 )
 
 _SECRET_ENVS = (
@@ -360,7 +370,7 @@ class TypeSafeJev:
 
 
 class OpenAIAstra:
-    """Questions, plan synthesis, stage briefs, and failure diagnosis. Not used for routing."""
+    """Questions, plans, briefs, failure diagnosis, and scan next steps. Not used for routing."""
 
     def write_questions(self, payload: dict) -> QuestionSet:
         return invoke_structured(config.astra_model(), QuestionSet, QUESTION_SYSTEM, payload)
@@ -373,3 +383,6 @@ class OpenAIAstra:
 
     def diagnose(self, payload: dict) -> Diagnosis:
         return invoke_structured(config.astra_model(), Diagnosis, DIAGNOSE_SYSTEM, payload)
+
+    def advise(self, payload: dict) -> CheckAdviceSet:
+        return invoke_structured(config.astra_model(), CheckAdviceSet, ADVISE_SYSTEM, payload)

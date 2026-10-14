@@ -12,13 +12,13 @@ This repo is two products in one process: a customer-support agent and an agenti
 6. After approval, each stage in that DAG runs its designated workflow with `gh workflow run`, or the same fixed local commands when `ORCHESTRATOR_DISPATCH` is not `github`. A stage that was not in the approved DAG is not dispatched.
 7. A failed stage may retry until the attempt cap of 2. A retry cannot add a stage Jev did not approve. The DAG is kept acyclic. There is no production edge and no path past UAT.
 8. If UAT is in the approved pipeline, the UI waits for a human sign-off.
-9. The results screen lists only the approved stages, the Jev route, and a board of each test and scan step with its pass, fail, or skip status. The support tab calls `/api/support/status` and `/api/support/ask` on that same public host. After the results screen has been shown, the tunnel stays up for 10 minutes so the support agent can still be used, then the Actions job exits. If 60 minutes pass first, the job fails and does not submit answers.
+9. The results screen lists only the approved stages and the Jev route. For Semgrep, pytest, Trivy, Snyk, CodeQL, Sonar, ZAP, and StackHawk, each tile shows the status, the findings taken from that step's log, and the next step. Astra writes the next step when the extract contains a finding or the step failed. The support tab calls `/api/support/status` and `/api/support/ask` on that same public host. After the results screen has been shown, the tunnel stays up for 10 minutes so the support agent can still be used, then the Actions job exits. If 60 minutes pass first, the job fails and does not submit answers.
 
 ## Who decides what
 
 | Piece | Role |
 | --- | --- |
-| Astra (`OPENAI_MODEL`, default `gpt-6-astra`) | Writes ecosystem questions, proposes candidate DAGs, writes a short stage brief before a stage runs, and diagnoses a failure. Does not invent shell commands and does not choose the edge. |
+| Astra (`OPENAI_MODEL`, default `gpt-6-astra`) | Writes ecosystem questions, proposes candidate DAGs, writes a short stage brief before a stage runs, and diagnoses a failure. After test, scanners, or DAST, Astra writes the next step only when the extracted log contains a finding or the step failed. Astra does not invent a vulnerability that was not in that extract, does not invent shell commands, and does not choose the edge. |
 | Jev (`langchain_typesafe.TypeSafeClassifier`, default `jev-latest` at `https://api.typesafe.ai/v1/systemone`) | Clarify (`Noul` + `Choice`), rank exactly one pipeline (`Choice`), and route the quality gate (`Choice`: pass, remediate, escalate, skip). |
 | Person in the UI | Answers ecosystem questions, approves or rejects the pipeline, and signs off UAT. |
 | Designated workflow, or the fixed local command list | Does the deterministic work. |
@@ -72,12 +72,13 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | `orchestrator/__init__.py` | Package marker. | — |
 | `orchestrator/state.py` | `PipelineState`, stage names, attempt cap (2), hop cap, and the time budget. Human wait is not counted in the time budget. | Shared by every node. Checkpointed in SQLite. |
 | `orchestrator/schemas.py` | Jev decision models and Astra models for questions, DAGs, briefs, and diagnosis. Astra models have no command field and no answer field. | Filled by `orchestrator/llm.py`. |
-| `orchestrator/llm.py` | `TypeSafeJev` routes. `OpenAIAstra` writes questions, proposes DAGs, briefs a stage, and diagnoses a failure. Scrubs credentials before anything is stored. | Jev calls TypeSafe. Astra calls OpenAI. |
+| `orchestrator/llm.py` | `TypeSafeJev` routes. `OpenAIAstra` writes questions, proposes DAGs, briefs a stage, advises on test and scan findings, and diagnoses a failure. Scrubs credentials before anything is stored. | Jev calls TypeSafe. Astra calls OpenAI. |
 | `orchestrator/scan.py` | Reads the checkout: languages, manifests, entry points, gaps. Does not write the questions. | `discover_ecosystem` passes the facts to Astra. |
 | `orchestrator/graph.py` | The supervisor graph, guardrailed routing, stage briefs, and the report. Does not add a stage that was not proposed. | Calls scan, catalog, dispatch, guardrails, and the checkpointer. |
 | `orchestrator/guardrails.py` | Caps retries, refuses a retry of a stage that is not in the approved pipeline, and blocks a path past UAT. | Applied inside `quality_gate`. |
 | `orchestrator/catalog.py` | Fixed argv for each stage. The model does not supply these. | Local execution. The matching workflow is the GitHub path. |
-| `orchestrator/dispatch.py` | Maps an approved stage to one workflow file and runs `gh workflow run`, or runs the catalog commands locally. | Used by each stage node. DAST receives the public app URL. |
+| `orchestrator/dispatch.py` | Maps an approved stage to one workflow file and runs `gh workflow run`, or runs the catalog commands locally. After a workflow finishes, it reads the job log. | Used by each stage node. DAST receives the public app URL. |
+| `orchestrator/findings.py` | Reads Semgrep, pytest, Trivy, Snyk, CodeQL, Sonar, ZAP, and StackHawk lines out of that log. Marks a check for Astra only when the extract has a finding or the step failed. | Called from `dispatch.py`. Astra advice is applied in `graph.py`. |
 | `orchestrator/runner.py` | Runs the fixed commands and redacts evidence. | Called from dispatch in local mode. |
 | `orchestrator/local_ops.py` | Package, container check, release plan, gated deploy, UAT checklist, and the redacted secret scan. Refuses production. | Called by catalog commands and by the package, release, deploy, and UAT workflows. |
 | `orchestrator/checkpoints.py` | Opens the SQLite checkpointer. | Session thread and tests. |
@@ -105,7 +106,7 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | `frontend/index.html` | HTML shell and the IBM Plex fonts. | Vite entry. |
 | `frontend/src/main.jsx` | Mounts React. | `App.jsx`. |
 | `frontend/src/App.jsx` | Hash router. `#/support` is the support agent. Everything else is the orchestrator session. | `Dashboard.jsx` and `SupportApp.jsx`. |
-| `frontend/src/Dashboard.jsx` | Question screen, pipeline approval, UAT sign-off, and the results screen. Results list only approved stages, plus a tile board of each test and scan step. | Polls `/api/orchestrator/session` and posts answers to the same API. |
+| `frontend/src/Dashboard.jsx` | Question screen, pipeline approval, UAT sign-off, and the results screen. Results list only approved stages. Test and scan tiles show status, findings, and the next step. | Polls `/api/orchestrator/session` and posts answers to the same API. |
 | `frontend/src/SupportApp.jsx` | Existing support chat. | `GET /api/support/status` and `POST /api/support/ask` on the same host as the tunnel. |
 | `frontend/src/App.css` | Support layout, plus the dark engineering theme for the orchestrator. | Both views. |
 | `frontend/vite.config.js` | Dev server. Proxies `/api` and the support routes to port 8000. | Local `npm run dev` only. Docker serves the built files from FastAPI. |
