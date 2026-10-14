@@ -6,7 +6,12 @@ from pathlib import Path
 
 from orchestrator import demo
 from orchestrator.catalog import commands_for
-from orchestrator.dispatch import checks_from_jobs, commands_for_stages, execute_stage, workflows_for
+from orchestrator.dispatch import (
+    checks_from_jobs,
+    commands_for_stages,
+    execute_stage,
+    workflows_for,
+)
 from orchestrator.graph import normalize_stages
 from orchestrator.guardrails import apply_guardrails
 from orchestrator.local_ops import package, release, secrets, uat
