@@ -1,4 +1,4 @@
-# Support agent
+# Support agent - Sprint 2
 
 A small customer-support app. LangGraph routes each question to an order lookup, a product lookup, the policy docs, or a FastMCP tool. FastAPI still exposes those lookups, and a React page sits on top.
 
