@@ -117,20 +117,35 @@ dispatch their workflows; generated workflows dispatch only when
 
 ## Demo-ready acceptance checklist
 
-- [ ] `run_sprint3_checks.sh` green; test count ≥ 55 + the new files.
-- [ ] Readiness panel renders before a session; no value ever appears (search the page
-      source for a known fake value set in the shell).
-- [ ] A stochastic candidate with ≥ 1 generated stage appears every run (if Astra proposes
-      none, the trace says so and the demo still works).
-- [ ] Generated artifacts visible before approval with policy badges; approve disabled on
-      policy errors.
-- [ ] A generated local/docker stage executes and its tile shows findings or `generated-ok`.
-- [ ] A cloud stage renders `planned` amber with the missing names; gate passes.
-- [ ] UAT gate still blocks; no production reference in report, state, or files.
-- [ ] Episode recorded; second run shows it in Episodes and in Astra's questions.
-- [ ] `docs/SYSTEM_MAP.md`, `docs/ORCHESTRATOR_RUNBOOK.md`, `README.md`, `.env.example`
-      updated; `git status` clean after the phase commit.
-- [ ] The push workflow still passes `test_only_the_session_workflow_runs_on_push`.
+Filled on 2026-10-28 from `scripts/rehearse_demo.py` (offline, the deterministic doubles,
+three sessions over the real HTTP API) plus a server-side render of every captured view
+through `Dashboard` (`initialSession` prop). Items that need real Astra and Jev are marked.
+
+- [x] `run_sprint3_checks.sh` green; test count ≥ 55 + the new files. (210 tests.)
+- [x] Readiness panel renders before a session; no value ever appears (search the page
+      source for a known fake value set in the shell). (The rehearsal plants two fake values;
+      none reached readiness, a view, a report, a generated file, or the rendered HTML.)
+- [x] A stochastic candidate with ≥ 1 generated stage appears every run (if Astra proposes
+      none, the trace says so and the demo still works). (With the doubles every run; the
+      live Astra proposal is still to be watched in variant A.)
+- [x] Generated artifacts visible before approval with policy badges; approve disabled on
+      policy errors. (Approval view carried `ci/container_scan.sh` and `.env.local.example`
+      with `ok`; the server refuses approval on errors and the rendered button is disabled.)
+- [x] A generated local/docker stage executes and its tile shows findings or `generated-ok`.
+- [x] A cloud stage renders `planned` amber with the missing names; gate passes.
+      (`deploy_dev` on `aws_codebuild`: missing `AWS_REGION`, `AWS_ACCESS_KEY_ID`; route
+      `pass`; status `passed`; `aws_called` false.)
+- [x] UAT gate still blocks; no production reference in report, state, or files. (The only
+      lines naming production are the two guard sentences of the report.)
+- [x] Episode recorded; second run shows it in Episodes and in Astra's questions. (The second
+      run's questions payload and view carried the earlier run ids; the doubles ignore them,
+      so the recalled lesson in a live question is still to be watched in variant A.)
+- [x] `docs/SYSTEM_MAP.md`, `docs/ORCHESTRATOR_RUNBOOK.md`, `README.md`, `.env.example`
+      updated; `git status` clean after the phase commit. (`.env.example` unchanged since
+      phase 3; clean after the phase 7 commit.)
+- [x] The push workflow still passes `test_only_the_session_workflow_runs_on_push`.
+- [ ] Variants A, B, and C with real keys (OpenAI, TypeSafe, and for C a valid `gh` token):
+      not rehearsed here; they spend the user's API usage and are the user's call.
 
 ## Pitfalls seen in this repo
 

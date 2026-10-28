@@ -93,6 +93,33 @@ The Sprint 3 session screen walks the phases in order:
 
 Results list only the approved stages. Reloading on any phase shows the same screen, because the poll reads server state.
 
+## Rehearsal (offline, before the live run)
+
+```bash
+/opt/anaconda3/envs/tcs_practice_env/bin/python scripts/rehearse_demo.py
+```
+
+No key and no network. The script drives three sessions through the same HTTP API the dashboard uses, with the deterministic doubles from `tests/` in place of Astra and Jev: `local` (a stochastic route whose generated `container_scan` executes on the local runner and prints `generated-ok`), `cloud_plan` (a `deploy_dev` stage on AWS CodeBuild that records `planned` with the missing names and still passes the gate), and `recall` (a second run that recalls the first episode before the questions). It plants two fake credential values first and fails if either appears in readiness, a view, a report, or a generated file. Output: `var/rehearsal/<timestamp>/` with `view-<phase>.json` per scenario, `report.md`, `report.json`, `artifacts.json`, `episodes.json`, and `summary.md`. The last rehearsal on 2026-10-28 passed all nine checks in under one second per scenario.
+
+## Demo variants
+
+Rehearse A, then B, then C once `gh auth refresh -h github.com` has a valid token.
+
+- **A. Local processes.** `ORCHESTRATOR_AUTOSTART=1 ORCHESTRATOR_DISPATCH=local uvicorn app.main:app --port 8000`, then `cd frontend && npm run dev` and open `http://127.0.0.1:5173/#/orchestrator`. The docker runner applies (the daemon is on the host); cloud runners plan unless their names are set.
+- **B. Compose.** `docker compose up --build`, then `http://127.0.0.1:8000/#/orchestrator`. Inside the container the docker runner plans unless the socket line in `docker-compose.yml` is uncommented.
+- **C. Push.** The Actions log prints the tunnel URL; `ORCHESTRATOR_DISPATCH=github`; fixed stages dispatch their workflows; generated workflows dispatch only with `ORCHESTRATOR_WRITE_ARTIFACTS=1` and a token that can push the `orchestrator/generated/<run_id>` branch.
+
+## What to say, per screen
+
+1. **Readiness.** "The orchestrator knows which CLIs and which credential names exist. The AWS CLI is present, the credentials are not, so AWS routes will plan, not apply."
+2. **Questions.** "Astra read the checkout with retrieval; it asks about platform and runner and says what is missing."
+3. **Follow-up.** "Jev decided one more round was worth it."
+4. **Candidates.** "A deterministic route and a stochastic route, with Jev's probabilities. The stochastic route adds a container scan and a dev deploy on CodeBuild."
+5. **Artifacts.** "Astra wrote this script, this buildspec, this env manifest, and this doc. The policy checked them: pinned actions, placeholders only, no production."
+6. **Approve, stages run.** "The scan ran here for real; the CodeBuild deploy is planned with the exact command and the variables it needs."
+7. **UAT sign-off, results.** "Findings, next steps, retrieval evidence, and the recorded episode."
+8. **Second run.** "Astra recalls the first episode and proposes with that lesson."
+
 ## Tests
 
 ```bash

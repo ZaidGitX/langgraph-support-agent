@@ -96,6 +96,8 @@ Commit: `Sprint 3 phase 6: readiness, candidates, artifacts, retrieval, episodes
 
 ## Phase 7 — Demo rehearsal (ref `10`)
 
+- First `scripts/rehearse_demo.py` (offline: generated local scan, planned CodeBuild deploy,
+  episode recall, planted fake values never appear); it must print `ALL PASS`.
 - Run variant A end to end with real keys; then variant B; then C if `gh` is refreshed.
 - Record one run with a planned cloud stage and one with a docker scan that executed.
 - Update `frontend/public/samples/live-run.json` with a redacted copy of the new report

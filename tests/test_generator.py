@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from orchestrator import generator
+from orchestrator import generator, policy
 from orchestrator.providers.aws import AwsProvider
 from orchestrator.providers.local import LocalProvider
 from orchestrator.schemas import ArtifactSet, GeneratedArtifact
@@ -111,5 +111,7 @@ def test_materialize_and_publish_are_gated(tmp_path, monkeypatch):
 
 
 def test_docs_path_and_generated_dir():
-    assert str(generator.docs_path("/r", "run-1", {"platform": "aws", "tier": "dev"})).endswith("var/generated/run-1/docs/deploy-aws-dev.md")
+    assert str(generator.docs_path("/r", "run-1", {"platform": "aws", "tier": "dev"})).endswith("var/generated/run-1/pipeline/docs/deploy/aws-dev.md")
+    assert generator.doc_relative_path({"platform": "aws", "tier": "dev"}) == "docs/deploy/aws-dev.md"
+    assert policy.check_path(generator.doc_relative_path(None)).ok
     assert str(generator.generated_dir("/r", "run-1", "lint")).endswith("var/generated/run-1/lint")

@@ -239,9 +239,17 @@ def publish_branch(run_id: str, root: str, paths: list[str]) -> str:
     return branch
 
 
-def docs_path(root: str, run_id: str, environment: dict | None) -> Path:
+def doc_relative_path(environment: dict | None) -> str:
+    """The deploy document's artifact path: ``docs/deploy/<platform>-<tier>.md`` (a policy prefix)."""
     environment = environment or {}
-    return Path(root) / "var" / GENERATED_DIR / str(run_id) / "docs" / f"deploy-{environment.get('platform') or 'local'}-{environment.get('tier') or 'local'}.md"
+    return f"docs/deploy/{environment.get('platform') or 'local'}-{environment.get('tier') or 'local'}.md"
+
+
+def docs_path(root: str, run_id: str, environment: dict | None) -> Path:
+    """Where the run-level deploy document is stored: the pseudo-stage folder ``pipeline`` so
+    the stored path reads ``var/generated/<run>/pipeline/docs/deploy/<platform>-<tier>.md``
+    and the policy checker's stage-relative path is a ``docs/deploy/`` one."""
+    return generated_dir(root, run_id, "pipeline") / doc_relative_path(environment)
 
 
 def revisions_allowed() -> int:

@@ -1426,6 +1426,10 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                     "answers": state.get("answers") or {},
                 }
             )
+            relative = generator.doc_relative_path(pipeline.get("environment"))
+            verdict = policy.check_text(scrub(doc.content), kind="doc", path=relative)
+            if not verdict.ok or not policy.check_path(relative).ok:
+                return
             target = generator.docs_path(state["repo"]["root"], str(state.get("run_id")), pipeline.get("environment"))
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(scrub(doc.content), encoding="utf-8")

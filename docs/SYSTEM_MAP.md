@@ -151,6 +151,7 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | `scripts/__init__.py` | Package marker. | — |
 | `scripts/audit_gate.py` | Fails the build only for fixable pip-audit findings. | `build` locally and `scanners.yml`. |
 | `scripts/wait_for_session.py` | Polls the session until the results screen was viewed, waits 10 minutes so the support tab can still call the API, or fails at 60 minutes. Never posts answers. | The push workflow. |
+| `scripts/rehearse_demo.py` | Offline demo rehearsal: drives three sessions over the HTTP API with the deterministic doubles from `tests/` (generated local scan, planned CodeBuild deploy, episode recall), plants fake credential values and fails if one appears anywhere, writes views, reports, and a summary under `var/rehearsal/`. | Developer tool before a live demo. Never used by the app or CI. |
 | `README.md` | How to run the support agent. | The support half of the app. |
 | `docs/ORCHESTRATOR_RUNBOOK.md` | Presenter notes for the orchestrator. | Points at the UI session. |
 | `docs/orchestrator-dashboard.png` | Earlier dashboard screenshot. | Documentation only. |

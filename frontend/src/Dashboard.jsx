@@ -92,8 +92,10 @@ async function errorDetail(response) {
   return `The orchestrator returned ${response.status}.`
 }
 
-export default function Dashboard() {
-  const [session, setSession] = useState(null)
+// `initialSession` seeds the view before the first poll (server-side renders and the
+// offline rehearsal use it); the live page leaves it empty and polls.
+export default function Dashboard({ initialSession = null }) {
+  const [session, setSession] = useState(initialSession)
   const [draft, setDraft] = useState({})
   const [error, setError] = useState("")
   const [sending, setSending] = useState(false)

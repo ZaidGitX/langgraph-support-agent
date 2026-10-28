@@ -1,4 +1,4 @@
-# Support agent - Sprint 2
+# Support agent and agentic CI/CD orchestrator - Sprint 3
 
 A small customer-support app. LangGraph routes each question to an order lookup, a product lookup, the policy docs, or a FastMCP tool. FastAPI still exposes those lookups, and a React page sits on top.
 
@@ -40,6 +40,29 @@ docker compose up --build
 ```
 
 Open http://127.0.0.1:8000. The image serves the built React page and the API together.
+
+## Orchestrator demo (Sprint 3)
+
+The orchestrator session is the default page: `http://127.0.0.1:8000/#/orchestrator` (or
+port 5173 with `npm run dev`). Three ways to run it, in the order to rehearse them:
+
+| Variant | Command | Runners |
+| --- | --- | --- |
+| A. local processes | `ORCHESTRATOR_AUTOSTART=1 ORCHESTRATOR_DISPATCH=local uvicorn app.main:app --port 8000` | local and docker apply; cloud runners plan |
+| B. Compose | `docker compose up --build` | docker runner plans inside the container unless the socket line in `docker-compose.yml` is uncommented |
+| C. push | push to `main`; the Actions log prints the tunnel URL | fixed stages dispatch their workflows; generated workflows need `ORCHESTRATOR_WRITE_ARTIFACTS=1` and a token that can push a branch |
+
+Before a live run, rehearse offline with the deterministic doubles (no key, no network):
+
+```bash
+/opt/anaconda3/envs/tcs_practice_env/bin/python scripts/rehearse_demo.py
+```
+
+It drives three sessions over the real HTTP API (a generated scan that executes locally, a
+CodeBuild deploy that records `planned`, and a second run that recalls the first episode),
+plants fake credential values and proves they never appear, and writes the views, reports,
+and a pass/fail summary under `var/rehearsal/<timestamp>/`. The presenter script is in
+`docs/ORCHESTRATOR_RUNBOOK.md`.
 
 ## Tests
 
