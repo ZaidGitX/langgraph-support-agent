@@ -37,14 +37,14 @@ Astra (`gpt-6-astra`, whatever `OPENAI_MODEL` is) writes the ecosystem questions
 ## Nodes
 
 1. **checkout** — treat this repo as the checkout. Record languages, build tools, and dependency manifests.
-2. **discover_ecosystem** — scan the checkout, then Astra writes the questions. Retrieval is a local file scan. graphify and OpenSearch are not queried. Jev then chooses `skip` or `ask`.
+2. **discover_ecosystem** — scan the checkout, pull topic excerpts from the local BM25 index (`orchestrator/retrieval.py`, built in `checkout`), recall the newest episodes of earlier runs on this checkout (`orchestrator/episodes.py`), then Astra writes the questions with that context. graphify and OpenSearch are not queried. Jev then chooses `skip` or `ask`.
 3. **clarify_with_user** — `interrupt()` when Jev says `ask` and questions are open. The UI is the only place those answers are submitted.
 4. **plan_pipeline** — Astra proposes two or three DAGs. Jev ranks exactly one and may drop stages. The graph does not add a stage that was not in that choice.
 5. **approve_pipeline** — `interrupt()` for pipeline approval.
 6. **dispatch_stages** — `Send()` to the approved stages whose dependencies passed. Retries are capped at 2 per stage and cannot add a stage Jev did not approve.
 7. **build, test, scanners, dast, package, container, release, deploy, uat** — only the ones in the approved DAG. On GitHub, the stage dispatches its workflow. Locally it runs the fixed command list. Deploy refuses `production` and `prod`. UAT interrupts for sign-off. There is no production node.
 8. **quality_gate** — Jev `Choice` reads the evidence and returns `pass`, `skip`, `remediate`, or `escalate`. Code then applies the caps: no infinite retry, no escalate when nothing failed, no path past UAT.
-9. **report** — the A→Z text on stdout and in `var/report.md`. The same run is `var/report.json` (`run_id`, trace, Jev decisions, candidates, chosen pipeline, stage evidence, quality gate, approvals, `past_uat: false`).
+9. **report** — the A→Z text on stdout and in `var/report.md`, with the retrieval evidence and the recalled episodes. The same run is `var/report.json` (`run_id`, trace, Jev decisions, candidates, chosen pipeline, stage evidence, quality gate, approvals, retrieval, episodes, `past_uat: false`). The run is then recorded in the `episodes` table so the next run can recall it.
 
 ## Local versus deferred
 

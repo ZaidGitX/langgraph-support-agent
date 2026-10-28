@@ -20,7 +20,7 @@ from langgraph.types import Send, interrupt
 
 from app import config
 
-from . import registry, scan
+from . import episodes, registry, retrieval, scan
 from .catalog import commands_for
 from .dispatch import execute_stage
 from .findings import apply_astra_advice
@@ -38,6 +38,7 @@ from .state import (
     failed_stages,
     latest_results,
     pending_stages,
+    platform_of,
     target_of,
 )
 
@@ -165,6 +166,29 @@ def _question_id(raw: str, used: set[str]) -> str:
     return ident
 
 
+def menu_by_family() -> dict[str, list[str]]:
+    """Registry stage names grouped by family: compact enough for every prompt."""
+    grouped: dict[str, list[str]] = {}
+    for item in registry.stage_menu():
+        grouped.setdefault(item["family"], []).append(item["name"])
+    return grouped
+
+
+def retrieval_context(root: str, index: dict | None) -> dict:
+    """Excerpts and evidence from the checkout index for Astra's prompts. Never raises."""
+    try:
+        retrieved = retrieval.context_for(root, list(retrieval.QUESTION_TOPICS))
+    except (OSError, ValueError):
+        retrieved = {}
+    index = index or {}
+    summary = (
+        f"Local BM25 index {index.get('index_id') or 'n/a'} over {index.get('files', 0)} files "
+        f"and {index.get('chunks', 0)} chunks ({index.get('retriever') or 'bm25'}). "
+        "graphify and OpenSearch are deferred and were not queried."
+    )
+    return {"retrieved": retrieved, "evidence": retrieval.evidence(retrieved), "retrieval": summary}
+
+
 def questions_from_astra(planner, ecosystem: dict, answers: dict | None) -> list[dict]:
     """Astra writes the prompts. Already-answered ids are not asked again."""
     proposed = planner.write_questions(
@@ -175,6 +199,9 @@ def questions_from_astra(planner, ecosystem: dict, answers: dict | None) -> list
                 "gaps": ecosystem.get("gaps"),
                 "build_tools": ecosystem.get("build_tools"),
             },
+            "retrieved": retrieval.trim_context(ecosystem.get("retrieved") or {}),
+            "episodes": list(ecosystem.get("episodes") or []),
+            "stage_menu": menu_by_family(),
             "already_answered": sorted((answers or {}).keys()),
         }
     )
@@ -407,6 +434,12 @@ def machine_report(state: dict) -> dict:
             "request_ids": [item.get("request_id") for item in decisions if item.get("request_id")],
         },
         "approved_stages": [stage.get("name") for stage in (pipeline.get("stages") or []) if stage.get("name")],
+        "retrieval": {
+            **dict(state.get("retrieval") or {}),
+            "summary": (state.get("ecosystem") or {}).get("retrieval") or "",
+            "evidence": list((state.get("ecosystem") or {}).get("evidence") or []),
+        },
+        "episodes": list(state.get("episodes") or []),
         "cloudwatch": {
             "called": False,
             "note": (
@@ -455,6 +488,23 @@ def conclude(state: dict) -> str:
     return "passed"
 
 
+def _retrieval_lines(state: dict) -> list[str]:
+    rows = (state.get("ecosystem") or {}).get("evidence") or []
+    if not rows:
+        return ["  none"]
+    return [f"  {row.get('path')}:{row.get('lines')} ({row.get('topic')})" for row in rows[:20]]
+
+
+def _episode_lines(state: dict) -> list[str]:
+    rows = state.get("episodes") or []
+    if not rows:
+        return ["  none"]
+    return [
+        f"  {row.get('run_id')} {row.get('status')} {((row.get('chosen') or {}).get('id') or '-')}: {row.get('lesson')}"
+        for row in rows
+    ]
+
+
 def render_report(state: dict, status: str) -> str:
     repo = state.get("repo") or {}
     lines = [
@@ -476,6 +526,12 @@ def render_report(state: dict, status: str) -> str:
         f"  retrieval: {(state.get('ecosystem') or {}).get('retrieval')}",
         f"  entry points: {', '.join((state.get('ecosystem') or {}).get('entry_points') or [])}",
         f"  dast: {(state.get('ecosystem') or {}).get('dast')}",
+        "",
+        "Retrieval evidence",
+        *_retrieval_lines(state),
+        "",
+        "Episodes recalled",
+        *_episode_lines(state),
         "",
         "Questions",
     ]
@@ -552,14 +608,32 @@ def interrupt_payload(graph, config) -> dict | None:
     return value if isinstance(value, dict) else {"raw": value}
 
 
-def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
+def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_db=None):
+    """Compile the supervisor.
+
+    ``episodes_db`` is the SQLite file that holds the ``episodes`` table (the session passes
+    its checkpointer path). When it is None, ``episodes.default_db_path`` resolves
+    ``ORCHESTRATOR_DB`` or ``<repo>/var/orchestrator.sqlite`` at record and recall time.
+    """
     router = jev or TypeSafeJev()
     planner = astra or OpenAIAstra()
 
     def checkout(state: PipelineState) -> dict:
-        profile = scan.scan_checkout(state["repo"]["root"])
+        root = state["repo"]["root"]
+        profile = scan.scan_checkout(root)
+        try:
+            index = retrieval.build_index(root)
+        except (OSError, ValueError) as exc:
+            index = {
+                "index_id": "",
+                "files": 0,
+                "chunks": 0,
+                "retriever": "unavailable",
+                "error": scrub(f"{type(exc).__name__}: {exc}"),
+            }
         return {
             "repo": profile,
+            "retrieval": index,
             "trace": ["checkout"],
             "hops": 1,
             "env_state": {
@@ -577,7 +651,10 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         }
 
     def discover_ecosystem(state: PipelineState) -> dict:
-        ecosystem = scan.discover(state["repo"]["root"])
+        root = state["repo"]["root"]
+        ecosystem = scan.discover(root)
+        ecosystem.update(retrieval_context(root, state.get("retrieval") or {}))
+        ecosystem["episodes"] = episodes.recall(root, limit=3, db_path=episodes_db)
         questions = questions_from_astra(planner, ecosystem, state.get("answers") or {})
         payload = {
             "open_questions": questions,
@@ -588,6 +665,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         decision = router.clarify(payload)
         return {
             "ecosystem": ecosystem,
+            "episodes": list(ecosystem.get("episodes") or []),
             "open_questions": questions,
             "clarify_decision": decision.model_dump(),
             "jev_decisions": [jev_event(router, "clarify", "ClarifyDecision", decision)],
@@ -634,6 +712,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
                 "entry_points": (state.get("ecosystem") or {}).get("entry_points"),
                 "answers": state.get("answers") or {},
                 "diagnosis": state.get("diagnosis") or "",
+                "retrieved": retrieval.trim_context((state.get("ecosystem") or {}).get("retrieved") or {}),
+                "episodes": list((state.get("ecosystem") or {}).get("episodes") or []),
+                "platform": platform_of(state.get("answers")),
                 "stage_menu": list(STAGE_NAMES),
             }
         )
@@ -862,6 +943,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         status = conclude(state)
         shown = dict(state)
         shown["trace"] = [*(state.get("trace") or []), "report"]
+        episodes.record(shown, status, db_path=episodes_db)
         return {
             "status": status,
             "report": render_report(shown, status),

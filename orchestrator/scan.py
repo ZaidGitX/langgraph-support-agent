@@ -117,7 +117,8 @@ def discover(root: str) -> dict:
             "No release-policy file is in the checkout.",
         ],
         "retrieval": (
-            "Local filesystem scan of this checkout. "
+            "Local filesystem scan of this checkout; the BM25 index in "
+            "orchestrator/retrieval.py supplies the code excerpts. "
             "graphify and OpenSearch are deferred and were not queried."
         ),
         "dast": dast_note,

@@ -48,18 +48,23 @@ PLAN_SYSTEM = (
     "repository. Stage names must be build, test, scanners, dast, package, "
     "container, release, deploy, or uat. Every candidate includes build, "
     "test, and uat. uat is the last stage and depends on the stage before it. "
-    "No production stage and no stage after uat. Do not invent shell commands. "
-    "The designated workflow or the fixed local command list will run; you only choose the DAG."
+    "No production stage and no stage after uat. Use the retrieved code excerpts to "
+    "match the stages to what the repository really builds, tests, and deploys. Prior "
+    "episodes tell you what ran and failed before; prefer routes that fixed earlier "
+    "failures. Do not invent shell commands. The designated workflow or the fixed "
+    "local command list will run; you only choose the DAG."
 )
 
 QUESTION_SYSTEM = (
     "You are Astra. Write the questions a human must answer before a CI/CD "
-    "pipeline can be planned for this checkout. Ask only about gaps that are "
-    "not already answered. When those topics are still open, cover the target "
-    "environment (local, dev, staging, or uat — never production), the test "
-    "depth, and the release policy (this system stops at UAT and has no "
-    "production edge). Do not answer the questions. Do not propose a pipeline. "
-    "Do not invent shell commands. Use short snake_case ids."
+    "pipeline can be planned for this checkout. Use the retrieved code excerpts and "
+    "prior episodes to avoid asking what the repository or an earlier run already "
+    "answers. Ask only about gaps that are not already answered, at most six. When a "
+    "topic is open, use these ids exactly: env_target (local, dev, staging, or uat; never "
+    "production), env_platform (local, docker, github, jenkins, aws, gcp, azure, remote, "
+    "kubernetes), runner_preference, test_depth, scan_policy, release_policy (this system "
+    "stops at UAT and has no production edge). Do not answer the questions. Do not "
+    "propose a pipeline. Do not invent shell commands. Use short snake_case ids."
 )
 
 BRIEF_SYSTEM = (
@@ -113,35 +118,66 @@ def scrub(text: str) -> str:
     return cleaned
 
 
-def _client(model_name: str) -> ChatOpenAI:
+def _client(model_name: str, temperature: float | None = None) -> ChatOpenAI:
     api_key = config.get_openai_api_key()
     if not api_key:
         raise RuntimeError(
             "OPENAI_API_KEY is not set. Add it to langgraph_support_app/.env "
             "or export it before running the orchestrator demo."
         )
-    return ChatOpenAI(
-        model=model_name,
-        api_key=api_key,
-        use_responses_api=True,
-        timeout=90,
-    )
+    kwargs: dict = {
+        "model": model_name,
+        "api_key": api_key,
+        "use_responses_api": True,
+        "timeout": 120,
+    }
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    return ChatOpenAI(**kwargs)
 
 
-def invoke_structured(model_name: str, schema: type[SchemaT], system: str, payload: dict) -> SchemaT:
-    """One Astra structured-output call. Retried once on a bad payload."""
-    model = _client(model_name).with_structured_output(schema)
+def astra_temperature() -> float:
+    """Sampling temperature for proposals and generation (ORCHESTRATOR_ASTRA_TEMPERATURE)."""
+    raw = os.getenv("ORCHESTRATOR_ASTRA_TEMPERATURE", "0.7").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 0.7
+    return min(2.0, max(0.0, value))
+
+
+def invoke_structured(
+    model_name: str,
+    schema: type[SchemaT],
+    system: str,
+    payload: dict,
+    *,
+    temperature: float | None = None,
+) -> SchemaT:
+    """One Astra structured-output call. Retried once on a bad payload.
+
+    Some reasoning models reject ``temperature``; when the error says so the call is retried
+    once more without it, so a stochastic proposal degrades to the model default instead of
+    failing the run.
+    """
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": json.dumps(payload, default=str)},
     ]
     last_error: Exception | None = None
     call_errors = (OSError, RuntimeError, ValueError, TypeError, OpenAIError, LangChainException)
-    for _ in range(2):
+    attempts = 2
+    use_temperature = temperature
+    while attempts > 0:
+        attempts -= 1
+        model = _client(model_name, use_temperature).with_structured_output(schema)
         try:
             raw = model.invoke(messages)
         except call_errors as exc:
             last_error = exc
+            if use_temperature is not None and "temperature" in str(exc).lower():
+                use_temperature = None
+                attempts += 1
             continue
         if isinstance(raw, schema):
             return raw
@@ -370,13 +406,23 @@ class TypeSafeJev:
 
 
 class OpenAIAstra:
-    """Questions, plans, briefs, failure diagnosis, and scan next steps. Not used for routing."""
+    """Questions, plans, briefs, failure diagnosis, and scan next steps. Not used for routing.
+
+    Proposals are sampled at ``temperature`` (default ``ORCHESTRATOR_ASTRA_TEMPERATURE``,
+    0.7) so two runs over the same checkout can explore different routes; questions, briefs,
+    advice, and diagnosis stay at the model default.
+    """
+
+    def __init__(self, temperature: float | None = None) -> None:
+        self.temperature = astra_temperature() if temperature is None else temperature
 
     def write_questions(self, payload: dict) -> QuestionSet:
         return invoke_structured(config.astra_model(), QuestionSet, QUESTION_SYSTEM, payload)
 
     def propose(self, payload: dict) -> PlanProposal:
-        return invoke_structured(config.astra_model(), PlanProposal, PLAN_SYSTEM, payload)
+        return invoke_structured(
+            config.astra_model(), PlanProposal, PLAN_SYSTEM, payload, temperature=self.temperature
+        )
 
     def brief(self, payload: dict) -> StageBrief:
         return invoke_structured(config.astra_model(), StageBrief, BRIEF_SYSTEM, payload)

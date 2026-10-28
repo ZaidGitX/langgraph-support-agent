@@ -33,6 +33,8 @@ def _empty_view() -> dict:
         "quality_gate": {},
         "results_viewed": False,
         "public_url": "",
+        "retrieval": {},
+        "episodes": [],
     }
 
 
@@ -244,6 +246,8 @@ class SessionService:
                     "quality_gate": dict(values.get("gate") or {}),
                     "results_viewed": self.results_viewed,
                     "public_url": self.public_url,
+                    "retrieval": dict(values.get("retrieval") or {}),
+                    "episodes": list(values.get("episodes") or []),
                 }
             )
         print(f"orchestrator session {values.get('run_id')} phase={phase}", flush=True)
@@ -270,6 +274,8 @@ class SessionService:
                     "quality_gate": dict(values.get("gate") or {}),
                     "results_viewed": self.results_viewed,
                     "public_url": self.public_url,
+                    "retrieval": dict(values.get("retrieval") or {}),
+                    "episodes": list(values.get("episodes") or []),
                 }
             )
         print(
@@ -296,6 +302,7 @@ class SessionService:
                     jev=self.jev,
                     astra=self.astra,
                     commands=self.commands,
+                    episodes_db=self.db_path,
                 )
                 for _ in range(12):
                     self._touch_running()
