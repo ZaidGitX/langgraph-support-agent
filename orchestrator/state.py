@@ -11,8 +11,15 @@ import time
 import uuid
 from typing import Annotated, TypedDict
 
+from . import registry
+
 MAX_ATTEMPTS = 2
 MAX_PLAN_ATTEMPTS = 2
+# Sprint 3: the first round of ecosystem questions plus one follow-up round.
+MAX_CLARIFY_ROUNDS = 2
+MAX_ARTIFACT_REVISIONS = 1
+# Phase 5 raises this to 128 together with recursion_limit (120 in session.py and demo.py).
+# The hop budget has to stay below the recursion limit to escalate instead of raising.
 MAX_HOPS = 96
 # Human pauses are subtracted in budget_reason. What remains is compute
 # plus waiting on a designated workflow, still inside the session window.
@@ -31,6 +38,10 @@ STAGE_NAMES = (
 )
 ALLOWED_TARGETS = ("local", "dev", "staging", "uat")
 FORBIDDEN_TARGETS = ("production", "prod")
+STATUSES = registry.STATUSES
+# A stage in one of these statuses satisfies the stages that depend on it. `planned` is a
+# first-class outcome: the provider could not apply and recorded what it would have run.
+SATISFIED_STATUSES = ("pass", "skipped", "planned")
 
 
 def merge_dict(left: dict | None, right: dict | None) -> dict:
@@ -76,6 +87,15 @@ class PipelineState(TypedDict):
     diagnosis: str
     stop_at: str
     held_seconds: Annotated[float, operator.add]
+    retrieval: dict
+    episodes: list[dict]
+    readiness: dict
+    runner_plan: Annotated[dict, merge_dict]
+    generated_artifacts: Annotated[dict, merge_dict]
+    policy: Annotated[list[dict], operator.add]
+    clarify_rounds: Annotated[int, operator.add]
+    follow_up_decision: dict
+    artifact_review: Annotated[dict, merge_dict]
 
 
 def initial_state(root: str, run_id: str | None = None) -> PipelineState:
@@ -99,6 +119,8 @@ def initial_state(root: str, run_id: str | None = None) -> PipelineState:
             "aws_called": False,
             "past_uat": False,
             "target": "unset",
+            "platform": "local",
+            "cloud_apply": False,
         },
         "approvals": {
             "pipeline": "pending",
@@ -119,6 +141,15 @@ def initial_state(root: str, run_id: str | None = None) -> PipelineState:
         "diagnosis": "",
         "stop_at": "",
         "held_seconds": 0.0,
+        "retrieval": {},
+        "episodes": [],
+        "readiness": {},
+        "runner_plan": {},
+        "generated_artifacts": {},
+        "policy": [],
+        "clarify_rounds": 0,
+        "follow_up_decision": {},
+        "artifact_review": {},
     }
 
 
@@ -145,9 +176,13 @@ def pending_stages(state: dict) -> list[str]:
     pending: list[str] = []
     for stage in (state.get("pipeline") or {}).get("stages") or []:
         row = latest.get(stage["name"])
-        if row is None or row.get("status") not in {"pass", "skipped"}:
+        if row is None or row.get("status") not in SATISFIED_STATUSES:
             pending.append(stage["name"])
     return pending
+
+
+def planned_stages(state: dict) -> list[str]:
+    return [name for name, row in latest_results(state).items() if row.get("status") == "planned"]
 
 
 def budget_reason(state: dict) -> str | None:
@@ -169,3 +204,13 @@ def target_of(answers: dict | None) -> str:
     if raw in ALLOWED_TARGETS:
         return raw
     return "local"
+
+
+def platform_of(answers: dict | None) -> str:
+    raw = str((answers or {}).get("env_platform", "local")).strip().lower()
+    return raw if raw in registry.PLATFORMS else "local"
+
+
+def runner_default_for(platform: str) -> str:
+    runners = registry.runners_for(platform)
+    return runners[0] if runners else "local"

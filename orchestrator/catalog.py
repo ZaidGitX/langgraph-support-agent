@@ -11,6 +11,7 @@ import shutil
 import sys
 from pathlib import Path
 
+from . import registry
 from .state import STAGE_NAMES, target_of
 
 
@@ -163,4 +164,10 @@ def commands_for(stage: str, answers: dict | None, overrides: dict | None) -> li
                 "label": "uat",
             }
         ]
-    raise ValueError(f"unknown stage {stage}; expected one of {STAGE_NAMES}")
+    try:
+        registry.validate_stage_name(stage)
+    except ValueError:
+        raise ValueError(f"unknown stage {stage}; expected one of {STAGE_NAMES}") from None
+    # A registry template or a validated custom slug: its commands arrive with the generated
+    # artifacts in a later phase, never from this catalog.
+    return []

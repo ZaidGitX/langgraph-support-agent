@@ -20,16 +20,17 @@ from langgraph.types import Send, interrupt
 
 from app import config
 
-from . import scan
+from . import registry, scan
 from .catalog import commands_for
 from .dispatch import execute_stage
 from .findings import apply_astra_advice
 from .guardrails import apply_guardrails
 from .llm import OpenAIAstra, TypeSafeJev, scrub
-from .schemas import GateDecision
+from .schemas import EnvironmentSpec, GateDecision
 from .state import (
     MAX_ATTEMPTS,
     MAX_PLAN_ATTEMPTS,
+    SATISFIED_STATUSES,
     STAGE_NAMES,
     PipelineState,
     blocked_stages,
@@ -93,7 +94,7 @@ def route_after_gate(state: dict) -> str:
 def _deps_met(stage: dict, latest: dict[str, dict]) -> bool:
     for dep in stage.get("depends_on") or []:
         row = latest.get(dep)
-        if row is None or row.get("status") not in {"pass", "skipped"}:
+        if row is None or row.get("status") not in SATISFIED_STATUSES:
             return False
     return True
 
@@ -117,7 +118,7 @@ def ready_stage_names(state: dict) -> list[str]:
     for stage in stages:
         name = stage["name"]
         row = latest.get(name)
-        if row and row.get("status") in {"pass", "skipped", "fail"}:
+        if row and row.get("status") in {*SATISFIED_STATUSES, "fail"}:
             continue
         if _deps_met(stage, latest):
             names.append(name)
@@ -196,28 +197,72 @@ def questions_from_astra(planner, ecosystem: dict, answers: dict | None) -> list
     return questions
 
 
-def normalize_stages(stages: list[dict]) -> tuple[list[dict], list[str]]:
+def _stage_tool(name: str, runner: str) -> str:
+    if name in TOOL_BINDINGS:
+        return TOOL_BINDINGS[name]
+    template = registry.template_for(name)
+    if template is not None:
+        return f"{template.summary} via {runner}"
+    return f"custom stage via {runner}"
+
+
+def _stage_name(raw: object) -> str | None:
+    try:
+        return registry.validate_stage_name(raw)
+    except ValueError:
+        return None
+
+
+def normalize_stages(
+    stages: list[dict], *, allow_generated: bool = True
+) -> tuple[list[dict], list[str]]:
     """Order approved stages into an acyclic DAG.
 
-    Stages that were not proposed are not added. A dependency on a missing
-    stage, or an edge that closes a cycle, is removed.
+    A name is accepted when it is a registry stage or a valid custom slug; any other name is
+    ignored. Stages that were not proposed are not added. A dependency on a missing stage, or
+    an edge that closes a cycle, is removed. Nothing may depend on `uat`, and `uat` ends the
+    list ("uat->moved_last" is recorded when it had to move). With allow_generated=False only
+    the nine fixed stages are kept, because the generic node that runs the others is not in
+    the graph yet.
     """
     by_name: dict[str, dict] = {}
     removed: list[str] = []
     for stage in stages:
-        name = stage.get("name")
-        if name not in STAGE_NAMES or name in by_name:
+        name = _stage_name(stage.get("name"))
+        if name is None or name in by_name:
+            continue
+        if not allow_generated and not registry.is_fixed(name):
+            removed.append(f"{name}->generated_stage_unavailable")
             continue
         deps: list[str] = []
-        for dep in stage.get("depends_on") or []:
-            if dep == name or dep not in STAGE_NAMES:
-                removed.append(f"{name}->{dep}")
+        for raw in stage.get("depends_on") or []:
+            dep = _stage_name(raw)
+            if dep is None or dep == name or dep == "uat":
+                removed.append(f"{name}->{dep or raw}")
                 continue
             deps.append(dep)
+        runner = str(stage.get("runner") or "local")
+        if name == "uat":
+            runner = "local"
+        elif runner not in registry.RUNNERS:
+            removed.append(f"{name}->runner_reset")
+            runner = "local"
+        try:
+            environment = EnvironmentSpec.model_validate(stage.get("environment") or {}).model_dump()
+        except ValueError:
+            removed.append(f"{name}->environment_reset")
+            environment = EnvironmentSpec().model_dump()
         by_name[name] = {
             "name": name,
             "depends_on": deps,
             "purpose": stage.get("purpose") or "",
+            "family": registry.family_of(name),
+            "kind": "fixed" if registry.is_fixed(name) else "generated",
+            "runner": runner,
+            "provider": str(stage.get("provider") or ""),
+            "environment": environment,
+            "artifacts": [dict(item) for item in stage.get("artifacts") or [] if isinstance(item, dict)],
+            "stochastic": bool(stage.get("stochastic")),
         }
     for stage in by_name.values():
         kept: list[str] = []
@@ -245,8 +290,12 @@ def normalize_stages(stages: list[dict]) -> tuple[list[dict], list[str]]:
             continue
         for name in ready:
             stage = pending.pop(name)
-            stage["tool"] = TOOL_BINDINGS[name]
+            stage["tool"] = _stage_tool(name, stage["runner"])
             ordered.append(stage)
+    if ordered and any(stage["name"] == "uat" for stage in ordered) and ordered[-1]["name"] != "uat":
+        position = next(index for index, stage in enumerate(ordered) if stage["name"] == "uat")
+        ordered.append(ordered.pop(position))
+        removed.append("uat->moved_last")
     return ordered, removed
 
 
@@ -613,7 +662,10 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None):
         chosen = next(item for item in proposal.candidates if item.id == decision.chosen_id)
         dropped = set(decision.drop_stages)
         kept = [stage.model_dump() for stage in chosen.stages if stage.name not in dropped]
-        ordered, removed_edges = normalize_stages(kept)
+        # Registry and custom stages validate and normalize, but only the nine fixed stages have
+        # a graph node until the generic generated-stage node lands (phase 5). Drop the rest
+        # here instead of dispatching a stage with no node. Phase 5 removes this argument.
+        ordered, removed_edges = normalize_stages(kept, allow_generated=False)
         for stage in ordered:
             stage["commands"] = commands_for(stage["name"], state.get("answers"), commands)
         plan_number = int(state["attempt"].get("plan", 0)) + 1

@@ -70,8 +70,9 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | File | What it does | Connects to |
 | --- | --- | --- |
 | `orchestrator/__init__.py` | Package marker. | — |
-| `orchestrator/state.py` | `PipelineState`, stage names, attempt cap (2), hop cap, and the time budget. Human wait is not counted in the time budget. | Shared by every node. Checkpointed in SQLite. |
-| `orchestrator/schemas.py` | Jev decision models and Astra models for questions, DAGs, briefs, and diagnosis. Astra models have no command field and no answer field. | Filled by `orchestrator/llm.py`. |
+| `orchestrator/registry.py` | Stage vocabulary: families, runners, platforms, statuses, the nine fixed stages, the named stage templates, and the custom-slug rule. No stage name may refer to production. Names are data, not graph nodes. | Imported by `state.py`, `schemas.py`, `catalog.py`, and `graph.py`. Imports nothing from the package. |
+| `orchestrator/state.py` | `PipelineState` (with the Sprint 3 retrieval, episode, readiness, runner-plan, artifact, and policy fields), the nine fixed stage names, status constants, attempt cap (2), hop cap, and the time budget. Human wait is not counted in the time budget. | Shared by every node. Checkpointed in SQLite. |
+| `orchestrator/schemas.py` | Jev decision models and Astra models for questions, DAGs, briefs, and diagnosis. Astra models have no command field and no answer field. Stage specs carry a family, a runner, and an environment tier (`local`, `dev`, `staging`, `uat`; there is no production value), and `uat` must be last in a candidate. | Filled by `orchestrator/llm.py`. |
 | `orchestrator/llm.py` | `TypeSafeJev` routes. `OpenAIAstra` writes questions, proposes DAGs, briefs a stage, advises on test and scan findings, and diagnoses a failure. Scrubs credentials before anything is stored. | Jev calls TypeSafe. Astra calls OpenAI. |
 | `orchestrator/scan.py` | Reads the checkout: languages, manifests, entry points, gaps. Does not write the questions. | `discover_ecosystem` passes the facts to Astra. |
 | `orchestrator/graph.py` | The supervisor graph, guardrailed routing, stage briefs, and the report. Does not add a stage that was not proposed. | Calls scan, catalog, dispatch, guardrails, and the checkpointer. |
