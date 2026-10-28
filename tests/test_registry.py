@@ -546,20 +546,40 @@ def _approve(payload: dict) -> dict:
     return {"decision": "approved"}
 
 
-def test_graph_runs_only_fixed_stages_when_astra_proposes_a_generated_one(tmp_path):
+def test_graph_runs_a_generated_stage_through_the_generic_node(tmp_path):
+    from orchestrator.schemas import ArtifactSet, GeneratedArtifact
+
+    class _GenAstra(_Astra):
+        def generate_artifacts(self, payload: dict) -> ArtifactSet:
+            name = payload["stage"]["name"]
+            return ArtifactSet(
+                stage=name,
+                artifacts=[
+                    GeneratedArtifact(
+                        kind="shell", path=f"ci/{name}.sh", purpose="lint",
+                        content="#!/usr/bin/env bash\nset -euo pipefail\necho lint-ok\n",
+                    )
+                ],
+            )
+
     echo = [sys.executable, "-c", "print('ok')"]
+    # _Jev has no follow_up, runner, or artifact_review edge: the graph falls back to
+    # proceed, the first runner option, and the policy result.
     graph = build_graph(
-        MemorySaver(), jev=_Jev(), astra=_Astra(), commands={name: [echo] for name in STAGE_NAMES}
+        MemorySaver(), jev=_Jev(), astra=_GenAstra(), commands={name: [echo] for name in STAGE_NAMES}
     )
     values = drive(graph, initial_state(str(tmp_path)), _approve, echo=False)
     pipeline = values["pipeline"]
-    assert pipeline["id"] == "gen-1"
-    assert [stage["name"] for stage in pipeline["stages"]] == ["build", "test", "uat"]
-    assert "lint->generated_stage_unavailable" in pipeline["dropped_edges"]
-    assert all(stage["kind"] == "fixed" for stage in pipeline["stages"])
+    assert pipeline["id"] == "gen-1" and pipeline["mode"] == "stochastic"
+    assert [stage["name"] for stage in pipeline["stages"]] == ["build", "lint", "test", "uat"]
+    lint = next(stage for stage in pipeline["stages"] if stage["name"] == "lint")
+    assert lint["kind"] == "generated" and lint["runner"] == "local" and lint["stochastic"] is True
     assert pipeline["stages"][-1]["runner"] == "local"
-    seen = {stage["name"] for item in values["candidates"] for stage in item["stages"]}
-    assert "lint" in seen  # Jev still ranked the candidate that carried it
+    assert "generated_stage_unavailable" not in " ".join(pipeline["dropped_edges"])
+    assert "lint" in values["trace"]
+    row = next(item for item in values["stage_results"] if item["stage"] == "lint")
+    assert row["status"] == "pass" and "lint-ok" in row["evidence"] and row["kind"] == "generated"
+    assert values["generated_artifacts"]["lint"][0]["path"] == "ci/lint.sh"
     assert values["status"] == "passed"
-    assert {row["stage"] for row in values["stage_results"]} == {"build", "test", "uat"}
+    assert {item["stage"] for item in values["stage_results"]} == {"build", "lint", "test", "uat"}
     assert values["approvals"]["uat"] == "approved"

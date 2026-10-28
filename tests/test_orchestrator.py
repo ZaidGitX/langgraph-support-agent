@@ -18,23 +18,34 @@ from orchestrator.demo import drive
 from orchestrator.graph import (
     build_graph,
     interrupt_payload,
+    machine_report,
     route_after_discover,
+    route_after_follow_up,
 )
 from orchestrator.guardrails import apply_guardrails
 from orchestrator.llm import TypeSafeJev
 from orchestrator.local_ops import deploy
 from orchestrator.schemas import (
+    ArtifactReview,
+    ArtifactSet,
     CandidatePipeline,
     ClarifyDecision,
+    DeployDoc,
     EcosystemQuestion,
+    FollowUpDecision,
+    FollowUpSet,
     GateDecision,
+    GeneratedArtifact,
     PlanProposal,
     QuestionSet,
     RankDecision,
+    RunnerDecision,
     StageBrief,
     StageSpec,
 )
 from orchestrator.state import STAGE_NAMES, initial_state
+
+ECHO_SCRIPT = "#!/usr/bin/env bash\nset -euo pipefail\necho generated-ok\n"
 
 
 def _echo() -> dict[str, list[list[str]]]:
@@ -93,12 +104,116 @@ class FakeAstra:
 
         return Diagnosis(summary="the command exited non-zero", retry_advice="retry once")
 
+    # Sprint 3 doubles: deterministic, offline.
+    def follow_up(self, payload: dict) -> FollowUpSet:
+        if int(payload.get("rounds") or 0) == 1 and payload.get("retrieved"):
+            return FollowUpSet(
+                questions=[
+                    EcosystemQuestion(
+                        id="scan_policy",
+                        prompt="Which scan severity should fail the run?",
+                        reason="The retrieved Dockerfile suggests a container scan.",
+                    )
+                ]
+            )
+        return FollowUpSet(questions=[])
+
+    def generate_artifacts(self, payload: dict) -> ArtifactSet:
+        stage = str(payload["stage"]["name"])
+        return ArtifactSet(
+            stage=stage,
+            artifacts=[GeneratedArtifact(kind="shell", path=f"ci/{stage}.sh", purpose="echo", content=ECHO_SCRIPT)],
+        )
+
+    def write_docs(self, payload: dict) -> DeployDoc:
+        return DeployDoc(path="docs/deploy/local-local.md", content="# demo deployment\n")
+
+
+class GeneratedAstra(FakeAstra):
+    """A stochastic candidate with a generated container_scan stage on the local runner."""
+
+    def propose(self, payload: dict) -> PlanProposal:
+        stochastic = CandidatePipeline(
+            id="scan-route",
+            summary="build, test, container scan, uat",
+            mode="stochastic",
+            stages=[
+                StageSpec(name="build", purpose="compile"),
+                StageSpec(name="test", depends_on=["build"], purpose="unit tests"),
+                StageSpec(name="container_scan", depends_on=["build"], purpose="scan the image", runner="local", provider="trivy"),
+                StageSpec(name="uat", depends_on=["test", "container_scan"], purpose="sign-off"),
+            ],
+        )
+        plain = CandidatePipeline(
+            id="plain",
+            summary="build, test, uat",
+            stages=[
+                StageSpec(name="build", purpose="compile"),
+                StageSpec(name="test", depends_on=["build"], purpose="unit tests"),
+                StageSpec(name="uat", depends_on=["test"], purpose="sign-off"),
+            ],
+        )
+        return PlanProposal(candidates=[stochastic, plain])
+
+
+class PlannedCloudAstra(FakeAstra):
+    """A stochastic candidate whose deploy_dev stage wants AWS CodeBuild (no credentials)."""
+
+    def propose(self, payload: dict) -> PlanProposal:
+        cloud = CandidatePipeline(
+            id="aws-route",
+            summary="build, test, deploy to dev on CodeBuild, uat",
+            mode="stochastic",
+            environment={"tier": "dev", "platform": "aws"},
+            stages=[
+                StageSpec(name="build", purpose="compile"),
+                StageSpec(name="test", depends_on=["build"], purpose="unit tests"),
+                StageSpec(name="deploy_dev", depends_on=["test"], purpose="deploy", runner="aws_codebuild", environment={"tier": "dev", "platform": "aws"}),
+                StageSpec(name="uat", depends_on=["deploy_dev"], purpose="sign-off"),
+            ],
+        )
+        plain = CandidatePipeline(
+            id="plain",
+            summary="build, test, uat",
+            stages=[
+                StageSpec(name="build", purpose="compile"),
+                StageSpec(name="test", depends_on=["build"], purpose="unit tests"),
+                StageSpec(name="uat", depends_on=["test"], purpose="sign-off"),
+            ],
+        )
+        return PlanProposal(candidates=[cloud, plain])
+
+
+class BadArtifactAstra(GeneratedAstra):
+    """Writes an artifact the policy must reject, on every attempt."""
+
+    def generate_artifacts(self, payload: dict) -> ArtifactSet:
+        stage = str(payload["stage"]["name"])
+        bad = "#!/usr/bin/env bash\nset -euo pipefail\npython -m orchestrator.local_ops deploy --target production\n"
+        return ArtifactSet(stage=stage, artifacts=[GeneratedArtifact(kind="shell", path=f"ci/{stage}.sh", purpose="bad", content=bad)])
+
 
 class FakeJev:
     def clarify(self, payload: dict) -> ClarifyDecision:
         if payload.get("open_questions"):
             return ClarifyDecision(action="ask", rationale="gaps remain")
         return ClarifyDecision(action="skip", rationale="no gaps")
+
+    def follow_up(self, payload: dict) -> FollowUpDecision:
+        if int(payload.get("rounds") or 0) == 1 and payload.get("retrieved"):
+            return FollowUpDecision(action="ask_more", rationale="the retrieved code leaves the scan policy open")
+        return FollowUpDecision(action="proceed", rationale="enough context")
+
+    def runner(self, payload: dict) -> RunnerDecision:
+        return RunnerDecision(
+            runners={stage["name"]: stage["runner_options"][0] for stage in payload["stages"]},
+            rationale="first option",
+        )
+
+    def artifact_review(self, payload: dict) -> ArtifactReview:
+        ok = bool((payload.get("policy") or {}).get("ok"))
+        left = int(payload.get("revisions_left") or 0)
+        return ArtifactReview(verdict="accept" if ok else ("revise" if left else "reject"), rationale="policy result")
 
     def rank(self, payload: dict) -> RankDecision:
         ids = [item["id"] for item in payload["candidates"]]
@@ -130,7 +245,7 @@ class FakeJev:
 def _resume_for_test(payload: dict) -> dict:
     """Test-only answers. The CI workflow does not call this."""
     gate = payload.get("gate")
-    if gate == "ecosystem_qa":
+    if gate in {"ecosystem_qa", "follow_up_qa"}:
         return {
             question["id"]: f"test-answer-{question['id']}"
             for question in payload.get("questions") or []
@@ -167,7 +282,11 @@ def test_stage_results_append_reducer():
 
 
 def test_route_skips_clarify_when_there_are_no_gaps():
-    assert route_after_discover({"clarify_decision": {"action": "skip"}, "open_questions": []}) == "plan_pipeline"
+    assert route_after_discover({"clarify_decision": {"action": "skip"}, "open_questions": []}) == "follow_up"
+    question = {"id": "scan_policy", "prompt": "severity?", "reason": "open"}
+    assert route_after_follow_up({"open_questions": [question], "clarify_rounds": 1}) == "clarify_with_user"
+    assert route_after_follow_up({"open_questions": [question], "clarify_rounds": 2}) == "plan_pipeline"
+    assert route_after_follow_up({"open_questions": [], "clarify_rounds": 1}) == "plan_pipeline"
 
 
 def test_route_asks_when_jev_selects_ask():
@@ -402,3 +521,171 @@ def test_typesafe_failure_is_raised_without_openai_fallback(monkeypatch):
     monkeypatch.setattr("orchestrator.llm.ChatOpenAI", _boom)
     with pytest.raises(RuntimeError, match="TypeSafeClassifier call failed"):
         TypeSafeJev(classifier=classifier).clarify({"open_questions": []})
+
+
+# ---------------------------------------------------------------- Sprint 3 phase 5
+
+
+def _write_checkout(tmp_path) -> str:
+    (tmp_path / "app").mkdir(exist_ok=True)
+    (tmp_path / "app" / "main.py").write_text("# uvicorn serves /status on port 8000\nfrom fastapi import FastAPI\napp = FastAPI()\n", encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\nEXPOSE 8000\n", encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_generated_stage_runs_a_local_echo_script(tmp_path):
+    graph = build_graph(MemorySaver(), jev=FakeJev(), astra=GeneratedAstra(), commands=_echo())
+    values = drive(graph, initial_state(str(tmp_path)), _resume_for_test, echo=False)
+    assert values["status"] == "passed"
+    assert values["pipeline"]["mode"] == "stochastic"
+    assert [stage["name"] for stage in values["pipeline"]["stages"]] == ["build", "container_scan", "test", "uat"]
+    assert "container_scan" in values["trace"] and "generate_artifacts" in values["trace"]
+    row = next(item for item in values["stage_results"] if item["stage"] == "container_scan")
+    assert row["kind"] == "generated" and row["runner"] == "local" and row["status"] == "pass"
+    assert "generated-ok" in row["evidence"]
+    assert row["checks"][0]["tool"] == "trivy"
+    records = values["generated_artifacts"]["container_scan"]
+    assert {record["kind"] for record in records} == {"shell", "env_example"}
+    script = next(record for record in records if record["kind"] == "shell")
+    assert len(script["sha256"]) == 64 and script["policy"]["ok"] is True
+    assert script["stored_at"].startswith(str(tmp_path / "var" / "generated"))
+    assert values["runner_plan"]["container_scan"]["runner"] == "local"
+    assert values["artifact_review"]["container_scan"]["verdict"] == "accept"
+    chosen = [item for item in values["candidates"] if item["chosen"]]
+    assert chosen and chosen[0]["id"] == "scan-route" and chosen[0]["stages"] == ["build", "test", "container_scan", "uat"]
+    assert {item["kind"] for item in values["jev_decisions"]} >= {"clarify", "rank", "runner", "artifact_review", "gate"}
+    assert "Generated artifacts" in values["report"] and "ci/container_scan.sh" in values["report"]
+    assert values["approvals"]["uat"] == "approved" and values["env_state"]["past_uat"] is False
+
+
+def test_follow_up_round_asks_once_and_stops(tmp_path):
+    root = _write_checkout(tmp_path)
+    graph = build_graph(MemorySaver(), jev=FakeJev(), astra=FakeAstra(), commands=_echo())
+    values = drive(graph, initial_state(root), _resume_for_test, echo=False)
+    assert values["status"] == "passed"
+    assert values["trace"].count("clarify_with_user") == 2
+    assert values["trace"].count("follow_up") == 2
+    assert values["clarify_rounds"] == 2
+    assert values["answers"]["scan_policy"] == "test-answer-scan_policy"
+    assert values["follow_up_decision"]["action"] == "proceed"
+    kinds = [item["kind"] for item in values["jev_decisions"]]
+    assert kinds.count("follow_up") == 2
+
+
+def test_planned_cloud_stage_does_not_fail_the_run(tmp_path):
+    graph = build_graph(MemorySaver(), jev=FakeJev(), astra=PlannedCloudAstra(), commands=_echo())
+    values = drive(graph, initial_state(str(tmp_path)), _resume_for_test, echo=False)
+    row = next(item for item in values["stage_results"] if item["stage"] == "deploy_dev")
+    assert row["status"] == "planned" and row["runner"] == "aws_codebuild"
+    assert row["plan"]["mode"] == "plan" and row["plan"]["would_run"][0][:3] == ["aws", "codebuild", "start-build"]
+    assert {"AWS_REGION", "AWS_ACCESS_KEY_ID"} <= set(row["plan"]["missing"])
+    assert values["gate"]["route"] == "pass"
+    assert values["status"] == "passed"
+    assert values["env_state"]["aws_called"] is False
+    assert values["runner_plan"]["deploy_dev"]["mode"] == "plan"
+    report = machine_report(values)
+    assert report["planned_stages"] == ["deploy_dev"]
+    assert "deploy_dev attempt 1 planned" in values["report"]
+
+
+def test_artifact_review_reject_drops_the_stage(tmp_path):
+    graph = build_graph(MemorySaver(), jev=FakeJev(), astra=BadArtifactAstra(), commands=_echo())
+    values = drive(graph, initial_state(str(tmp_path)), _resume_for_test, echo=False)
+    names = [stage["name"] for stage in values["pipeline"]["stages"]]
+    assert "container_scan" not in names and names[-1] == "uat"
+    assert any("container_scan" in item for item in values["pipeline"]["dropped_stages"])
+    assert values["artifact_review"]["container_scan"]["verdict"] == "reject"
+    assert values["artifact_review"]["container_scan"]["revisions"] == 1
+    assert {row["rule"] for row in values["policy"]} >= {"prod.reference"}
+    assert values["status"] == "passed"
+    assert all(item["stage"] != "container_scan" for item in values["stage_results"])
+
+
+def test_no_production_target_anywhere_after_a_generated_run(tmp_path):
+    import json
+    from pathlib import Path
+
+    graph = build_graph(MemorySaver(), jev=FakeJev(), astra=GeneratedAstra(), commands=_echo())
+    values = drive(graph, initial_state(str(tmp_path)), _resume_for_test, echo=False)
+    for stage in values["pipeline"]["stages"]:
+        assert stage["name"] not in {"production", "prod"}
+        assert stage["environment"].get("tier") in {"local", "dev", "staging", "uat"}
+    for records in values["generated_artifacts"].values():
+        for record in records:
+            text = Path(record["stored_at"]).read_text(encoding="utf-8")
+            assert "--target production" not in text and "tier=production" not in text
+    report = json.dumps(machine_report(values))
+    assert '"production"' not in report
+
+
+def test_jev_follow_up_uses_noul_and_choice():
+    classifier = _Classifier(
+        _response(
+            {
+                "needs_more_context": NoulAnswer(type="noul", noul=0.81),
+                "action": ChoiceAnswer(type="choice", choice="ask_more", probabilities={"proceed": 0.2, "ask_more": 0.8}, confidence=0.7),
+            }
+        )
+    )
+    decision = TypeSafeJev(classifier=classifier).follow_up({"rounds": 1, "max_rounds": 2, "retrieved": {"docker": []}})
+    questions = classifier.calls[0]["questions"]
+    assert questions["needs_more_context"].type == "noul"
+    assert set(questions["action"].criteria) == {"proceed", "ask_more"}
+    assert decision.action == "ask_more" and "Noul" in decision.rationale
+    capped = TypeSafeJev(classifier=classifier).follow_up({"rounds": 2, "max_rounds": 2})
+    assert capped.action == "proceed" and "guardrail" in capped.rationale
+
+
+def test_jev_runner_asks_one_choice_per_undecided_stage():
+    classifier = _Classifier(
+        _response(
+            {
+                "runner:container_scan": ChoiceAnswer(type="choice", choice="docker", probabilities={"local": 0.3, "docker": 0.7}, confidence=0.6),
+            }
+        )
+    )
+    decision = TypeSafeJev(classifier=classifier).runner(
+        {
+            "stages": [
+                {"name": "container_scan", "runner_options": ["local", "docker"]},
+                {"name": "deploy_dev", "runner_options": ["aws_codebuild"]},
+                {"name": "uat", "runner_options": ["local", "docker"]},
+            ],
+            "runners_available": {"local": {"cli": True, "missing": [], "mode": "apply"}, "docker": {"cli": True, "missing": [], "mode": "apply"}, "aws_codebuild": {"cli": True, "missing": ["AWS_REGION"], "mode": "plan"}},
+            "platform": "docker",
+            "platform_runners": ["docker", "local"],
+        }
+    )
+    asked = classifier.calls[0]["questions"]
+    assert set(asked) == {"runner:container_scan"}
+    assert "missing" not in asked["runner:container_scan"].criteria["docker"]
+    assert decision.runners == {"container_scan": "docker", "deploy_dev": "aws_codebuild", "uat": "local"}
+
+
+def test_jev_artifact_review_guards():
+    classifier = _Classifier(
+        _response({"verdict": ChoiceAnswer(type="choice", choice="accept", probabilities={"accept": 0.9, "revise": 0.05, "reject": 0.05}, confidence=0.8)})
+    )
+    jev = TypeSafeJev(classifier=classifier)
+    assert jev.artifact_review({"policy": {"ok": True}, "revisions_left": 1}).verdict == "accept"
+    revised = jev.artifact_review({"policy": {"ok": False}, "revisions_left": 1})
+    assert revised.verdict == "revise" and "guardrail" in revised.rationale
+    assert jev.artifact_review({"policy": {"ok": False}, "revisions_left": 0}).verdict == "reject"
+    assert set(classifier.calls[0]["questions"]["verdict"].criteria) == {"accept", "revise", "reject"}
+
+
+def test_jev_rank_criteria_mention_mode_and_readiness():
+    classifier = _Classifier(
+        _response({"pipeline": ChoiceAnswer(type="choice", choice="aws-route", probabilities={"aws-route": 0.6, "plain": 0.4}, confidence=0.5)})
+    )
+    TypeSafeJev(classifier=classifier).rank(
+        {
+            "candidates": [
+                {"id": "aws-route", "summary": "cloud", "mode": "stochastic", "environment": {"tier": "dev", "platform": "aws"}, "stages": [{"name": "build"}], "readiness_note": "plan only: missing AWS_REGION"},
+                {"id": "plain", "summary": "local", "stages": [{"name": "build"}]},
+            ]
+        }
+    )
+    criteria = classifier.calls[0]["questions"]["pipeline"].criteria
+    assert "Mode: stochastic" in criteria["aws-route"] and "plan only: missing AWS_REGION" in criteria["aws-route"]
+    assert "dev on aws" in criteria["aws-route"] and "Mode: deterministic" in criteria["plain"]

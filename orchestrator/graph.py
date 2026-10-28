@@ -20,15 +20,25 @@ from langgraph.types import Send, interrupt
 
 from app import config
 
-from . import credentials, episodes, registry, retrieval, scan
+from . import credentials, episodes, generator, policy, registry, retrieval, scan
 from .catalog import commands_for
-from .dispatch import execute_stage
+from .dispatch import execute_stage, execute_stage_v2
 from .findings import apply_astra_advice
 from .guardrails import apply_guardrails
-from .llm import OpenAIAstra, TypeSafeJev, scrub
-from .schemas import EnvironmentSpec, GateDecision
+from .llm import OpenAIAstra, TypeSafeJev, guard_review, scrub
+from .providers import registry as providers
+from .schemas import (
+    ArtifactReview,
+    CandidatePipeline,
+    EnvironmentSpec,
+    FollowUpDecision,
+    GateDecision,
+    RunnerDecision,
+)
 from .state import (
+    MAX_ARTIFACT_REVISIONS,
     MAX_ATTEMPTS,
+    MAX_CLARIFY_ROUNDS,
     MAX_PLAN_ATTEMPTS,
     SATISFIED_STATUSES,
     STAGE_NAMES,
@@ -38,7 +48,9 @@ from .state import (
     failed_stages,
     latest_results,
     pending_stages,
+    planned_stages,
     platform_of,
+    runner_default_for,
     target_of,
 )
 
@@ -59,10 +71,26 @@ def route_after_discover(state: dict) -> str:
     action = (state.get("clarify_decision") or {}).get("action")
     if action == "ask" and state.get("open_questions"):
         return "clarify_with_user"
+    return "follow_up"
+
+
+def route_after_follow_up(state: dict) -> str:
+    """Another human round only while questions are open and the round cap allows it."""
+    rounds = int(state.get("clarify_rounds") or 0)
+    if state.get("open_questions") and rounds < MAX_CLARIFY_ROUNDS:
+        return "clarify_with_user"
     return "plan_pipeline"
 
 
 def route_after_plan(state: dict) -> str:
+    if (state.get("gate") or {}).get("route") == "escalate":
+        return "report"
+    if not (state.get("pipeline") or {}).get("stages"):
+        return "report"
+    return "generate_artifacts"
+
+
+def route_after_generate(state: dict) -> str:
     if (state.get("gate") or {}).get("route") == "escalate":
         return "report"
     if not (state.get("pipeline") or {}).get("stages"):
@@ -135,12 +163,19 @@ def route_dispatch(state: dict):
         if name not in by_name:
             continue
         stage = by_name[name]
+        # Fixed stages have their own node; every registry or custom stage runs on the
+        # generic generated_stage node with its spec and artifacts in the Send payload.
+        target = name if name in STAGE_NAMES else "generated_stage"
         sends.append(
             Send(
-                name,
+                target,
                 {
                     "dispatched_stage": name,
-                    "commands": stage["commands"],
+                    "spec": {**stage, "run_id": state.get("run_id")},
+                    "artifacts": list((state.get("generated_artifacts") or {}).get(name) or []),
+                    "readiness": state.get("readiness") or {},
+                    "run_id": state.get("run_id"),
+                    "commands": stage.get("commands") or [],
                     "attempt_number": state["attempt"][name],
                     "plan_id": state["pipeline"]["id"],
                     "repo": state["repo"],
@@ -330,6 +365,8 @@ def pipeline_view(pipeline: dict) -> dict:
     return {
         "id": pipeline.get("id"),
         "summary": pipeline.get("summary"),
+        "mode": pipeline.get("mode") or "deterministic",
+        "environment": dict(pipeline.get("environment") or {}),
         "stages": [
             {
                 "name": stage["name"],
@@ -337,10 +374,58 @@ def pipeline_view(pipeline: dict) -> dict:
                 "purpose": stage.get("purpose") or "",
                 "tool": stage.get("tool") or "",
                 "commands": [item.get("label") for item in stage.get("commands") or []],
+                "runner": stage.get("runner") or "local",
+                "provider": stage.get("provider") or "",
+                "environment": dict(stage.get("environment") or {}),
+                "kind": stage.get("kind") or "fixed",
+                "family": stage.get("family") or registry.family_of(stage["name"]),
             }
             for stage in pipeline.get("stages") or []
         ],
     }
+
+
+def candidate_views(proposal_candidates: list[dict], rank_choice: dict | None, chosen_id: str) -> list[dict]:
+    """Candidates as the UI shows them: mode, environment, stage names, Jev probability."""
+    probabilities = {}
+    pipeline_choice = (rank_choice or {}).get("pipeline") if isinstance(rank_choice, dict) else None
+    if isinstance(pipeline_choice, dict):
+        probabilities = dict(pipeline_choice.get("probabilities") or {})
+    views = []
+    for item in proposal_candidates:
+        ident = str(item.get("id") or "")
+        views.append(
+            {
+                "id": ident,
+                "summary": item.get("summary") or "",
+                "mode": item.get("mode") or "deterministic",
+                "rationale": item.get("rationale") or "",
+                "environment": dict(item.get("environment") or {}),
+                "stages": [str(stage.get("name") or "") for stage in item.get("stages") or []],
+                "runners": {str(stage.get("name") or ""): stage.get("runner") or "local" for stage in item.get("stages") or []},
+                "probability": probabilities.get(ident),
+                "chosen": ident == chosen_id,
+                "readiness_note": item.get("readiness_note") or "",
+            }
+        )
+    return views
+
+
+def readiness_note_for(candidate: dict, readiness: dict | None) -> str:
+    """'runs now' or 'plan only: missing NAME, …' for a candidate's runners (names only)."""
+    runners = (readiness or {}).get("runners") or {}
+    missing: list[str] = []
+    plan_only = False
+    for stage in candidate.get("stages") or []:
+        info = runners.get(str(stage.get("runner") or "local")) or {}
+        if info and info.get("mode") == "plan":
+            plan_only = True
+            for name in info.get("missing") or []:
+                if name not in missing:
+                    missing.append(name)
+    if not plan_only:
+        return "runs now"
+    return "plan only: missing " + ", ".join(missing) if missing else "plan only: cloud apply is off"
 
 
 def jev_event(router, kind: str, schema: str, decision, applied=None) -> dict:
@@ -441,6 +526,16 @@ def machine_report(state: dict) -> dict:
         },
         "episodes": list(state.get("episodes") or []),
         "readiness": dict(state.get("readiness") or {}),
+        "runner_plan": dict(state.get("runner_plan") or {}),
+        "generated_artifacts": {
+            stage: [{key: value for key, value in record.items() if key != "findings"} for record in records]
+            for stage, records in (state.get("generated_artifacts") or {}).items()
+        },
+        "artifact_review": dict(state.get("artifact_review") or {}),
+        "policy": list(state.get("policy") or []),
+        "planned_stages": planned_stages(state),
+        "follow_up": dict(state.get("follow_up_decision") or {}),
+        "clarify_rounds": int(state.get("clarify_rounds") or 0),
         "cloudwatch": {
             "called": False,
             "note": (
@@ -494,6 +589,67 @@ def _retrieval_lines(state: dict) -> list[str]:
     if not rows:
         return ["  none"]
     return [f"  {row.get('path')}:{row.get('lines')} ({row.get('topic')})" for row in rows[:20]]
+
+
+def _readiness_brief(readiness: dict) -> dict:
+    """Names only, small enough for a prompt: per provider, its mode and missing names."""
+    return {
+        "providers": {
+            key: {"mode": status.get("mode"), "missing": list(status.get("missing") or []), "cli": status.get("cli")}
+            for key, status in (readiness.get("providers") or {}).items()
+        },
+        "runners": {
+            runner: {"mode": info.get("mode"), "missing": list(info.get("missing") or [])}
+            for runner, info in (readiness.get("runners") or {}).items()
+        },
+        "toggles": dict(readiness.get("toggles") or {}),
+    }
+
+
+def approval_payload(state: dict) -> dict:
+    """What the person sees before approving: the pipeline, every candidate, the runner plan,
+    every generated artifact with its policy verdict, and the retrieval evidence."""
+    pipeline = state.get("pipeline") or {}
+    artifacts = {
+        stage: generator.records_for_view(records)
+        for stage, records in (state.get("generated_artifacts") or {}).items()
+    }
+    return {
+        "gate": "pipeline_approval",
+        "pipeline": pipeline_view(pipeline),
+        "candidates": list(state.get("candidates") or []),
+        "runner_plan": dict(state.get("runner_plan") or {}),
+        "artifacts": artifacts,
+        "artifact_review": dict(state.get("artifact_review") or {}),
+        "policy": list(state.get("policy") or []),
+        "readiness": _readiness_brief(state.get("readiness") or {}),
+        "retrieval_evidence": list((state.get("ecosystem") or {}).get("evidence") or []),
+        "dropped_stages": list(pipeline.get("dropped_stages") or []),
+    }
+
+
+def _artifact_lines(state: dict) -> list[str]:
+    records = state.get("generated_artifacts") or {}
+    if not records:
+        return ["  none"]
+    lines = []
+    for stage, rows in records.items():
+        review = (state.get("artifact_review") or {}).get(stage) or {}
+        lines.append(f"  {stage}: review={review.get('verdict', '-')} revisions={review.get('revisions', 0)}")
+        for row in rows:
+            summary = row.get("policy") or {}
+            lines.append(
+                f"    {row.get('path')} ({row.get('kind')}, {row.get('bytes', 0)} bytes, sha256 {str(row.get('sha256') or '')[:12]}) "
+                f"policy ok={summary.get('ok')} errors={summary.get('errors', 0)} warns={summary.get('warns', 0)}"
+            )
+    return lines
+
+
+def _policy_lines(state: dict) -> list[str]:
+    rows = state.get("policy") or []
+    if not rows:
+        return ["  no findings"]
+    return [f"  {row.get('severity')} {row.get('stage')}:{row.get('path')}:{row.get('line')} {row.get('rule')}" for row in rows[:30]]
 
 
 def _readiness_lines(state: dict) -> list[str]:
@@ -573,22 +729,36 @@ def render_report(state: dict, status: str) -> str:
     if not candidates:
         lines.append("  none")
     for candidate in candidates:
-        names = ", ".join(stage.get("name", "") for stage in candidate.get("stages") or [])
-        lines.append(f"  - {candidate.get('id')}: {names}")
+        names = ", ".join(
+            stage if isinstance(stage, str) else str(stage.get("name", ""))
+            for stage in candidate.get("stages") or []
+        )
+        label = f"{candidate.get('mode') or 'deterministic'}{', chosen' if candidate.get('chosen') else ''}"
+        probability = candidate.get("probability")
+        shown = f" p={probability:.2f}" if isinstance(probability, (int, float)) else ""
+        lines.append(f"  - {candidate.get('id')} [{label}{shown}]: {names}")
     lines.extend(["", "Chosen pipeline"])
     view = pipeline_view(state.get("pipeline") or {})
     lines.append(f"  id: {view.get('id')}")
     lines.append(f"  summary: {(state.get('pipeline') or {}).get('summary')}")
+    lines.append(f"  mode: {view.get('mode')} environment: {view.get('environment')}")
     for stage in view["stages"]:
         deps = ", ".join(stage["depends_on"]) or "none"
         commands = ", ".join(stage["commands"])
-        lines.append(f"  - {stage['name']} after [{deps}] via {stage['tool']} ({commands})")
+        lines.append(
+            f"  - {stage['name']} [{stage['kind']}, runner {stage['runner']}"
+            + (f", provider {stage['provider']}" if stage.get("provider") else "")
+            + f"] after [{deps}] via {stage['tool']} ({commands})"
+        )
+    lines.extend(["", "Generated artifacts", *_artifact_lines(state), "", "Policy findings", *_policy_lines(state)])
     lines.extend(["", "Stage evidence"])
     if not state.get("stage_results"):
         lines.append("  none")
     for row in state.get("stage_results") or []:
         lines.append(
             f"  - {row['stage']} attempt {row.get('attempt')} {row.get('status')} exit {row.get('exit_code')}"
+            + (f" runner {row.get('runner')}" if row.get("runner") else "")
+            + (f" planned: missing {', '.join((row.get('plan') or {}).get('missing') or []) or 'nothing'}" if row.get("status") == "planned" else "")
         )
         for record in row.get("commands") or []:
             evidence = record.get("evidence") or ""
@@ -702,15 +872,57 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         questions = state.get("open_questions") or []
         if not questions:
             return {"trace": ["clarify_with_user"], "hops": 1}
+        rounds = int(state.get("clarify_rounds") or 0)
+        gate = "ecosystem_qa" if rounds == 0 else "follow_up_qa"
         paused = time.time()
-        payload = interrupt({"gate": "ecosystem_qa", "questions": questions})
+        payload = interrupt({"gate": gate, "questions": questions, "round": rounds + 1})
         waited = max(0.0, time.time() - paused)
         answers = payload if isinstance(payload, dict) else {"raw": str(payload)}
         return {
             "answers": answers,
+            "open_questions": [],
+            "clarify_rounds": 1,
             "trace": ["clarify_with_user"],
             "hops": 1,
             "held_seconds": waited,
+        }
+
+    def follow_up(state: PipelineState) -> dict:
+        """After the first answers, Jev decides whether one more round would change the plan."""
+        rounds = int(state.get("clarify_rounds") or 0)
+        ecosystem = state.get("ecosystem") or {}
+        payload = {
+            "answers": state.get("answers") or {},
+            "retrieved": retrieval.trim_context(ecosystem.get("retrieved") or {}, max_chars=6000),
+            "readiness": _readiness_brief(state.get("readiness") or {}),
+            "rounds": rounds,
+            "max_rounds": MAX_CLARIFY_ROUNDS,
+        }
+        if hasattr(router, "follow_up"):
+            decision = router.follow_up(payload)
+            events = [jev_event(router, "follow_up", "FollowUpDecision", decision)]
+        else:
+            decision = FollowUpDecision(action="proceed", rationale="router has no follow_up edge")
+            events = []
+        if decision.action == "ask_more" and rounds >= MAX_CLARIFY_ROUNDS:
+            decision = FollowUpDecision(action="proceed", rationale=decision.rationale + " | guardrail: clarify rounds exhausted")
+        questions: list[dict] = []
+        if decision.action == "ask_more" and rounds > 0 and hasattr(planner, "follow_up"):
+            proposed = planner.follow_up(payload)
+            used: set[str] = set()
+            answers = state.get("answers") or {}
+            for item in proposed.questions:
+                ident = _question_id(item.id, used)
+                prompt = (item.prompt or "").strip()
+                if not prompt or str(answers.get(ident, "")).strip():
+                    continue
+                questions.append({"id": ident, "prompt": prompt, "reason": (item.reason or "").strip()})
+        return {
+            "open_questions": questions,
+            "follow_up_decision": decision.model_dump(),
+            "jev_decisions": events,
+            "trace": ["follow_up"],
+            "hops": 1,
         }
 
     def plan_pipeline(state: PipelineState) -> dict:
@@ -727,6 +939,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 "trace": ["plan_pipeline"],
                 "hops": 1,
             }
+        readiness = state.get("readiness") or {}
+        platform = platform_of(state.get("answers"))
         proposal = planner.propose(
             {
                 "repo": {
@@ -739,16 +953,35 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 "diagnosis": state.get("diagnosis") or "",
                 "retrieved": retrieval.trim_context((state.get("ecosystem") or {}).get("retrieved") or {}),
                 "episodes": list((state.get("ecosystem") or {}).get("episodes") or []),
-                "platform": platform_of(state.get("answers")),
-                "stage_menu": list(STAGE_NAMES),
+                "platform": platform,
+                "runners_available": dict(readiness.get("runners") or {}),
+                "stage_menu": registry.stage_menu(),
+                "fixed_stages": list(STAGE_NAMES),
             }
         )
-        rank_payload = {
-            "candidates": [item.model_dump() for item in proposal.candidates],
-            "answers": state.get("answers") or {},
-        }
+        # Live proposals must carry uat; the Sprint 2 doubles may not, so the schema is lenient
+        # and the graph re-validates here, dropping a candidate that breaks the uat rules.
+        candidates: list[dict] = []
+        dropped_candidates: list[str] = []
+        for item in proposal.candidates:
+            dumped = item.model_dump()
+            try:
+                CandidatePipeline.model_validate(dumped, context={"require_uat": True})
+            except ValueError as exc:
+                if any(stage.name == "uat" for stage in item.stages):
+                    dropped_candidates.append(f"{item.id}: {scrub(str(exc))[:160]}")
+                    continue
+            dumped["readiness_note"] = readiness_note_for(dumped, readiness)
+            candidates.append(dumped)
+        if not candidates:
+            gate = GateDecision(route="escalate", retry=False, replan=False, retry_stages=[],
+                                rationale=f"guardrail: every candidate broke the uat rules ({'; '.join(dropped_candidates)})")
+            return {"candidates": [], "gate": gate.model_dump(), "trace": ["plan_pipeline"], "hops": 1,
+                    "attempt": {"plan": int(state["attempt"].get("plan", 0)) + 1}}
+        rank_payload = {"candidates": candidates, "answers": state.get("answers") or {}}
         decision = router.rank(rank_payload)
-        ids = [item.id for item in proposal.candidates]
+        rank_event = jev_event(router, "rank", "RankDecision", decision)
+        ids = [item["id"] for item in candidates]
         if decision.chosen_id not in ids:
             gate = GateDecision(
                 route="escalate",
@@ -758,53 +991,190 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 rationale=f"Jev chose {decision.chosen_id!r}, which is not one of {ids}",
             )
             return {
-                "candidates": rank_payload["candidates"],
+                "candidates": candidate_views(candidates, rank_event.get("choice"), ""),
                 "gate": gate.model_dump(),
-                "jev_decisions": [jev_event(router, "rank", "RankDecision", decision)],
+                "jev_decisions": [rank_event],
                 "trace": ["plan_pipeline"],
                 "hops": 1,
                 "attempt": {"plan": int(state["attempt"].get("plan", 0)) + 1},
             }
-        chosen = next(item for item in proposal.candidates if item.id == decision.chosen_id)
+        chosen = next(item for item in candidates if item["id"] == decision.chosen_id)
         dropped = set(decision.drop_stages)
-        kept = [stage.model_dump() for stage in chosen.stages if stage.name not in dropped]
-        # Registry and custom stages validate and normalize, but only the nine fixed stages have
-        # a graph node until the generic generated-stage node lands (phase 5). Drop the rest
-        # here instead of dispatching a stage with no node. Phase 5 removes this argument.
-        ordered, removed_edges = normalize_stages(kept, allow_generated=False)
+        kept = [stage for stage in chosen["stages"] if stage.get("name") not in dropped]
+        ordered, removed_edges = normalize_stages(kept)
+        events = [rank_event]
+        runner_plan = _runner_plan(ordered, readiness, platform, events)
         for stage in ordered:
-            stage["commands"] = commands_for(stage["name"], state.get("answers"), commands)
+            stage["runner"] = runner_plan[stage["name"]]["runner"]
+            stage["tool"] = _stage_tool(stage["name"], stage["runner"])
+            stage["commands"] = commands_for(stage["name"], state.get("answers"), commands) if stage["kind"] == "fixed" else []
         plan_number = int(state["attempt"].get("plan", 0)) + 1
         pipeline = {
             "id": f"{decision.chosen_id}-{plan_number}",
-            "summary": chosen.summary,
+            "summary": chosen.get("summary") or "",
+            "mode": chosen.get("mode") or "deterministic",
+            "environment": dict(chosen.get("environment") or {}),
             "stages": ordered,
             "jev": decision.model_dump(),
             "uat_restored": False,
             "dropped_edges": removed_edges,
+            "dropped_stages": [],
+            "dropped_candidates": dropped_candidates,
+            "runner_plan": runner_plan,
             "router_model": (getattr(router, "last_call", None) or {}).get("model") or "injected",
             "router_client": (getattr(router, "last_call", None) or {}).get("client")
             or type(router).__name__,
             "planner_model": config.astra_model(),
         }
         return {
-            "candidates": rank_payload["candidates"],
+            "candidates": candidate_views(candidates, rank_event.get("choice"), decision.chosen_id),
             "pipeline": pipeline,
+            "runner_plan": runner_plan,
             "gate": {"route": "", "retry": False, "replan": False, "retry_stages": [], "rationale": ""},
-            "jev_decisions": [jev_event(router, "rank", "RankDecision", decision)],
+            "jev_decisions": events,
             "attempt": {"plan": plan_number},
             "trace": ["plan_pipeline"],
             "hops": 1,
         }
 
+    def _runner_plan(ordered: list[dict], readiness: dict, platform: str, events: list[dict]) -> dict[str, dict]:
+        """Fixed stages are forced by code; generated stages are Jev's Choice among ready runners."""
+        runners_available = dict(readiness.get("runners") or {})
+        platform_runners = registry.runners_for(platform)
+        dispatch_github = os.getenv("ORCHESTRATOR_DISPATCH", "local").strip().lower() == "github"
+        plan: dict[str, dict] = {}
+        asks: list[dict] = []
+        for stage in ordered:
+            name = stage["name"]
+            if stage["kind"] == "fixed":
+                from .dispatch import STAGE_WORKFLOWS
+
+                runner = "github_actions" if dispatch_github and name in STAGE_WORKFLOWS else "local"
+                plan[name] = {"runner": runner, "provider": "", "mode": "apply"}
+                continue
+            template = registry.template_for(name)
+            options: list[str] = []
+            for candidate in [stage.get("runner") or "", *platform_runners, *(template.default_runners if template else ()), "local"]:
+                if candidate and candidate in registry.RUNNERS and candidate not in options:
+                    options.append(candidate)
+            asks.append({"name": name, "runner_options": options, "family": stage.get("family")})
+        if asks:
+            if hasattr(router, "runner"):
+                decision = router.runner({"stages": asks, "runners_available": runners_available, "platform": platform, "platform_runners": platform_runners})
+                events.append(jev_event(router, "runner", "RunnerDecision", decision))
+            else:
+                decision = RunnerDecision(runners={ask["name"]: ask["runner_options"][0] for ask in asks}, rationale="router has no runner edge")
+            for ask in asks:
+                runner = decision.runners.get(ask["name"]) or ask["runner_options"][0]
+                if runner not in registry.RUNNERS:
+                    runner = runner_default_for(platform)
+                info = runners_available.get(runner) or {}
+                plan[ask["name"]] = {
+                    "runner": runner,
+                    "provider": next((s.get("provider") or "" for s in ordered if s["name"] == ask["name"]), ""),
+                    "mode": info.get("mode") or ("apply" if runner in providers.LOCAL_RUNNERS else "plan"),
+                }
+        return plan
+
+    def generate_artifacts(state: PipelineState) -> dict:
+        """Astra writes the files each generated stage needs; policy and Jev review them."""
+        pipeline = dict(state.get("pipeline") or {})
+        stages = [dict(stage) for stage in pipeline.get("stages") or []]
+        base = {"trace": ["generate_artifacts"], "hops": 1}
+        if not any(stage.get("kind") == "generated" for stage in stages):
+            return base
+        root = state["repo"]["root"]
+        run_id = str(state.get("run_id"))
+        can_generate = hasattr(planner, "generate_artifacts")
+        generated: dict[str, list[dict]] = {}
+        reviews: dict[str, dict] = {}
+        rows: list[dict] = []
+        events: list[dict] = []
+        kept: list[dict] = []
+        dropped: list[str] = []
+        for stage in stages:
+            name = stage["name"]
+            if stage.get("kind") != "generated":
+                kept.append(stage)
+                continue
+            if not can_generate:
+                dropped.append(f"{name}: planner has no generate_artifacts")
+                continue
+            try:
+                provider = providers.for_runner(stage.get("runner") or "local")
+            except KeyError as exc:
+                dropped.append(f"{name}: {exc}")
+                continue
+            revisions_left = MAX_ARTIFACT_REVISIONS
+            try:
+                context = generator.context_for(state, stage, provider)
+                artifact_set = generator.with_env_manifest(planner.generate_artifacts(context), stage, context["placeholders"])
+            except (RuntimeError, ValueError, TypeError, OSError) as exc:
+                dropped.append(f"{name}: generation failed: {scrub(str(exc))[:200]}")
+                continue
+            result = policy.check_artifact_set(artifact_set, stage)
+            review = _review(name, result, revisions_left, [a.path for a in artifact_set.artifacts], events)
+            if review.verdict == "revise" and revisions_left > 0:
+                revisions_left -= 1
+                try:
+                    revised = planner.generate_artifacts(
+                        generator.context_for(state, stage, provider, policy_findings=[item.model_dump() for item in result.findings])
+                    )
+                    artifact_set = generator.with_env_manifest(revised, stage, context["placeholders"])
+                except (RuntimeError, ValueError, TypeError, OSError):
+                    pass
+                result = policy.check_artifact_set(artifact_set, stage)
+                review = _review(name, result, revisions_left, [a.path for a in artifact_set.artifacts], events)
+            records = generator.write(run_id, stage, artifact_set, root)
+            rows.extend(generator.policy_rows(records, name))
+            reviews[name] = {"verdict": review.verdict, "rationale": scrub(review.rationale), "revisions": MAX_ARTIFACT_REVISIONS - revisions_left, "ok": result.ok}
+            if review.verdict == "reject" or not result.ok:
+                dropped.append(f"{name}: artifacts rejected ({review.verdict})")
+                generated[name] = records
+                continue
+            stage["commands"] = provider.commands_for(stage, records)
+            generated[name] = records
+            kept.append(stage)
+        if dropped:
+            ordered, removed = normalize_stages(kept)
+            by_name = {stage["name"]: stage for stage in kept}
+            for stage in ordered:
+                stage["commands"] = by_name[stage["name"]].get("commands") or []
+                stage["runner"] = by_name[stage["name"]].get("runner") or "local"
+                stage["tool"] = _stage_tool(stage["name"], stage["runner"])
+            pipeline["stages"] = ordered
+            pipeline["dropped_edges"] = [*(pipeline.get("dropped_edges") or []), *removed]
+            pipeline["dropped_stages"] = [*(pipeline.get("dropped_stages") or []), *dropped]
+        else:
+            pipeline["stages"] = kept
+        update = {
+            **base,
+            "pipeline": pipeline,
+            "generated_artifacts": generated,
+            "artifact_review": reviews,
+            "policy": rows,
+            "jev_decisions": events,
+        }
+        runnable = [stage for stage in pipeline["stages"] if stage["name"] != "uat"]
+        if not runnable:
+            update["gate"] = GateDecision(
+                route="escalate", retry=False, replan=False, retry_stages=[],
+                rationale="guardrail: no runnable stage after artifact review",
+            ).model_dump()
+        return update
+
+    def _review(name: str, result, revisions_left: int, paths: list[str], events: list[dict]) -> ArtifactReview:
+        payload = {"stage": name, "policy": result.model_dump(), "revisions_left": revisions_left, "artifact_paths": paths}
+        if hasattr(router, "artifact_review"):
+            review = router.artifact_review(payload)
+            events.append(jev_event(router, "artifact_review", "ArtifactReview", review))
+        else:
+            review = ArtifactReview(verdict="accept" if result.ok else "revise", rationale="router has no artifact_review edge")
+        return guard_review(review, result.ok, revisions_left)
+
     def approve_pipeline(state: PipelineState) -> dict:
         paused = time.time()
-        payload = interrupt(
-            {
-                "gate": "pipeline_approval",
-                "pipeline": pipeline_view(state.get("pipeline") or {}),
-            }
-        )
+        payload = interrupt(approval_payload(state))
         waited = max(0.0, time.time() - paused)
         approved = isinstance(payload, dict) and payload.get("decision") == "approved"
         update = {
@@ -917,12 +1287,63 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
 
         return node
 
+    def generated_stage(state: dict) -> dict:
+        """One generic node runs every registry or custom stage through its provider."""
+        stage_name = str(state.get("dispatched_stage") or "stage")
+        spec = dict(state.get("spec") or {"name": stage_name, "runner": "local", "kind": "generated"})
+        spec["run_id"] = state.get("run_id") or spec.get("run_id")
+        brief = planner.brief(
+            {
+                "stage": stage_name,
+                "purpose": state.get("purpose") or spec.get("purpose") or "",
+                "answers": state.get("answers") or {},
+            }
+        )
+        ran = execute_stage_v2(
+            spec,
+            state.get("commands") or [],
+            state["repo"]["root"],
+            state.get("answers") or {},
+            state.get("readiness") or {},
+            state.get("artifacts") or [],
+        )
+        checks = apply_astra_advice(list(ran.get("checks") or []), getattr(planner, "advise", None))
+        for check in checks:
+            check["findings"] = scrub(str(check.get("findings") or ""))
+            check["next_step"] = scrub(str(check.get("next_step") or ""))
+        result = {
+            "stage": stage_name,
+            "status": ran["status"],
+            "exit_code": ran["exit_code"],
+            "attempt": state.get("attempt_number") or 1,
+            "plan_id": state.get("plan_id"),
+            "blocked": bool(ran.get("blocked")),
+            "evidence": ran.get("evidence") or "",
+            "commands": ran.get("commands") or [],
+            "checks": checks,
+            "brief": scrub(brief.summary),
+            "watch_for": scrub(brief.watch_for),
+            "runner": spec.get("runner") or "local",
+            "provider": spec.get("provider") or "",
+            "environment": dict(spec.get("environment") or {}),
+            "kind": "generated",
+            "family": spec.get("family") or registry.family_of(stage_name),
+            "plan": dict(ran.get("plan") or {}),
+        }
+        return {
+            "stage_results": [result],
+            "trace": [stage_name],
+            "hops": 1,
+            "env_state": {"past_uat": False, "aws_called": False},
+        }
+
     def quality_gate(state: PipelineState) -> dict:
         payload = {
             "attempts": state.get("attempt") or {},
             "pending": pending_stages(state),
             "failures": failed_stages(state),
             "blocked": blocked_stages(state),
+            "planned": planned_stages(state),
             "evidence": evidence_rows(state),
             "max_attempts": MAX_ATTEMPTS,
         }
@@ -968,6 +1389,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         status = conclude(state)
         shown = dict(state)
         shown["trace"] = [*(state.get("trace") or []), "report"]
+        _write_deploy_doc(state)
         episodes.record(shown, status, db_path=episodes_db)
         return {
             "status": status,
@@ -977,29 +1399,69 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             "env_state": {"past_uat": False},
         }
 
+    def _write_deploy_doc(state: dict) -> None:
+        """Optional: Astra writes the deployment document for the approved pipeline."""
+        if not hasattr(planner, "write_docs") or not state.get("generated_artifacts"):
+            return
+        pipeline = state.get("pipeline") or {}
+        if (state.get("approvals") or {}).get("pipeline") != "approved":
+            return
+        try:
+            doc = planner.write_docs(
+                {
+                    "pipeline": pipeline_view(pipeline),
+                    "environment": pipeline.get("environment") or {},
+                    "artifacts": {
+                        stage: [{"path": record.get("path"), "purpose": record.get("purpose")} for record in records]
+                        for stage, records in (state.get("generated_artifacts") or {}).items()
+                    },
+                    "readiness": _readiness_brief(state.get("readiness") or {}),
+                    "answers": state.get("answers") or {},
+                }
+            )
+            target = generator.docs_path(state["repo"]["root"], str(state.get("run_id")), pipeline.get("environment"))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(scrub(doc.content), encoding="utf-8")
+        except (RuntimeError, ValueError, TypeError, OSError):
+            return
+
     builder = StateGraph(PipelineState)
     builder.add_node("checkout", checkout)
     builder.add_node("discover_ecosystem", discover_ecosystem)
     builder.add_node("clarify_with_user", clarify_with_user)
+    builder.add_node("follow_up", follow_up)
     builder.add_node("plan_pipeline", plan_pipeline)
+    builder.add_node("generate_artifacts", generate_artifacts)
     builder.add_node("approve_pipeline", approve_pipeline)
     builder.add_node("dispatch_stages", dispatch_stages)
+    builder.add_node("generated_stage", generated_stage)
     builder.add_node("quality_gate", quality_gate)
     builder.add_node("report", report)
     for name in STAGE_NAMES:
         builder.add_node(name, make_runner(name))
         builder.add_edge(name, "quality_gate")
+    builder.add_edge("generated_stage", "quality_gate")
     builder.add_edge(START, "checkout")
     builder.add_edge("checkout", "discover_ecosystem")
     builder.add_conditional_edges(
         "discover_ecosystem",
         route_after_discover,
-        ["plan_pipeline", "clarify_with_user"],
+        ["follow_up", "clarify_with_user"],
     )
-    builder.add_edge("clarify_with_user", "plan_pipeline")
+    builder.add_edge("clarify_with_user", "follow_up")
+    builder.add_conditional_edges(
+        "follow_up",
+        route_after_follow_up,
+        ["clarify_with_user", "plan_pipeline"],
+    )
     builder.add_conditional_edges(
         "plan_pipeline",
         route_after_plan,
+        ["generate_artifacts", "report"],
+    )
+    builder.add_conditional_edges(
+        "generate_artifacts",
+        route_after_generate,
         ["approve_pipeline", "report"],
     )
     builder.add_conditional_edges(
@@ -1010,7 +1472,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
     builder.add_conditional_edges(
         "dispatch_stages",
         route_dispatch,
-        [*STAGE_NAMES, "quality_gate", "report"],
+        [*STAGE_NAMES, "generated_stage", "quality_gate", "report"],
     )
     builder.add_conditional_edges(
         "quality_gate",

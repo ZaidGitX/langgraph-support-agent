@@ -90,7 +90,7 @@ RULES: list[tuple[str, str, str, str, tuple[str, ...]]] = [
     ("prod.reference", "error", r"\b(production|prod)\b", "production is never a target; there is no path past UAT", ()),
     ("secret.literal", "error", "|".join(f"(?:{p})" for p in SECRET_PATTERNS), "a credential-shaped literal was found", ()),
     ("secret.assignment", "error",
-     r"^\s*(export\s+)?[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*\s*[=:]\s*[\"']?[^\s\"'$#{<][^\s\"']{7,}",
+     r"^[ \t]*(export[ \t]+)?[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*[ \t]*[=:][ \t]*[\"']?[^\s\"'$#{<][^\s\"']{7,}",
      "a secret-named variable is assigned a literal; use ${{ secrets.NAME }}, $NAME, or ${NAME}", ()),
     ("secret.gh_set_literal", "error", r"\bgh\s+secret\s+set\s+\S+\s+(-b|--body)\s*=?\s*[\"']?[^\s\"'$\-]",
      "gh secret set with a literal body is not allowed", ()),

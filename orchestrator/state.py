@@ -18,9 +18,9 @@ MAX_PLAN_ATTEMPTS = 2
 # Sprint 3: the first round of ecosystem questions plus one follow-up round.
 MAX_CLARIFY_ROUNDS = 2
 MAX_ARTIFACT_REVISIONS = 1
-# Phase 5 raises this to 128 together with recursion_limit (120 in session.py and demo.py).
-# The hop budget has to stay below the recursion limit to escalate instead of raising.
-MAX_HOPS = 96
+# Below the recursion_limit (160 in session.py and demo.py) so the budget guardrail
+# escalates before LangGraph raises GraphRecursionError.
+MAX_HOPS = 128
 # Human pauses are subtracted in budget_reason. What remains is compute
 # plus waiting on a designated workflow, still inside the session window.
 MAX_SECONDS = 3000

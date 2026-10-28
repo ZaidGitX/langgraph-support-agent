@@ -4,6 +4,7 @@ import operator
 import time
 from typing import Annotated, TypedDict
 
+import pytest
 from fastapi.testclient import TestClient
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
@@ -14,6 +15,9 @@ from orchestrator.dispatch import workflows_for
 from orchestrator.graph import build_graph, interrupt_payload
 from orchestrator.schemas import (
     CandidatePipeline,
+    EcosystemQuestion,
+    FollowUpDecision,
+    FollowUpSet,
     PlanProposal,
     RankDecision,
     StageSpec,
@@ -155,6 +159,63 @@ def test_short_pipeline_does_not_run_undesignated_stages(tmp_path):
         finally:
             service.close()
             app.state.sessions = original
+
+
+class FollowUpAstra(ShortAstra):
+    def follow_up(self, payload: dict) -> FollowUpSet:
+        if int(payload.get("rounds") or 0) == 1:
+            return FollowUpSet(questions=[EcosystemQuestion(id="scan_policy", prompt="Which severity fails the run?", reason="follow-up")])
+        return FollowUpSet(questions=[])
+
+
+class FollowUpJev(PickShort):
+    def follow_up(self, payload: dict) -> FollowUpDecision:
+        if int(payload.get("rounds") or 0) == 1:
+            return FollowUpDecision(action="ask_more", rationale="one more round")
+        return FollowUpDecision(action="proceed", rationale="enough")
+
+
+def test_follow_up_gate_round_trip_over_http(tmp_path):
+    service = SessionService(
+        db_path=str(tmp_path / "follow.sqlite"),
+        jev=FollowUpJev(),
+        astra=FollowUpAstra(),
+        commands=_echo(),
+        repo_root=str(tmp_path),
+    )
+    with TestClient(app) as client:
+        original = app.state.sessions
+        app.state.sessions = service
+        try:
+            client.post("/api/orchestrator/session")
+            view = _wait(service, "questions")
+            client.post("/api/orchestrator/session/answer", json={"gate": "ecosystem_qa", "answers": _answers(view)})
+            follow = _wait(service, "follow_up")
+            assert follow["gate"] == "follow_up_qa" and follow["clarify_round"] == 2
+            assert [question["id"] for question in follow["questions"]] == ["scan_policy"]
+            wrong_gate = client.post("/api/orchestrator/session/answer", json={"gate": "ecosystem_qa", "answers": _answers(follow)})
+            assert wrong_gate.status_code == 400
+            accepted = client.post("/api/orchestrator/session/answer", json={"gate": "follow_up_qa", "answers": _answers(follow)})
+            assert accepted.status_code == 200
+            approval = _wait(service, "approval")
+            assert [stage["name"] for stage in approval["pipeline"]["stages"]] == ["build", "test"]
+            assert approval["candidates"] and approval["candidates"][0]["id"] == "short"
+            assert approval["artifacts"] == {} and approval["runner_plan"]["build"]["runner"] == "local"
+            assert approval["retrieval"]["index_id"]
+        finally:
+            service.close()
+            app.state.sessions = original
+
+
+def test_approval_is_refused_while_an_artifact_has_policy_errors(tmp_path):
+    service = SessionService(db_path=str(tmp_path / "policy.sqlite"), jev=FakeJev(), astra=FakeAstra(), commands=_echo(), repo_root=str(tmp_path))
+    service.view["phase"] = "approval"
+    service.view["artifacts"] = {"container_scan": [{"path": "ci/container_scan.sh", "kind": "shell", "policy": {"ok": False, "errors": 1, "warns": 0}}]}
+    with pytest.raises(ValueError, match="policy errors"):
+        service.submit({"gate": "pipeline_approval", "decision": "approved"})
+    assert service.view["phase"] == "approval"
+    rejected = service.submit({"gate": "pipeline_approval", "decision": "rejected"})
+    assert rejected["phase"] == "running"
 
 
 def test_sqlite_thread_survives_a_pause_and_resume(tmp_path):

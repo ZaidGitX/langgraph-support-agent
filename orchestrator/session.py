@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from app import config
 
+from . import generator
 from .llm import scrub
 from .state import initial_state
 
@@ -36,6 +37,14 @@ def _empty_view() -> dict:
         "retrieval": {},
         "episodes": [],
         "readiness": {},
+        "candidates": [],
+        "artifacts": {},
+        "artifact_review": {},
+        "policy": [],
+        "runner_plan": {},
+        "clarify_round": 0,
+        "follow_up": {},
+        "retrieval_evidence": [],
     }
 
 
@@ -57,9 +66,24 @@ def _stage_board(values: dict) -> list[dict]:
                 "watch_for": row.get("watch_for") or "",
                 "attempt": row.get("attempt"),
                 "exit_code": row.get("exit_code"),
+                "runner": stage.get("runner") or "local",
+                "provider": stage.get("provider") or "",
+                "environment": dict(stage.get("environment") or {}),
+                "kind": stage.get("kind") or "fixed",
+                "family": stage.get("family") or "",
+                "plan": dict(row.get("plan") or {}),
             }
         )
     return board
+
+
+def _has_policy_errors(artifacts: dict) -> bool:
+    for records in (artifacts or {}).values():
+        for record in records or []:
+            summary = record.get("policy") or {}
+            if summary and not summary.get("ok", True):
+                return True
+    return False
 
 
 class SessionService:
@@ -118,14 +142,16 @@ class SessionService:
     def submit(self, body: dict) -> dict:
         with self._cv:
             phase = self.view["phase"]
-            if phase not in {"questions", "approval", "uat"}:
+            if phase not in {"questions", "follow_up", "approval", "uat"}:
                 raise RuntimeError(f"no human gate is open (phase={phase})")
             resume = self._resume_for(phase, body)
+            if phase == "approval" and resume.get("decision") == "approved" and _has_policy_errors(self.view.get("artifacts") or {}):
+                raise ValueError("pipeline has policy errors; reject it or let Astra revise the artifacts")
             self._resume_payload = resume
             self._resume_ready = True
             self.view["phase"] = "running"
             self.view["status"] = "running"
-            if phase == "questions":
+            if phase in {"questions", "follow_up"}:
                 self.view["has_answers"] = True
             self._cv.notify_all()
             return copy.deepcopy(self.view)
@@ -162,13 +188,14 @@ class SessionService:
     def _resume_for(self, phase: str, body: dict) -> dict:
         expected = {
             "questions": "ecosystem_qa",
+            "follow_up": "follow_up_qa",
             "approval": "pipeline_approval",
             "uat": "uat_signoff",
         }[phase]
         gate = body.get("gate")
         if gate is not None and gate != expected:
             raise ValueError(f"this gate is {expected}")
-        if phase == "questions":
+        if phase in {"questions", "follow_up"}:
             answers = body.get("answers")
             if not isinstance(answers, dict):
                 raise ValueError("answers must be an object")
@@ -226,6 +253,7 @@ class SessionService:
         gate = str(payload.get("gate") or "")
         phase = {
             "ecosystem_qa": "questions",
+            "follow_up_qa": "follow_up",
             "pipeline_approval": "approval",
             "uat_signoff": "uat",
         }.get(gate, "running")
@@ -250,6 +278,14 @@ class SessionService:
                     "retrieval": dict(values.get("retrieval") or {}),
                     "episodes": list(values.get("episodes") or []),
                     "readiness": dict(values.get("readiness") or {}),
+                    "candidates": list(payload.get("candidates") or values.get("candidates") or []),
+                    "artifacts": dict(payload.get("artifacts") or {}),
+                    "artifact_review": dict(payload.get("artifact_review") or values.get("artifact_review") or {}),
+                    "policy": list(payload.get("policy") or values.get("policy") or []),
+                    "runner_plan": dict(payload.get("runner_plan") or values.get("runner_plan") or {}),
+                    "clarify_round": int(payload.get("round") or values.get("clarify_rounds") or 0),
+                    "follow_up": dict(values.get("follow_up_decision") or {}),
+                    "retrieval_evidence": list(payload.get("retrieval_evidence") or (values.get("ecosystem") or {}).get("evidence") or []),
                 }
             )
         print(f"orchestrator session {values.get('run_id')} phase={phase}", flush=True)
@@ -279,6 +315,17 @@ class SessionService:
                     "retrieval": dict(values.get("retrieval") or {}),
                     "episodes": list(values.get("episodes") or []),
                     "readiness": dict(values.get("readiness") or {}),
+                    "candidates": list(values.get("candidates") or []),
+                    "artifacts": {
+                        stage: generator.records_for_view(records)
+                        for stage, records in (values.get("generated_artifacts") or {}).items()
+                    },
+                    "artifact_review": dict(values.get("artifact_review") or {}),
+                    "policy": list(values.get("policy") or []),
+                    "runner_plan": dict(values.get("runner_plan") or {}),
+                    "clarify_round": int(values.get("clarify_rounds") or 0),
+                    "follow_up": dict(values.get("follow_up_decision") or {}),
+                    "retrieval_evidence": list((values.get("ecosystem") or {}).get("evidence") or []),
                 }
             )
         print(
@@ -293,7 +340,7 @@ class SessionService:
         from .graph import build_graph, interrupt_payload
 
         state = self._state or initial_state(self.repo_root)
-        thread = {"configurable": {"thread_id": state["run_id"]}, "recursion_limit": 120}
+        thread = {"configurable": {"thread_id": state["run_id"]}, "recursion_limit": 160}
         pending: dict | Command = state
         try:
             parent = os.path.dirname(self.db_path)

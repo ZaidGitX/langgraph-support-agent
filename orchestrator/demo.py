@@ -17,7 +17,7 @@ from .runner import reset_printer, set_printer
 
 def drive(graph, state: dict, resume_for, *, echo: bool = True) -> dict:
     run_id = state["run_id"]
-    thread = {"configurable": {"thread_id": run_id}, "recursion_limit": 120}
+    thread = {"configurable": {"thread_id": run_id}, "recursion_limit": 160}
     pending: dict | Command = state
     seen_trace = 0
     seen_decisions = 0
