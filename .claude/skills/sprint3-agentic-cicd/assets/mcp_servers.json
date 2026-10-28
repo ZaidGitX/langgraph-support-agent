@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "note": "Manifest for orchestrator/mcp_bus.py (ORCHESTRATOR_MCP=1) and for coding agents. A server starts only when every env_names entry is present. Runtime use is read-only discovery; nothing applies changes through MCP. Copy to orchestrator/mcp_servers.json.",
+  "servers": {
+    "aws-mcp": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["mcp-proxy-for-aws@latest", "https://aws-mcp.us-east-1.api.aws/mcp", "--metadata", "INSTALL_SOURCE=orchestrator"],
+      "env_names": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"],
+      "optional_env_names": ["AWS_SESSION_TOKEN", "AWS_PROFILE"],
+      "configured_for_agents": {"claude_code": "~/.claude.json mcpServers.aws-mcp", "cursor": "~/.cursor/mcp.json mcpServers.aws-mcp"},
+      "use": "aws___search_documentation, aws___read_documentation, aws___list_regions, aws___get_regional_availability (read-only)",
+      "verified": true
+    },
+    "github": {
+      "transport": "stdio",
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "ghcr.io/github/github-mcp-server"],
+      "env_names": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+      "configured_for_agents": {"cursor": "~/.cursor/mcp.json mcpServers.github"},
+      "use": "list workflow runs, read job logs, inspect branches (read-only at runtime)",
+      "verified": true
+    },
+    "gcp": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@google-cloud/mcp-server@latest"],
+      "env_names": ["GOOGLE_APPLICATION_CREDENTIALS", "GCP_PROJECT_ID"],
+      "use": "placeholder: verify the package name and tool list before enabling",
+      "verified": false
+    },
+    "azure": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@azure/mcp@latest", "server", "start"],
+      "env_names": ["AZURE_CLIENT_ID", "AZURE_TENANT_ID", "AZURE_CLIENT_SECRET", "AZURE_SUBSCRIPTION_ID"],
+      "use": "placeholder: verify the package name and tool list before enabling",
+      "verified": false
+    },
+    "jenkins": {
+      "transport": "stdio",
+      "command": "uvx",
+      "args": ["jenkins-mcp-server@latest"],
+      "env_names": ["JENKINS_URL", "JENKINS_USER", "JENKINS_API_TOKEN"],
+      "use": "placeholder: verify the package name and tool list before enabling",
+      "verified": false
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "_comment": "Cursor hooks for the sprint3-agentic-cicd skill. Project hooks run from the project root, so the relative paths resolve. Install with scripts/install_hooks.py (writes .cursor/hooks.json) or copy this file there.",
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/session_context.py",
+        "timeout": 20
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/guard_bash.py",
+        "timeout": 10,
+        "failClosed": false
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/post_edit_check.py",
+        "timeout": 30
+      }
+    ],
+    "stop": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/stop_checklist.py",
+        "timeout": 20,
+        "loop_limit": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/session_context.py",
+        "timeout": 20
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/guard_bash.py",
+        "timeout": 10,
+        "failClosed": false
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/post_edit_check.py",
+        "timeout": 30
+      }
+    ],
+    "stop": [
+      {
+        "command": "python3 .claude/skills/sprint3-agentic-cicd/hooks/stop_checklist.py",
+        "timeout": 20,
+        "loop_limit": 1
+      }
+    ]
+  }
+}

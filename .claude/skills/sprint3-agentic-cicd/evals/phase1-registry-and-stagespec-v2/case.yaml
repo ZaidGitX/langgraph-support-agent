@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: phase1-registry-and-stagespec-v2
+expected_outcome: |
+  orchestrator/registry.py exists with STAGE_FAMILIES, RUNNERS, STATUSES (including planned),
+  the nine fixed stages, roughly thirty named templates, and validate_stage_name that
+  rejects production and malformed names. StageSpec gains family, kind, runner, provider,
+  environment, artifacts, stochastic with defaults so StageSpec(name="build", depends_on=[],
+  purpose="x") still works; CandidatePipeline enforces uat last; PlanProposal allows 2–4
+  candidates with a mode. PipelineState gains retrieval, episodes, readiness, runner_plan,
+  generated_artifacts, policy, clarify_rounds. normalize_stages keeps custom names.
+  tests/test_registry.py is added; the whole suite (55 existing + new) passes with the
+  project interpreter; ruff is clean; no production edge was added.

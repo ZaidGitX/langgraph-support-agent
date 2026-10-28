@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: aws-codebuild-provider-plan-mode
+expected_outcome: |
+  orchestrator/providers/aws.py (or aws_codebuild.py) implements the Provider protocol with
+  detect(), render_skeleton(), commands_for(), and execute(mode=plan|apply). detect() checks
+  the aws CLI and the credential names from the registry (AWS_ACCESS_KEY_ID +
+  AWS_SECRET_ACCESS_KEY or AWS_PROFILE, AWS_REGION, AWS_CODEBUILD_PROJECT) without reading
+  values. execute(mode="plan") returns status "planned" with plan.missing listing the
+  absent names and plan.would_run starting with ["aws", "codebuild", "start-build", ...].
+  Apply mode is gated by ORCHESTRATOR_CLOUD_APPLY=1. The provider is registered; tests
+  monkeypatch subprocess so nothing runs; the test suite and ruff pass with the project
+  interpreter; no AWS resource is created and no credential value appears anywhere.

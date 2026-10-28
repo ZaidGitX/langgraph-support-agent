@@ -1,0 +1,21 @@
+---
+description: Sprint 3 of the agentic CI/CD orchestrator (Astra, Jev, LangGraph, providers, runners, dashboard). Routes all orchestrator work to the project skill.
+globs: orchestrator/**, app/orchestrator_api.py, app/main.py, frontend/src/**, tests/**, scripts/**, .github/workflows/**, docker-compose.yml, Dockerfile, .env.example, docs/**
+alwaysApply: true
+---
+
+Sprint 3 work follows the project skill `.claude/skills/sprint3-agentic-cicd/SKILL.md`
+(invoke `/sprint3-agentic-cicd`). It is the single source of truth: phase plan
+(`references/12-phase-plan.md`), component specs (`references/01`–`11`), scripts, templates,
+catalogs, and guardrails.
+
+Before editing: run `python3 .claude/skills/sprint3-agentic-cicd/scripts/preflight.py --brief`
+and `python3 .claude/skills/sprint3-agentic-cicd/scripts/sprint3_progress.py`.
+
+Use `/opt/anaconda3/envs/tcs_practice_env/bin/python` for pytest, ruff, and uvicorn. Finish a
+phase with `bash .claude/skills/sprint3-agentic-cicd/scripts/run_sprint3_checks.sh` green and
+one commit.
+
+Hard rules: no production target or edge past UAT; only `orchestrator.yml` runs on push;
+Jev routes with TypeSafe Choice/Noul only; secrets by placeholder name only; generated
+commands pass `orchestrator/policy.py`; cloud runners plan unless `ORCHESTRATOR_CLOUD_APPLY=1`.

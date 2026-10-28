@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: retrieval-feeds-astra-proposals
+expected_outcome: |
+  orchestrator/retrieval.py provides build_index, retrieve, and context_for with a pure-Python
+  BM25 over line-window chunks, a cache keyed by a tree hash under var/retrieval/, and an
+  exclusion of .env and generated directories; embeddings are optional and off by default.
+  graph.py's checkout builds the index, discover_ecosystem adds retrieved excerpts (and
+  episodes if present) to Astra's question payload, plan_pipeline passes them to propose,
+  and the report shows a Retrieval section with the files read. tests/test_retrieval.py
+  covers index caching, .env exclusion, and topic context; the suite and ruff pass with the
+  project interpreter and no network call is made.

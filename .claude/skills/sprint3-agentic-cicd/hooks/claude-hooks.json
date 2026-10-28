@@ -1,0 +1,62 @@
+{
+  "_comment": "Claude Code hooks for the sprint3-agentic-cicd skill. Merge into .claude/settings.local.json (project) or ~/.claude/settings.json with scripts/install_hooks.py. The same PreToolUse, PostToolUse, and Stop hooks are also declared in SKILL.md frontmatter and apply whenever the skill is invoked.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/skills/sprint3-agentic-cicd/hooks/session_context.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/skills/sprint3-agentic-cicd/hooks/prompt_context.py\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/skills/sprint3-agentic-cicd/hooks/guard_bash.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/skills/sprint3-agentic-cicd/hooks/post_edit_check.py\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PROJECT_DIR}/.claude/skills/sprint3-agentic-cicd/hooks/stop_checklist.py\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}
