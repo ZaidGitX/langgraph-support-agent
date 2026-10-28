@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from orchestrator import credentials
@@ -57,6 +58,27 @@ def answer_session(body: AnswerBody, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/session/artifacts")
+def get_session_artifacts(request: Request) -> dict:
+    """Every generated artifact of the current run keyed by stage; content is redacted and bounded."""
+    return _service(request).artifacts()
+
+
+@router.get("/session/artifacts/{stage}/{index}", response_class=PlainTextResponse)
+def get_session_artifact_text(stage: str, index: int, request: Request) -> str:
+    """Full redacted text of one generated artifact."""
+    text = _service(request).artifact_text(stage, index)
+    if text is None:
+        raise HTTPException(status_code=404, detail=f"no artifact {index} for stage {stage!r}")
+    return text
+
+
+@router.get("/episodes")
+def get_episodes(request: Request, limit: int = Query(5, ge=1, le=50)) -> list[dict]:
+    """Newest recorded runs of this checkout (episodic memory). Works before a session starts."""
+    return _service(request).episodes(limit)
 
 
 @router.post("/session/viewed")

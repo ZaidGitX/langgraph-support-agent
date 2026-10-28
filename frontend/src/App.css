@@ -1030,3 +1030,372 @@ main.dashboard {
   margin-top: 12px;
   color: var(--fail);
 }
+
+/* Sprint 3 panels: readiness, candidates, artifacts, retrieval, episodes, chips. */
+
+.dashboard .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--plane);
+}
+
+.dashboard .chip small {
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.dashboard .chip-runner {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.dashboard .chip-env {
+  color: var(--ink);
+}
+
+.dashboard .chip-provider {
+  color: var(--ink);
+}
+
+.dashboard .chip-kind {
+  color: var(--accent-ink);
+  border-style: dashed;
+}
+
+.dashboard .chip-ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.dashboard .chip-warn {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.dashboard .chip-missing {
+  color: var(--amber);
+  border-color: var(--amber);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.dashboard .chip-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.dashboard p.chip-row {
+  display: flex;
+  margin: 8px 0 0;
+}
+
+.dashboard .toggles-row {
+  margin-top: 12px;
+}
+
+.dashboard .badge-mode {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+}
+
+.dashboard .badge-mode-deterministic {
+  background: var(--plane);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.dashboard .badge-mode-stochastic {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent-ink);
+  border: 1px solid var(--accent);
+}
+
+.dashboard .readiness-grid,
+.dashboard .candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+}
+
+.dashboard .readiness-card,
+.dashboard .candidate-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.dashboard .readiness-card.tone-ok {
+  border-left: 3px solid var(--ok);
+}
+
+.dashboard .readiness-card.tone-warn {
+  border-left: 3px solid var(--amber);
+}
+
+.dashboard .candidate-card.chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.dashboard .readiness-head {
+  margin-bottom: 10px;
+}
+
+.dashboard .readiness-missing {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.dashboard .candidate-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 6px;
+}
+
+.dashboard .candidate-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dashboard .candidate-stages {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dashboard .candidate-stages li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2px 0;
+  font-size: 0.85rem;
+  border-bottom: 1px dashed var(--line);
+}
+
+.dashboard .prob-bar {
+  height: 6px;
+  margin-top: 8px;
+  background: var(--plane);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.dashboard .prob-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.dashboard .artifact-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.dashboard .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  background: var(--plane);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.dashboard .tab.active {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+
+.dashboard .tab.tab-error {
+  border-color: var(--fail);
+}
+
+.dashboard .tab-count {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.dashboard .artifact {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+  background: var(--surface);
+}
+
+.dashboard .artifact pre {
+  background: var(--code-bg);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.dashboard .artifact-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard .artifact-path {
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.dashboard .policy-badge {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+}
+
+.dashboard .policy-badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.dashboard .policy-badge.warn {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.dashboard .policy-badge.error {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+
+.dashboard .policy-summary {
+  margin-top: 10px;
+}
+
+.dashboard .approve-note {
+  margin-top: 8px;
+  color: var(--amber);
+}
+
+.dashboard .finding-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dashboard .finding {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  background: var(--plane);
+  border-left: 2px solid var(--amber);
+}
+
+.dashboard .finding.tone-bad {
+  border-left-color: var(--fail);
+}
+
+.dashboard .finding-rule {
+  color: var(--accent-ink);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.dashboard .finding-line {
+  color: var(--muted);
+}
+
+.dashboard .retrieval-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+}
+
+.dashboard .retrieval-group h3 {
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dashboard .retrieval-list,
+.dashboard .episode-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dashboard .retrieval-list li,
+.dashboard .episode-list li {
+  border-bottom: 1px solid var(--line);
+  padding: 0.35rem 0;
+}
+
+.dashboard .retrieval-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.dashboard .retrieval-lines {
+  color: var(--muted);
+}
+
+.dashboard .episode-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dashboard .episode-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.dashboard .episode-stages {
+  margin: 4px 0;
+  font-size: 0.85rem;
+}
+
+.dashboard .stage-chips {
+  margin: 4px 0 0;
+}
+
+.dashboard .stage-planned {
+  margin-top: 6px;
+  color: var(--amber);
+  font-size: 0.85rem;
+}
+
+.dashboard .panel-compact {
+  padding: 12px;
+}

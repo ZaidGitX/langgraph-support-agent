@@ -24,7 +24,7 @@ from orchestrator.schemas import (
 )
 from orchestrator.session import SessionService
 from orchestrator.state import initial_state
-from tests.test_orchestrator import FakeAstra, FakeJev, _echo, _thread
+from tests.test_orchestrator import FakeAstra, FakeJev, GeneratedAstra, _echo, _thread
 
 
 def _wait(service: SessionService, phase: str, timeout: float = 8) -> dict:
@@ -216,6 +216,60 @@ def test_approval_is_refused_while_an_artifact_has_policy_errors(tmp_path):
     assert service.view["phase"] == "approval"
     rejected = service.submit({"gate": "pipeline_approval", "decision": "rejected"})
     assert rejected["phase"] == "running"
+
+
+def test_artifacts_and_episodes_endpoints_follow_a_generated_run(tmp_path):
+    service = SessionService(
+        db_path=str(tmp_path / "generated.sqlite"),
+        jev=FakeJev(),
+        astra=GeneratedAstra(),
+        commands=_echo(),
+        repo_root=str(tmp_path),
+    )
+    with TestClient(app) as client:
+        original = app.state.sessions
+        app.state.sessions = service
+        try:
+            assert client.get("/api/orchestrator/episodes").json() == []
+            assert client.get("/api/orchestrator/session/artifacts").json() == {}
+            client.post("/api/orchestrator/session")
+            view = _wait(service, "questions")
+            client.post("/api/orchestrator/session/answer", json={"gate": "ecosystem_qa", "answers": _answers(view)})
+            approval = _wait(service, "approval")
+            assert approval["candidates"][0]["mode"] == "stochastic" and approval["candidates"][0]["chosen"]
+            assert {stage["runner"] for stage in approval["stages"]} == {"local"}
+
+            listing = client.get("/api/orchestrator/session/artifacts")
+            assert listing.status_code == 200
+            records = listing.json()["container_scan"]
+            assert {record["kind"] for record in records} == {"shell", "env_example"}
+            assert all(record["policy"]["ok"] and record["content"] for record in records)
+            index = next(position for position, record in enumerate(records) if record["kind"] == "shell")
+            text = client.get(f"/api/orchestrator/session/artifacts/container_scan/{index}")
+            assert text.status_code == 200 and text.headers["content-type"].startswith("text/plain")
+            assert text.text == records[index]["content"]
+            assert client.get("/api/orchestrator/session/artifacts/container_scan/99").status_code == 404
+            assert client.get("/api/orchestrator/session/artifacts/nope/0").status_code == 404
+
+            client.post("/api/orchestrator/session/answer", json={"gate": "pipeline_approval", "decision": "approved"})
+            _wait(service, "uat", timeout=20)
+            client.post("/api/orchestrator/session/answer", json={"gate": "uat_signoff", "decision": "approved"})
+            results = _wait(service, "results", timeout=20)
+            rows = {row["stage"]: row for row in results["report"]["stage_evidence"]}
+            assert rows["container_scan"]["kind"] == "generated" and rows["container_scan"]["runner"] == "local"
+            assert rows["container_scan"]["family"] == "scan" and rows["container_scan"]["plan"] == {}
+            assert rows["build"]["kind"] == "fixed" and rows["build"]["family"] == "build"
+            assert results["artifacts"]["container_scan"][index]["content"] == text.text
+
+            episodes = client.get("/api/orchestrator/episodes?limit=5")
+            assert episodes.status_code == 200
+            assert [item["run_id"] for item in episodes.json()] == [results["run_id"]]
+            assert episodes.json()[0]["chosen"]["mode"] == "stochastic"
+            assert "container_scan" in episodes.json()[0]["chosen"]["stages"]
+            assert client.get("/api/orchestrator/episodes?limit=0").status_code == 422
+        finally:
+            service.close()
+            app.state.sessions = original
 
 
 def test_sqlite_thread_survives_a_pause_and_resume(tmp_path):

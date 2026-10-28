@@ -1,10 +1,27 @@
 import { useEffect, useState } from "react"
+import ArtifactViewer from "./components/ArtifactViewer.jsx"
+import Candidates from "./components/Candidates.jsx"
+import { EnvChip, KindChip, ModeBadge, NameChips, PolicyBadge, ProviderChip, RunnerChip } from "./components/Chips.jsx"
+import Episodes from "./components/Episodes.jsx"
+import { Mark, toneOf } from "./components/Mark.jsx"
+import Readiness from "./components/Readiness.jsx"
+import RetrievalPanel from "./components/RetrievalPanel.jsx"
+
+// Phase router and data fetcher. The panels live in ./components; this file decides which
+// of them a phase shows and posts every human answer to the session API.
+
+const CHECK_FAMILIES = new Set(["test", "scan", "verify"])
+const CHECK_NAMES = new Set(["test", "scanners", "dast"])
 
 function choiceLabel(choice) {
   if (!choice || typeof choice !== "object") {
     return "—"
   }
-  return Object.entries(choice)
+  const entries = Object.entries(choice)
+  if (!entries.length) {
+    return "—"
+  }
+  return entries
     .map(([name, value]) => {
       if (value && typeof value === "object" && "choice" in value) {
         const confidence =
@@ -16,6 +33,22 @@ function choiceLabel(choice) {
     .join(", ")
 }
 
+function runnerLines(item) {
+  const entries = Object.entries(item?.choice || {})
+  if (entries.length) {
+    return entries.map(([name, value]) => {
+      const stage = name.replace(/^runner:/, "")
+      if (value && typeof value === "object" && "choice" in value) {
+        const confidence =
+          typeof value.confidence === "number" ? ` (${value.confidence.toFixed(2)})` : ""
+        return `${stage} → ${value.choice}${confidence}`
+      }
+      return `${stage} → ${JSON.stringify(value)}`
+    })
+  }
+  return Object.entries(item?.decision?.runners || {}).map(([stage, runner]) => `${stage} → ${runner}`)
+}
+
 function noulLabel(noul) {
   if (!noul || typeof noul !== "object" || Object.keys(noul).length === 0) {
     return "—"
@@ -25,34 +58,26 @@ function noulLabel(noul) {
     .join(", ")
 }
 
-function toneOf(value) {
-  const text = String(value ?? "")
-    .trim()
-    .toLowerCase()
-  if (["pass", "passed", "ok", "approved", "success"].includes(text)) {
-    return "ok"
-  }
-  if (["fail", "failed", "failure", "error", "blocked", "escalate", "escalated", "rejected"].includes(text)) {
-    return "bad"
-  }
-  if (text === "skip" || text === "skipped") {
-    return "skip"
-  }
-  if (["pending", "warn", "warning", "remediate", "running", "starting"].includes(text)) {
-    return "warn"
-  }
-  return "neutral"
-}
-
-function Mark({ value, large = false }) {
-  const label = value === undefined || value === null || value === "" ? "—" : String(value)
-  const tone = label === "—" ? "neutral" : toneOf(label)
-  return <span className={`mark mark-${tone}${large ? " mark-lg" : ""}`}>{label}</span>
-}
-
 function latestEvidence(evidence, name) {
   const rows = (evidence || []).filter((row) => row.stage === name)
   return rows.length ? rows[rows.length - 1] : null
+}
+
+function missingNames(row, stage) {
+  const plan = row?.plan || stage?.plan || {}
+  return Array.isArray(plan.missing) ? plan.missing : []
+}
+
+function hasPolicyErrors(artifacts) {
+  for (const records of Object.values(artifacts || {})) {
+    for (const record of records || []) {
+      const policy = record?.policy
+      if (policy && policy.ok === false) {
+        return true
+      }
+    }
+  }
+  return false
 }
 
 async function errorDetail(response) {
@@ -125,6 +150,15 @@ export default function Dashboard() {
 
   const phase = session?.phase || "starting"
   const questions = session?.questions || []
+  const askingPhase = phase === "questions" || phase === "follow_up"
+  const gateName = session?.gate || (phase === "follow_up" ? "follow_up_qa" : "ecosystem_qa")
+  const clarifyRound = session?.clarify_round || 0
+
+  useEffect(() => {
+    // A new round brings new question ids; never carry an earlier draft into it.
+    setDraft({})
+  }, [gateName, clarifyRound])
+
   const answersReady =
     questions.length > 0 &&
     questions.every((question) => String(draft[question.id] || "").trim())
@@ -144,7 +178,7 @@ export default function Dashboard() {
       const response = await fetch("/api/orchestrator/session/answer", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ gate: "ecosystem_qa", answers }),
+        body: JSON.stringify({ gate: gateName, answers }),
       })
       if (!response.ok) {
         setError(await errorDetail(response))
@@ -194,6 +228,17 @@ export default function Dashboard() {
   const liveStages = (session?.stages || []).filter((stage) => stage.name)
   const rank = [...decisions].reverse().find((item) => item.kind === "rank")
   const proposedNames = (report?.chosen_pipeline?.stages || []).map((stage) => stage.name)
+  const runnerPlan = session?.runner_plan || report?.runner_plan || {}
+  const sessionArtifacts = session?.artifacts || {}
+  const artifacts = Object.keys(sessionArtifacts).length ? sessionArtifacts : report?.generated_artifacts || {}
+  const artifactReview = session?.artifact_review || report?.artifact_review || {}
+  const policyBlocked = hasPolicyErrors(sessionArtifacts)
+  const retrieval = report?.retrieval || session?.retrieval || {}
+  const retrievalEvidence = session?.retrieval_evidence?.length
+    ? session.retrieval_evidence
+    : report?.retrieval?.evidence || []
+  const plannedStages = report?.planned_stages || []
+  const pipeline = session?.pipeline || report?.chosen_pipeline || null
 
   return (
     <main className="dashboard">
@@ -204,8 +249,9 @@ export default function Dashboard() {
           {session?.status ? <Mark value={session.status} large /> : null}
         </div>
         <p className="lede">
-          Astra writes the questions and the candidate pipelines. Jev chooses one pipeline.
-          You answer here. Only the stages in the approved pipeline run.
+          Astra writes the questions, the candidate pipelines, and the files a generated stage needs. Jev
+          chooses one pipeline and a runner per stage. You answer here. Only the stages in the approved
+          pipeline run; a stage whose credentials are missing is planned, not skipped.
         </p>
         <div className="hero-meta">
           <p>{session?.run_id ? `Run id: ${session.run_id}` : "Opening a session…"}</p>
@@ -216,12 +262,18 @@ export default function Dashboard() {
       {error ? <p className="error">{error}</p> : null}
       {session?.error ? <p className="error">{session.error}</p> : null}
 
-      {phase === "questions" ? (
+      {askingPhase ? (
         <form className="question-form" onSubmit={submitAnswers}>
-          <h2>Ecosystem questions</h2>
+          <h2>
+            {phase === "follow_up"
+              ? `Follow-up questions (round ${clarifyRound || 2})`
+              : "Ecosystem questions"}
+          </h2>
           <p className="card-note">
-            Astra wrote these from the checkout. The run stays on this screen until you submit
-            an answer for every question. Nothing is filled in for you.
+            {phase === "follow_up"
+              ? session?.follow_up?.rationale ||
+                "Jev asked for one more round after reading the retrieved code."
+              : "Astra wrote these from the checkout. The run stays on this screen until you submit an answer for every question. Nothing is filled in for you."}
           </p>
           {questions.map((question) => (
             <label key={question.id} htmlFor={`q-${question.id}`}>
@@ -245,32 +297,55 @@ export default function Dashboard() {
       ) : null}
 
       {phase === "approval" ? (
-        <section className="panel">
-          <h2>Approve the pipeline Jev chose</h2>
-          <p className="card-note">
-            {session?.pipeline?.summary || "Jev selected one candidate."} Approving runs only
-            the stages below. Rejecting runs none of them.
-          </p>
-          <StageList stages={liveStages} evidence={[]} />
-          <div className="decision-actions">
-            <button
-              className="primary"
-              type="button"
-              disabled={sending}
-              onClick={() => submitDecision("pipeline_approval", "approved")}
-            >
-              Approve pipeline
-            </button>
-            <button
-              className="danger"
-              type="button"
-              disabled={sending}
-              onClick={() => submitDecision("pipeline_approval", "rejected")}
-            >
-              Reject pipeline
-            </button>
-          </div>
-        </section>
+        <>
+          <section className="panel">
+            <h2>Approve the pipeline Jev chose</h2>
+            <p className="card-note">
+              {pipeline?.summary || "Jev selected one candidate."} Approving runs only the stages below.
+              Rejecting runs none of them.
+            </p>
+            <p className="chip-row">
+              {pipeline?.id ? <span className="chip">{pipeline.id}</span> : null}
+              <ModeBadge mode={pipeline?.mode} />
+              <EnvChip environment={pipeline?.environment} />
+            </p>
+          </section>
+          <Candidates candidates={session?.candidates} runnerPlan={runnerPlan} />
+          <section className="panel">
+            <h2>Stages</h2>
+            <StageList stages={liveStages} evidence={[]} runnerPlan={runnerPlan} />
+          </section>
+          <ArtifactViewer artifacts={sessionArtifacts} review={artifactReview} />
+          <section className="panel">
+            <h2>Policy</h2>
+            <PolicySummary policy={session?.policy} />
+            {policyBlocked ? (
+              <p className="approve-note">
+                A generated artifact has a policy error, so this pipeline cannot be approved. Reject it and
+                let Astra plan again.
+              </p>
+            ) : null}
+            <div className="decision-actions">
+              <button
+                className="primary"
+                type="button"
+                disabled={sending || policyBlocked}
+                onClick={() => submitDecision("pipeline_approval", "approved")}
+              >
+                Approve pipeline
+              </button>
+              <button
+                className="danger"
+                type="button"
+                disabled={sending}
+                onClick={() => submitDecision("pipeline_approval", "rejected")}
+              >
+                Reject pipeline
+              </button>
+            </div>
+          </section>
+          <RetrievalPanel retrieval={retrieval} evidence={retrievalEvidence} />
+        </>
       ) : null}
 
       {phase === "uat" ? (
@@ -279,7 +354,7 @@ export default function Dashboard() {
           <p className="card-note">
             There is no path past UAT. Sign off only if this run should stop here as accepted.
           </p>
-          <StageList stages={liveStages} evidence={[]} />
+          <StageList stages={liveStages} evidence={[]} runnerPlan={runnerPlan} />
           <div className="decision-actions">
             <button
               className="primary"
@@ -302,17 +377,28 @@ export default function Dashboard() {
       ) : null}
 
       {phase === "running" || phase === "starting" || phase === "idle" ? (
-        <section className="panel">
-          <h2>{session?.has_answers ? "Pipeline in progress" : "Waiting for Astra"}</h2>
-          <p className="card-note">
-            {session?.has_answers
-              ? "Astra proposes the DAGs. Jev chooses one. If a pipeline is already approved, only those stages run."
-              : "Astra is reading the checkout and writing the ecosystem questions."}
-          </p>
-          {session?.has_answers && liveStages.length ? (
-            <StageList stages={liveStages} evidence={[]} />
+        <>
+          <section className="panel">
+            <h2>{session?.has_answers ? "Pipeline in progress" : "Waiting for Astra"}</h2>
+            <p className="card-note">
+              {session?.has_answers
+                ? "Astra proposes, Jev ranks, Jev picks runners, Astra writes artifacts, the policy checks them. If a pipeline is already approved, only those stages run."
+                : "Astra is reading the checkout and writing the ecosystem questions."}
+            </p>
+            {session?.has_answers && liveStages.length ? (
+              <StageList stages={liveStages} evidence={[]} runnerPlan={runnerPlan} />
+            ) : null}
+          </section>
+          {phase === "running" && retrieval?.index_id ? (
+            <RetrievalPanel retrieval={retrieval} evidence={retrievalEvidence} />
           ) : null}
-        </section>
+          {phase !== "running" ? (
+            <>
+              <Readiness readiness={session?.readiness} />
+              <Episodes />
+            </>
+          ) : null}
+        </>
       ) : null}
 
       {phase === "results" && report ? (
@@ -330,6 +416,10 @@ export default function Dashboard() {
                   <span>AWS called</span>
                   <strong>{String(report.aws_called)}</strong>
                 </li>
+                <li>
+                  <span>Planned stages</span>
+                  <strong>{plannedStages.length ? plannedStages.join(", ") : "none"}</strong>
+                </li>
               </ul>
             </article>
             <article className="summary-card">
@@ -343,6 +433,10 @@ export default function Dashboard() {
               <h2>Approved stages</h2>
               <p className="card-value">{resultStages.map((stage) => stage.name).join(" → ") || "none ran"}</p>
               <p className="card-note">{report.chosen_pipeline?.summary || ""}</p>
+              <p className="chip-row">
+                <ModeBadge mode={report.chosen_pipeline?.mode} />
+                <EnvChip environment={report.chosen_pipeline?.environment} />
+              </p>
             </article>
           </section>
 
@@ -351,7 +445,7 @@ export default function Dashboard() {
           <section className="panel">
             <h2>Stages</h2>
             {ran && resultStages.length ? (
-              <StageList stages={resultStages} evidence={evidence} />
+              <StageList stages={resultStages} evidence={evidence} runnerPlan={runnerPlan} />
             ) : (
               <p className="empty">
                 {proposedNames.length
@@ -360,6 +454,10 @@ export default function Dashboard() {
               </p>
             )}
           </section>
+
+          <ArtifactViewer artifacts={artifacts} review={artifactReview} readOnly />
+          <RetrievalPanel retrieval={retrieval} evidence={retrievalEvidence} />
+          <Episodes episodes={report.episodes || session?.episodes || []} />
 
           <section className="panel">
             <h2>Jev decisions</h2>
@@ -382,12 +480,42 @@ export default function Dashboard() {
                       </div>
                       <div className="span-2">
                         <dt>Choice</dt>
-                        <dd>{choiceLabel(item.choice)}</dd>
+                        <dd>
+                          {item.kind === "runner" ? (
+                            <ul className="id-list">
+                              {runnerLines(item).map((line) => (
+                                <li key={line}>{line}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            choiceLabel(item.choice)
+                          )}
+                        </dd>
                       </div>
                       <div className="span-2">
                         <dt>Noul</dt>
                         <dd>{noulLabel(item.noul)}</dd>
                       </div>
+                      {item.kind === "artifact_review" && item.decision?.verdict ? (
+                        <div>
+                          <dt>Verdict</dt>
+                          <dd>
+                            <Mark value={item.decision.verdict} />
+                          </dd>
+                        </div>
+                      ) : null}
+                      {item.kind === "follow_up" && item.decision?.action ? (
+                        <div>
+                          <dt>Action</dt>
+                          <dd>{item.decision.action}</dd>
+                        </div>
+                      ) : null}
+                      {item.decision?.rationale ? (
+                        <div className="span-2">
+                          <dt>Rationale</dt>
+                          <dd>{item.decision.rationale}</dd>
+                        </div>
+                      ) : null}
                     </dl>
                   </article>
                 ))}
@@ -409,17 +537,73 @@ export default function Dashboard() {
   )
 }
 
-function CheckBoard({ stages, evidence }) {
+export function PolicySummary({ policy }) {
+  const rows = Array.isArray(policy) ? policy : []
+  const errors = rows.filter((row) => row.severity === "error").length
+  const warns = rows.filter((row) => row.severity === "warn").length
+  if (!rows.length) {
+    return (
+      <p className="card-note policy-summary">
+        <PolicyBadge policy={{ ok: true, errors: 0, warns: 0 }} /> No findings in the generated files or
+        commands.
+      </p>
+    )
+  }
+  return (
+    <div className="policy-summary">
+      <p className="card-note">
+        <PolicyBadge policy={{ ok: errors === 0, errors, warns }} /> {rows.length} finding
+        {rows.length === 1 ? "" : "s"} across the generated files.
+      </p>
+      <ul className="finding-list">
+        {rows.slice(0, 30).map((row, index) => (
+          <li
+            className={`finding tone-${row.severity === "error" ? "bad" : "warn"}`}
+            key={`${row.stage}-${row.path}-${row.rule}-${index}`}
+          >
+            <span className="finding-rule">
+              {row.severity} · {row.rule}
+            </span>
+            <code>
+              {row.stage}:{row.path}
+              {row.line ? `:${row.line}` : ""}
+            </code>
+            <span>{row.message}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+export function CheckBoard({ stages, evidence }) {
   const groups = (stages || [])
-    .filter((stage) => ["test", "scanners", "dast"].includes(stage.name))
-    .map((stage) => {
-      const row = latestEvidence(evidence, stage.name)
-      const checks = Array.isArray(row?.checks) ? row.checks : []
-      return {
-        name: stage.name,
-        status: row?.status || stage.status || "pending",
-        checks,
+    .map((stage) => ({ stage, row: latestEvidence(evidence, stage.name) }))
+    .filter(
+      ({ stage, row }) =>
+        CHECK_NAMES.has(stage.name) ||
+        CHECK_FAMILIES.has(stage.family || row?.family) ||
+        (row?.status || stage.status) === "planned",
+    )
+    .map(({ stage, row }) => {
+      const status = row?.status || stage.status || "pending"
+      const runner = row?.runner || stage.runner || "local"
+      const missing = missingNames(row, stage)
+      let checks = Array.isArray(row?.checks) ? row.checks : []
+      if (status === "planned" && !checks.length) {
+        checks = [
+          {
+            name: `${runner} plan`,
+            status: "planned",
+            job: "",
+            findings: row?.evidence || "",
+            next_step: missing.length
+              ? `Set ${missing.join(", ")} and run again.`
+              : "Set ORCHESTRATOR_CLOUD_APPLY=1 and run again.",
+          },
+        ]
       }
+      return { name: stage.name, status, runner, missing, checks }
     })
   if (!groups.length) {
     return null
@@ -427,24 +611,32 @@ function CheckBoard({ stages, evidence }) {
   return (
     <section className="panel" aria-label="Tests and scans">
       <div className="stage-head">
-        <h2>Tests and scans</h2>
+        <h2>Tests, scans, and planned stages</h2>
         <p className="legend">
           <span className="legend-label">Key</span>
           <Mark value="pass" />
           <Mark value="fail" />
+          <Mark value="planned" />
           <Mark value="skip" />
         </p>
       </div>
       <p className="card-note">
-        Each tile is one test or scan. It shows the status, the findings that tool printed, and the next step. Astra writes the next step when the extract contains a finding or the step failed.
+        Each tile is one test, scan, or plan. It shows the status, the findings that tool printed, and
+        the next step. An amber planned tile names the variables to set before that stage can apply.
       </p>
       <div className="check-groups">
         {groups.map((group) => (
           <article className="check-group" key={group.name}>
             <header className="check-group-head">
               <h3>{group.name}</h3>
+              <RunnerChip runner={group.runner} mode={group.status === "planned" ? "plan" : undefined} />
               <Mark value={group.status} />
             </header>
+            {group.status === "planned" && group.missing.length ? (
+              <p className="stage-planned">
+                Planned on {group.runner}: set <NameChips names={group.missing} /> and run again.
+              </p>
+            ) : null}
             {group.checks.length ? (
               <ul className="check-board">
                 {group.checks.map((check, index) => (
@@ -480,7 +672,7 @@ function CheckBoard({ stages, evidence }) {
   )
 }
 
-function StageList({ stages, evidence }) {
+export function StageList({ stages, evidence, runnerPlan }) {
   if (!stages.length) {
     return <p className="empty">No stages in this pipeline.</p>
   }
@@ -491,6 +683,10 @@ function StageList({ stages, evidence }) {
         const status = row?.status || stage.status || (evidence.length ? "not run" : "")
         const brief = row?.brief || stage.brief || ""
         const text = row?.evidence || stage.evidence || ""
+        const planned = (runnerPlan || {})[stage.name] || {}
+        const runner = planned.runner || row?.runner || stage.runner || "local"
+        const mode = planned.mode || (status === "planned" ? "plan" : undefined)
+        const missing = missingNames(row, stage)
         return (
           <li key={stage.name} className="stage-stop">
             <div className="stage-index">{String(index + 1).padStart(2, "0")}</div>
@@ -498,9 +694,28 @@ function StageList({ stages, evidence }) {
               <h3>{stage.name}</h3>
               {status ? <Mark value={status} /> : null}
             </div>
+            <p className="chip-row stage-chips">
+              <RunnerChip runner={runner} mode={mode} />
+              <ProviderChip provider={row?.provider || stage.provider} />
+              <EnvChip environment={stage.environment} />
+              {(row?.kind || stage.kind) && (row?.kind || stage.kind) !== "fixed" ? (
+                <KindChip kind={row?.kind || stage.kind} />
+              ) : null}
+            </p>
             <p className="stage-dep">after [{(stage.depends_on || []).join(", ") || "none"}]</p>
             {stage.purpose ? <p className="stage-purpose">{stage.purpose}</p> : null}
             {brief ? <p className="stage-purpose">{brief}</p> : null}
+            {status === "planned" ? (
+              <p className="stage-planned">
+                {missing.length ? (
+                  <>
+                    Planned: set <NameChips names={missing} /> and run again.
+                  </>
+                ) : (
+                  "Planned: set ORCHESTRATOR_CLOUD_APPLY=1 and run again."
+                )}
+              </p>
+            ) : null}
             {text ? (
               <details>
                 <summary>Evidence</summary>

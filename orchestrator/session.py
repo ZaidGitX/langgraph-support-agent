@@ -177,6 +177,26 @@ class SessionService:
             self.view["public_url"] = cleaned
             return copy.deepcopy(self.view)
 
+    def artifacts(self) -> dict:
+        """Generated artifacts of the current run keyed by stage, content redacted and bounded."""
+        with self._cv:
+            return copy.deepcopy(self.view.get("artifacts") or {})
+
+    def artifact_text(self, stage: str, index: int) -> str | None:
+        """Full redacted text of one artifact, or None when the stage or index is unknown."""
+        with self._cv:
+            records = list((self.view.get("artifacts") or {}).get(stage) or [])
+        if index < 0 or index >= len(records):
+            return None
+        record = records[index]
+        return generator.content_of(record, limit=10_000_000) or str(record.get("content") or "")
+
+    def episodes(self, limit: int = 5) -> list[dict]:
+        """Newest recorded runs of this checkout; never a value from the environment."""
+        from .episodes import recall
+
+        return recall(self.repo_root, limit=max(1, min(int(limit), 50)), db_path=self.db_path)
+
     def close(self) -> None:
         with self._cv:
             self._closed = True

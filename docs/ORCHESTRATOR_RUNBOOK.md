@@ -82,7 +82,16 @@ npm install
 npm run dev
 ```
 
-The session screen asks Astra's questions and, after the run, lists only the approved stages.
+The Sprint 3 session screen walks the phases in order:
+
+- **idle / starting** — the readiness panel (CLIs and credential names on this host, `apply` or `plan` per provider, the orchestrator toggles) and the episodes Astra will recall. Nothing here shows a value.
+- **questions**, then **follow-up questions (round 2)** — Astra's questions; the follow-up form shows Jev's rationale for asking again. Every answer is typed here.
+- **running** — "Astra is reading the checkout", then the retrieval panel with the excerpts Astra read.
+- **approval** — the candidates (mode badge, environment, stage chain with runner chips, Jev's probability bar, the chosen outline), the stages with runner, provider, environment, and kind chips, every generated artifact with its policy badge, secrets referenced by name, and the bounded content (the full text loads on request), and the policy summary. Approve is disabled while any artifact has a policy error; Reject is always available.
+- **uat** — sign-off, unchanged.
+- **results** — summary (status, Jev route, approved stages, planned stages), the tests, scans, and planned tiles (a planned tile is amber and names the variables to set), the stages, the artifacts read-only, the retrieval evidence, the recorded episodes, every Jev decision (the runner edge lists one line per stage; the artifact review shows its verdict), and Astra's diagnosis.
+
+Results list only the approved stages. Reloading on any phase shows the same screen, because the poll reads server state.
 
 ## Tests
 

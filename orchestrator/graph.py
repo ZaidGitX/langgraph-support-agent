@@ -448,8 +448,10 @@ def jev_event(router, kind: str, schema: str, decision, applied=None) -> dict:
 
 
 def evidence_rows(state: dict) -> list[dict]:
+    specs = {stage.get("name"): stage for stage in (state.get("pipeline") or {}).get("stages") or []}
     rows = []
     for name, row in latest_results(state).items():
+        spec = specs.get(name) or {}
         rows.append(
             {
                 "stage": name,
@@ -461,6 +463,11 @@ def evidence_rows(state: dict) -> list[dict]:
                 "brief": row.get("brief") or "",
                 "watch_for": row.get("watch_for") or "",
                 "checks": list(row.get("checks") or []),
+                "runner": row.get("runner") or spec.get("runner") or "local",
+                "provider": row.get("provider") or spec.get("provider") or "",
+                "kind": row.get("kind") or spec.get("kind") or ("fixed" if registry.is_fixed(name) else "generated"),
+                "family": row.get("family") or spec.get("family") or registry.family_of(name),
+                "plan": dict(row.get("plan") or {}),
             }
         )
     return rows
