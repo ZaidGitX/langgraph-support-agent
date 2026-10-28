@@ -5,9 +5,16 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from orchestrator import credentials
 from orchestrator.session import SessionService
 
 router = APIRouter(prefix="/api/orchestrator")
+
+
+@router.get("/readiness")
+def get_readiness() -> dict:
+    """CLIs and credential NAMES present on this host; never a value. Works before a session."""
+    return credentials.readiness()
 
 
 class AnswerBody(BaseModel):

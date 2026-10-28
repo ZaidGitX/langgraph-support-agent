@@ -49,3 +49,20 @@ ruff check app mcp_server tests scripts
 ```
 
 GitHub Actions runs those checks, `pip-audit`, and `docker build` on every push. The image scan is a report. This repo does not deploy to a cloud host.
+
+## Placeholders (Sprint 3)
+
+`orchestrator/credentials.json` is the registry of every environment variable the orchestrator,
+its providers, and its scanners may read. It holds names only. `.env.example`, the `environment`
+block in `docker-compose.yml`, and the secrets block in `.github/workflows/orchestrator.yml` are
+generated from it, and `GET /api/orchestrator/readiness` reports which names are set (never a
+value). A provider whose names are missing runs in plan mode.
+
+| Where you run | Where the values go |
+| --- | --- |
+| Locally | `.env` (copy `.env.example`; gitignored) |
+| Docker Compose | the host environment; Compose passes each `NAME` through as `${NAME:-}` |
+| A push to GitHub | repository secrets with the same names; an unset secret resolves to empty |
+
+Cloud runners apply only when `ORCHESTRATOR_CLOUD_APPLY=1`; otherwise they record the exact
+command they would run. Production is never a target.

@@ -20,7 +20,7 @@ from langgraph.types import Send, interrupt
 
 from app import config
 
-from . import episodes, registry, retrieval, scan
+from . import credentials, episodes, registry, retrieval, scan
 from .catalog import commands_for
 from .dispatch import execute_stage
 from .findings import apply_astra_advice
@@ -440,6 +440,7 @@ def machine_report(state: dict) -> dict:
             "evidence": list((state.get("ecosystem") or {}).get("evidence") or []),
         },
         "episodes": list(state.get("episodes") or []),
+        "readiness": dict(state.get("readiness") or {}),
         "cloudwatch": {
             "called": False,
             "note": (
@@ -495,6 +496,24 @@ def _retrieval_lines(state: dict) -> list[str]:
     return [f"  {row.get('path')}:{row.get('lines')} ({row.get('topic')})" for row in rows[:20]]
 
 
+def _readiness_lines(state: dict) -> list[str]:
+    readiness = state.get("readiness") or {}
+    if not readiness:
+        return ["  not checked"]
+    lines = []
+    toggles = readiness.get("toggles") or {}
+    lines.append(
+        f"  dispatch={toggles.get('ORCHESTRATOR_DISPATCH', 'local')} cloud_apply={toggles.get('cloud_apply', False)} "
+        f"embeddings={toggles.get('ORCHESTRATOR_EMBEDDINGS', 'bm25')}"
+    )
+    for key, status in (readiness.get("providers") or {}).items():
+        cli = status.get("cli")
+        cli_text = "" if cli is None else (" cli=present" if cli else " cli=absent")
+        missing = ", ".join(status.get("missing") or []) or "none"
+        lines.append(f"  {key}: mode={status.get('mode')}{cli_text} missing={missing}")
+    return lines
+
+
 def _episode_lines(state: dict) -> list[str]:
     rows = state.get("episodes") or []
     if not rows:
@@ -526,6 +545,9 @@ def render_report(state: dict, status: str) -> str:
         f"  retrieval: {(state.get('ecosystem') or {}).get('retrieval')}",
         f"  entry points: {', '.join((state.get('ecosystem') or {}).get('entry_points') or [])}",
         f"  dast: {(state.get('ecosystem') or {}).get('dast')}",
+        "",
+        "Readiness (names only)",
+        *_readiness_lines(state),
         "",
         "Retrieval evidence",
         *_retrieval_lines(state),
@@ -631,9 +653,11 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 "retriever": "unavailable",
                 "error": scrub(f"{type(exc).__name__}: {exc}"),
             }
+        readiness = credentials.readiness()
         return {
             "repo": profile,
             "retrieval": index,
+            "readiness": readiness,
             "trace": ["checkout"],
             "hops": 1,
             "env_state": {
@@ -647,6 +671,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 "ecr": "not called",
                 "ecs": "not called",
                 "s3": "not called",
+                "cloud_apply": bool((readiness.get("toggles") or {}).get("cloud_apply")),
             },
         }
 

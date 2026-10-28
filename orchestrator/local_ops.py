@@ -8,15 +8,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import subprocess
 from pathlib import Path
 
+from . import redaction
 from .state import ALLOWED_TARGETS, FORBIDDEN_TARGETS
 
-SECRET_RE = re.compile(r"sk-[A-Za-z0-9]{20,}")
-HAWK_RE = re.compile(r"hawk\.[A-Za-z0-9]{8,}\.[A-Za-z0-9_\-]{8,}")
-PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 SKIP_DIRS = {
     ".git",
     ".venv",
@@ -167,7 +164,7 @@ def secrets(root: Path) -> int:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if SECRET_RE.search(text) or PRIVATE_KEY_RE.search(text) or HAWK_RE.search(text):
+        if redaction.file_has_secret(text):
             findings.append(path.relative_to(root).as_posix())
     return _emit(
         {
@@ -176,6 +173,7 @@ def secrets(root: Path) -> int:
             "gitleaks": "used in CI when this binary is absent",
             "findings": findings,
             "count": len(findings),
+            "patterns": len(redaction.FILE_SCAN_PATTERNS),
             "note": "Match text is not printed. .env is not scanned.",
         },
         1 if findings else 0,

@@ -35,6 +35,7 @@ def _empty_view() -> dict:
         "public_url": "",
         "retrieval": {},
         "episodes": [],
+        "readiness": {},
     }
 
 
@@ -248,6 +249,7 @@ class SessionService:
                     "public_url": self.public_url,
                     "retrieval": dict(values.get("retrieval") or {}),
                     "episodes": list(values.get("episodes") or []),
+                    "readiness": dict(values.get("readiness") or {}),
                 }
             )
         print(f"orchestrator session {values.get('run_id')} phase={phase}", flush=True)
@@ -276,6 +278,7 @@ class SessionService:
                     "public_url": self.public_url,
                     "retrieval": dict(values.get("retrieval") or {}),
                     "episodes": list(values.get("episodes") or []),
+                    "readiness": dict(values.get("readiness") or {}),
                 }
             )
         print(

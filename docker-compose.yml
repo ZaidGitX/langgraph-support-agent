@@ -7,21 +7,102 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Astra and Jev (placeholders; names only, values come from the host environment)
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-astra}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       TYPESAFE_MODEL: ${TYPESAFE_MODEL:-jev-latest}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      # GitHub Actions dispatch (placeholders; names only, values come from the host environment)
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GH_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-}
       GITHUB_REF: ${GITHUB_REF:-}
       GITHUB_REF_NAME: ${GITHUB_REF_NAME:-}
       GITHUB_SHA: ${GITHUB_SHA:-}
+      GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
+      # AWS (CodeBuild, ECR, ECS, S3, CloudFormation, CloudWatch) (placeholders; names only, values come from the host environment)
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_PROFILE: ${AWS_PROFILE:-}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCOUNT_ID: ${AWS_ACCOUNT_ID:-}
+      AWS_CODEBUILD_PROJECT: ${AWS_CODEBUILD_PROJECT:-}
+      AWS_ECR_REPOSITORY: ${AWS_ECR_REPOSITORY:-}
+      AWS_ECS_CLUSTER: ${AWS_ECS_CLUSTER:-}
+      AWS_ECS_SERVICE: ${AWS_ECS_SERVICE:-}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_CFN_STACK: ${AWS_CFN_STACK:-}
+      # Google Cloud (Cloud Build, Artifact Registry, Cloud Run, GCS) (placeholders; names only, values come from the host environment)
+      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
+      GCLOUD_SA_KEY: ${GCLOUD_SA_KEY:-}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      GCP_REGION: ${GCP_REGION:-}
+      GCP_ARTIFACT_REPO: ${GCP_ARTIFACT_REPO:-}
+      GCP_CLOUD_RUN_SERVICE: ${GCP_CLOUD_RUN_SERVICE:-}
+      GCS_BUCKET: ${GCS_BUCKET:-}
+      # Azure (Pipelines, ACR, Container Apps) (placeholders; names only, values come from the host environment)
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:-}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:-}
+      AZURE_SUBSCRIPTION_ID: ${AZURE_SUBSCRIPTION_ID:-}
+      AZURE_RESOURCE_GROUP: ${AZURE_RESOURCE_GROUP:-}
+      AZURE_LOCATION: ${AZURE_LOCATION:-}
+      AZURE_ACR_NAME: ${AZURE_ACR_NAME:-}
+      AZURE_CONTAINER_APP: ${AZURE_CONTAINER_APP:-}
+      AZURE_DEVOPS_ORG_URL: ${AZURE_DEVOPS_ORG_URL:-}
+      AZURE_DEVOPS_PROJECT: ${AZURE_DEVOPS_PROJECT:-}
+      AZURE_DEVOPS_EXT_PAT: ${AZURE_DEVOPS_EXT_PAT:-}
+      AZURE_PIPELINE_ID: ${AZURE_PIPELINE_ID:-}
+      # Jenkins (REST API) (placeholders; names only, values come from the host environment)
+      JENKINS_URL: ${JENKINS_URL:-}
+      JENKINS_USER: ${JENKINS_USER:-}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN:-}
+      JENKINS_JOB: ${JENKINS_JOB:-}
+      # Docker and registries (placeholders; names only, values come from the host environment)
+      DOCKERHUB_USERNAME: ${DOCKERHUB_USERNAME:-}
+      DOCKERHUB_TOKEN: ${DOCKERHUB_TOKEN:-}
+      REGISTRY_URL: ${REGISTRY_URL:-}
+      GHCR_TOKEN: ${GHCR_TOKEN:-}
+      ORCHESTRATOR_DOCKER_IMAGE: ${ORCHESTRATOR_DOCKER_IMAGE:-python:3.12-slim}
+      # Remote host over SSH (placeholders; names only, values come from the host environment)
+      SSH_HOST: ${SSH_HOST:-}
+      SSH_USER: ${SSH_USER:-}
+      SSH_KEY_PATH: ${SSH_KEY_PATH:-}
+      SSH_PORT: ${SSH_PORT:-22}
+      # Kubernetes (placeholders; names only, values come from the host environment)
+      KUBECONFIG: ${KUBECONFIG:-}
+      K8S_NAMESPACE: ${K8S_NAMESPACE:-}
+      K8S_CONTEXT: ${K8S_CONTEXT:-}
+      # Scanner services (placeholders; names only, values come from the host environment)
+      SONAR_TOKEN: ${SONAR_TOKEN:-}
+      SONAR_ORGANIZATION: ${SONAR_ORGANIZATION:-}
+      SONAR_PROJECT_KEY: ${SONAR_PROJECT_KEY:-}
+      SNYK_TOKEN: ${SNYK_TOKEN:-}
+      HAWK_API_KEY: ${HAWK_API_KEY:-}
+      HAWK_APP_ID: ${HAWK_APP_ID:-}
+      SEMGREP_APP_TOKEN: ${SEMGREP_APP_TOKEN:-}
+      TRIVY_TOKEN: ${TRIVY_TOKEN:-}
+      GITLEAKS_LICENSE: ${GITLEAKS_LICENSE:-}
+      NVD_API_KEY: ${NVD_API_KEY:-}
+      # Artifact signing (placeholders; names only, values come from the host environment)
+      COSIGN_KEY: ${COSIGN_KEY:-}
+      COSIGN_PASSWORD: ${COSIGN_PASSWORD:-}
+      # Orchestrator toggles (placeholders; names only, values come from the host environment)
       ORCHESTRATOR_DISPATCH: ${ORCHESTRATOR_DISPATCH:-local}
       ORCHESTRATOR_AUTOSTART: ${ORCHESTRATOR_AUTOSTART:-1}
       ORCHESTRATOR_DB: /app/var/orchestrator.sqlite
+      ORCHESTRATOR_CLOUD_APPLY: ${ORCHESTRATOR_CLOUD_APPLY:-0}
+      ORCHESTRATOR_WRITE_ARTIFACTS: ${ORCHESTRATOR_WRITE_ARTIFACTS:-0}
+      ORCHESTRATOR_EMBEDDINGS: ${ORCHESTRATOR_EMBEDDINGS:-bm25}
+      ORCHESTRATOR_MCP: ${ORCHESTRATOR_MCP:-0}
+      ORCHESTRATOR_ASTRA_TEMPERATURE: ${ORCHESTRATOR_ASTRA_TEMPERATURE:-0.7}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
     volumes:
       - orchestrator-sqlite:/app/var
+      # Uncomment to let the docker runner build and run images from inside the container:
+      # - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   orchestrator-sqlite:

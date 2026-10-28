@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from typing import TypeVar
 
 from langchain_core.exceptions import LangChainException
@@ -27,6 +26,7 @@ from pydantic import BaseModel, ValidationError
 
 from app import config
 
+from . import redaction
 from .schemas import (
     CheckAdviceSet,
     ClarifyDecision,
@@ -89,33 +89,13 @@ ADVISE_SYSTEM = (
     "Do not invent a CVE, path, package, or command that is not in the extract."
 )
 
-_SECRET_ENVS = (
-    "TYPESAFE_API_KEY",
-    "OPENAI_API_KEY",
-    "SONAR_TOKEN",
-    "HAWK_API_KEY",
-    "HAWK_APP_ID",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "SNYK_TOKEN",
-)
-
-_SECRET_MARK = "api" + "key_"
-
-
 def scrub(text: str) -> str:
-    """Remove credential material from text that may be printed or stored."""
-    cleaned = text or ""
-    for name in _SECRET_ENVS:
-        secret = os.getenv(name, "")
-        if secret:
-            cleaned = cleaned.replace(secret, "[redacted]")
-    cleaned = re.sub(_SECRET_MARK + r"[A-Za-z0-9_]+", "[redacted]", cleaned)
-    cleaned = re.sub(r"sk-[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
-    cleaned = re.sub(r"hawk\.[A-Za-z0-9]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
-    cleaned = re.sub(r"snyk_uat\.[A-Za-z0-9._\-]+", "[redacted]", cleaned)
-    cleaned = re.sub(r"(?i)(api[_-]?key\s*[=:]\s*)\S+", r"\1[redacted]", cleaned)
-    return cleaned
+    """Remove credential material from text that may be printed or stored.
+
+    Every ``kind: secret`` name in the credential registry and every credential-shaped
+    token is covered; see ``orchestrator/redaction.py``.
+    """
+    return redaction.redact(text)
 
 
 def _client(model_name: str, temperature: float | None = None) -> ChatOpenAI:

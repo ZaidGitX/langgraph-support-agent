@@ -18,6 +18,30 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          # Cloud, scanner, and signing placeholders (names from orchestrator/credentials.json).
+          # A secret that is not set resolves to empty, so that provider runs in plan mode.
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_DEVOPS_EXT_PAT: ${{ secrets.AZURE_DEVOPS_EXT_PAT }}
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          GCLOUD_SA_KEY: ${{ secrets.GCLOUD_SA_KEY }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          HAWK_API_KEY: ${{ secrets.HAWK_API_KEY }}
+          HAWK_APP_ID: ${{ secrets.HAWK_APP_ID }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          TRIVY_TOKEN: ${{ secrets.TRIVY_TOKEN }}
           OPENAI_MODEL: gpt-6-astra
           TYPESAFE_MODEL: jev-latest
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

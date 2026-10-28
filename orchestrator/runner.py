@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
-import re
 import subprocess
 from contextvars import ContextVar
 from pathlib import Path
 
-_printer: ContextVar = ContextVar("orchestrator_printer", default=None)
+from . import redaction
 
-SECRET_RE = re.compile(r"sk-[A-Za-z0-9_\-]{8,}")
+_printer: ContextVar = ContextVar("orchestrator_printer", default=None)
 
 
 def set_printer(printer) -> object:
@@ -29,33 +27,12 @@ def note(message: str) -> None:
 
 
 def redact_secrets(text: str) -> str:
-    cleaned = SECRET_RE.sub("[redacted]", text or "")
-    marker = "api" + "key_"
-    cleaned = re.sub(marker + r"[A-Za-z0-9_]+", "[redacted]", cleaned)
-    cleaned = re.sub(r"(?i)(api[_-]?key\s*[=:]\s*)\S+", r"\1[redacted]", cleaned)
-    cleaned = re.sub(r"hawk\.[A-Za-z0-9]{8,}\.[A-Za-z0-9_\-]{8,}", "[redacted]", cleaned)
-    cleaned = re.sub(r"snyk_uat\.[A-Za-z0-9._\-]+", "[redacted]", cleaned)
-    for name in (
-        "TYPESAFE_API_KEY",
-        "OPENAI_API_KEY",
-        "SONAR_TOKEN",
-        "HAWK_API_KEY",
-        "HAWK_APP_ID",
-        "GITHUB_TOKEN",
-        "GH_TOKEN",
-        "SNYK_TOKEN",
-    ):
-        secret = os.getenv(name, "")
-        if secret:
-            cleaned = cleaned.replace(secret, "[redacted]")
-    return cleaned
+    """Remove credential material (registry secret values and credential-shaped tokens)."""
+    return redaction.redact(text)
 
 
 def redact(text: str, limit: int = 2000) -> str:
-    cleaned = redact_secrets(text)
-    if len(cleaned) > limit:
-        return cleaned[:limit] + "\n…[truncated]"
-    return cleaned
+    return redaction.redact(text, limit=limit)
 
 
 def _payload(text: str) -> dict | None:
