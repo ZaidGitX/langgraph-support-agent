@@ -61,16 +61,28 @@ def _gh_env() -> dict[str, str]:
     return env
 
 
-def workflow_command(stage: str, answers: dict | None, public_url: str) -> list[str]:
-    workflow = STAGE_WORKFLOWS[stage]
-    command = ["gh", "workflow", "run", workflow, "--ref", _branch()]
+def workflow_command(
+    stage: str,
+    answers: dict | None,
+    public_url: str,
+    *,
+    workflow_file: str | None = None,
+    ref: str | None = None,
+    inputs: dict | None = None,
+) -> list[str]:
+    """``gh workflow run`` for a fixed stage, or for a generated workflow on a branch."""
+    workflow = workflow_file or STAGE_WORKFLOWS[stage]
+    command = ["gh", "workflow", "run", workflow, "--ref", ref or _branch()]
     repo = os.getenv("GITHUB_REPOSITORY", "").strip()
     if repo:
         command.extend(["--repo", repo])
-    if stage == "dast":
-        command.extend(["-f", f"app_url={public_url}"])
-    if stage == "deploy":
-        command.extend(["-f", f"environment={target_of(answers)}"])
+    if workflow_file is None:
+        if stage == "dast":
+            command.extend(["-f", f"app_url={public_url}"])
+        if stage == "deploy":
+            command.extend(["-f", f"environment={target_of(answers)}"])
+    for key, value in (inputs or {}).items():
+        command.extend(["-f", f"{key}={value}"])
     return command
 
 
@@ -266,14 +278,28 @@ def _find_run(workflow: str, started: float) -> dict:
     raise RuntimeError(f"dispatched {workflow} did not appear in gh run list")
 
 
-def run_workflow(stage: str, answers: dict | None, public_url: str) -> dict:
+def run_workflow(
+    stage: str,
+    answers: dict | None,
+    public_url: str,
+    *,
+    workflow_file: str | None = None,
+    ref: str | None = None,
+    inputs: dict | None = None,
+) -> dict:
+    """Dispatch a workflow, find its run, watch it, and read its job steps and log.
+
+    Fixed stages pass only ``stage``; a generated workflow passes ``workflow_file`` (which
+    must already exist on ``ref``) and its ``inputs``.
+    """
     answers = answers or {}
     public_url = (public_url or os.getenv("APP_PUBLIC_URL", "")).strip()
     if stage == "dast" and not public_url:
         return _failed(stage, "DAST was approved but the public app URL is empty.")
     if stage == "deploy" and target_of(answers) in FORBIDDEN_TARGETS:
         return _failed(stage, f"No path past UAT. Refusing target {target_of(answers)}.")
-    command = workflow_command(stage, answers, public_url)
+    workflow = workflow_file or STAGE_WORKFLOWS[stage]
+    command = workflow_command(stage, answers, public_url, workflow_file=workflow_file, ref=ref, inputs=inputs)
     started = time.time()
     try:
         dispatched = subprocess.run(
@@ -285,11 +311,11 @@ def run_workflow(stage: str, answers: dict | None, public_url: str) -> dict:
             env=_gh_env(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return _failed(stage, f"could not dispatch {STAGE_WORKFLOWS[stage]}: {exc}")
+        return _failed(stage, f"could not dispatch {workflow}: {exc}")
     if dispatched.returncode != 0:
         return _failed(stage, f"{dispatched.stdout}\n{dispatched.stderr}")
     try:
-        run = _find_run(STAGE_WORKFLOWS[stage], started)
+        run = _find_run(workflow, started)
     except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
         return _failed(stage, str(exc))
     watch = ["gh", "run", "watch", str(run.get("databaseId")), "--exit-status"]
@@ -306,17 +332,17 @@ def run_workflow(stage: str, answers: dict | None, public_url: str) -> dict:
             env=_gh_env(),
         )
     except subprocess.TimeoutExpired:
-        return _failed(stage, f"timed out waiting for {run.get('url') or STAGE_WORKFLOWS[stage]}")
+        return _failed(stage, f"timed out waiting for {run.get('url') or workflow}")
     except OSError as exc:
         return _failed(stage, str(exc))
     evidence = redact(
-        f"workflow {STAGE_WORKFLOWS[stage]} run {run.get('url') or run.get('databaseId')} "
+        f"workflow {workflow} run {run.get('url') or run.get('databaseId')} "
         f"exit {watched.returncode}\n{watched.stdout}\n{watched.stderr}"
     )
     checks = _workflow_checks(str(run.get("databaseId") or ""))
     if not checks:
         checks = checks_from_commands(
-            [{"label": STAGE_WORKFLOWS[stage], "exit_code": int(watched.returncode)}]
+            [{"label": workflow, "exit_code": int(watched.returncode)}]
         )
     return {
         "status": "pass" if watched.returncode == 0 else "fail",
@@ -339,3 +365,50 @@ def execute_stage(stage: str, commands: list[dict], cwd: str, answers: dict | No
     if use_github(stage):
         return run_workflow(stage, answers or {}, os.getenv("APP_PUBLIC_URL", "").strip())
     return run_commands(commands, cwd)
+
+
+def execute_stage_v2(
+    spec: dict,
+    commands: list[dict],
+    cwd: str,
+    answers: dict | None = None,
+    readiness: dict | None = None,
+    records: list[dict] | None = None,
+) -> dict:
+    """Run a generated stage through its runner's provider, in plan or apply mode.
+
+    The policy checks the commands one last time; a provider that is not ready, or a cloud
+    runner without ``ORCHESTRATOR_CLOUD_APPLY=1``, returns ``planned`` with the exact
+    command it would have run and the names it is missing.
+    """
+    from . import findings as findings_module
+    from . import policy
+    from .providers import registry as providers
+
+    name = str(spec.get("name") or "stage")
+    runner = str(spec.get("runner") or "local")
+    try:
+        provider = providers.for_runner(runner)
+    except KeyError as exc:
+        return _failed(name, str(exc))
+    verdict = policy.check_commands(commands or [])
+    if not verdict.ok:
+        reasons = "; ".join(f"{item.rule} line {item.line}: {item.message}" for item in verdict.findings if item.severity == "error")
+        failed = _failed(name, f"policy blocked: {reasons}")
+        failed["blocked"] = True
+        return failed
+    status = providers.status_from_readiness(readiness, runner) or provider.detect()
+    if status.mode == "apply" and runner not in providers.LOCAL_RUNNERS:
+        status = provider.detect()  # confirm live before anything leaves this host
+    stage = dict(spec)
+    stage.setdefault("commands", list(commands or []))
+    run = provider.execute(stage, records or [], cwd, mode=status.mode, answers=answers or {})
+    result = run.as_dict()
+    key = str(spec.get("provider") or "")
+    if key and result.get("status") in {"pass", "fail"} and result.get("checks"):
+        lines = str(result.get("evidence") or "").splitlines()
+        text, step, needs = findings_module.extract_result(key, lines, failed=result["status"] == "fail")
+        first = dict(result["checks"][0])
+        first.update({"tool": key, "findings": text, "next_step": step, "needs_astra": bool(needs)})
+        result["checks"][0] = first
+    return result

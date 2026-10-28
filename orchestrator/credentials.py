@@ -145,8 +145,32 @@ def cli_path(key: str) -> str:
     return shutil.which(cli) or "" if cli else ""
 
 
+def default_of(name: str) -> str:
+    for _key, item in _items():
+        if item["name"] == name and item.get("default") is not None:
+            return str(item["default"])
+    return ""
+
+
 def cloud_apply(env: Mapping[str, str] | None = None) -> bool:
     return _value("ORCHESTRATOR_CLOUD_APPLY", env) == "1"
+
+
+def runner_mode(runner: str, ready: bool, env: Mapping[str, str] | None = None) -> str:
+    """``apply`` or ``plan`` for a runner whose CLI and names are (not) ready.
+
+    Local runners apply whenever they are ready. GitHub Actions applies when the session
+    dispatches to GitHub or cloud apply is on. Every other runner needs
+    ``ORCHESTRATOR_CLOUD_APPLY=1``.
+    """
+    if not ready:
+        return "plan"
+    if runner in LOCAL_RUNNERS:
+        return "apply"
+    if runner == "github_actions":
+        dispatch = _value("ORCHESTRATOR_DISPATCH", env).lower() or "local"
+        return "apply" if (cloud_apply(env) or dispatch == "github") else "plan"
+    return "apply" if cloud_apply(env) else "plan"
 
 
 def group_status(key: str, env: Mapping[str, str] | None = None) -> dict:
@@ -170,32 +194,40 @@ def group_status(key: str, env: Mapping[str, str] | None = None) -> dict:
 
 def _runner_modes(group_statuses: dict[str, dict], env: Mapping[str, str] | None) -> dict[str, dict]:
     runners: dict[str, dict] = {}
-    allow_cloud = cloud_apply(env)
-    dispatch = _value("ORCHESTRATOR_DISPATCH", env).lower() or "local"
     for runner in stage_registry.RUNNERS:
         key = group_for_runner(runner)
         status = group_statuses.get(key or "", {})
         ready = runner == "local" or (bool(status) and status.get("mode") == "apply")
-        if runner in LOCAL_RUNNERS:
-            mode = "apply" if ready else "plan"
-        elif runner == "github_actions":
-            mode = "apply" if ready and (allow_cloud or dispatch == "github") else "plan"
-        else:
-            mode = "apply" if ready and allow_cloud else "plan"
         runners[runner] = {
             "group": key or "",
             "cli": True if runner == "local" else bool(status.get("cli", True)) if status else False,
             "missing": list(status.get("missing") or []) if status else [],
-            "mode": mode,
+            "mode": runner_mode(runner, ready, env),
         }
     return runners
 
 
 def _scanner_status(env: Mapping[str, str] | None) -> dict[str, dict]:
+    """Per scanner: CLI on PATH, Docker image available, credential names missing."""
     result: dict[str, dict] = {}
+    try:
+        from . import scanners
+
+        known = set(all_names())
+        for key, item in scanners.catalog().items():
+            cli = item.get("cli")
+            result[key] = {
+                "cli": bool(cli) and shutil.which(cli) is not None,
+                "docker_image": str(item.get("docker_image") or ""),
+                "env_missing": [name for name in item.get("env") or [] if name in known and not is_present(name, env)],
+            }
+        return result
+    except (ImportError, OSError, ValueError):
+        pass
     for tool, (cli, names) in SCANNER_CLIS.items():
         result[tool] = {
             "cli": bool(shutil.which(cli)),
+            "docker_image": "",
             "env_missing": [name for name in names if not is_present(name, env)],
         }
     return result

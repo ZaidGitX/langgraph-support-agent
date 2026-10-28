@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from . import scanners
+
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T[0-9:.]+Z\s*")
 
@@ -30,7 +32,46 @@ def tool_key(step_name: str) -> str:
     for needle, key in _TOOL_KEYS:
         if needle in name:
             return key
+    for alias, key in scanners.aliases().items():
+        if alias in name:
+            return key
     return ""
+
+
+_GENERIC_LINE = re.compile(r"(?i)(error|fail|vuln|critical|high|finding|issue)")
+
+
+def _extract_from_catalog(spec: dict, lines: list[str], failed: bool) -> tuple[str, str, bool]:
+    """Findings from a catalog ``extract`` block: pick lines, count, decide, suggest."""
+    line_regex = spec.get("line_regex") or ""
+    try:
+        picker = re.compile(line_regex) if line_regex else None
+    except re.error:
+        picker = None
+    picked = [line for line in lines if picker.search(line)] if picker else list(lines[-8:])
+    findings = _keep(picked)
+    count = None
+    if spec.get("count_regex"):
+        try:
+            count = _count(spec["count_regex"], "\n".join(lines))
+        except re.error:
+            count = None
+    fail_when = str(spec.get("fail_when") or "exit!=0")
+    hit = bool(count) if fail_when == "count>0" else bool(failed)
+    if failed:
+        hit = True
+    step = str(spec.get("next_step_hit") if hit else spec.get("next_step_clean") or "")
+    if not findings:
+        findings = "The tool reported findings; open the stage log." if hit else "The tool finished without a summary line."
+    return findings, step, hit
+
+
+def extract_generic(lines: list[str], failed: bool) -> tuple[str, str, bool]:
+    picked = [line for line in lines if _GENERIC_LINE.search(line)]
+    findings = _keep(picked, limit=8)
+    if failed:
+        return findings or "The step failed; open the stage log.", "Read the findings and fix this step, then run the stage again.", True
+    return findings or "The step finished.", "No change is required unless the log shows a finding.", False
 
 
 def parse_workflow_log(text: str) -> dict[tuple[str, str], list[str]]:
@@ -63,8 +104,12 @@ def _count(pattern: str, text: str) -> int | None:
     return int(match.group(1))
 
 
-def extract_result(tool: str, lines: list[str]) -> tuple[str, str, bool]:
-    """Return findings, a fallback next step, and whether Astra should reason."""
+def extract_result(tool: str, lines: list[str], *, failed: bool = False) -> tuple[str, str, bool]:
+    """Return findings, a fallback next step, and whether Astra should reason.
+
+    The eight Sprint 2 extractors stay as written; every other catalog tool uses its
+    ``extract`` block, and an unknown tool gets the generic error-line extractor.
+    """
     if tool == "semgrep":
         picked = [
             line
@@ -99,9 +144,11 @@ def extract_result(tool: str, lines: list[str]) -> tuple[str, str, bool]:
             or "requirements.txt" in line
             or "package-lock.json" in line
             or line.strip().startswith("│")
+            or line.strip().startswith("Total:")
         ]
         findings = _keep(picked, limit=8)
         counts = [int(item) for item in re.findall(r"│\s+(\d+)\s+│", findings)]
+        counts.extend(int(item) for item in re.findall(r"Total:\s*(\d+)", findings))
         if any(count > 0 for count in counts):
             return findings, "Upgrade the vulnerable package Trivy listed, then run scanners again.", True
         return findings or "Trivy reported no high or critical vulnerabilities.", "No dependency change is required for Trivy.", False
@@ -176,6 +223,11 @@ def extract_result(tool: str, lines: list[str]) -> tuple[str, str, bool]:
             return findings, "Open the StackHawk scan link and fix the Medium or High findings, then run DAST again.", True
         return findings or "StackHawk finished.", "No application change is required when StackHawk shows no Medium or High findings.", False
 
+    item = scanners.entry(tool)
+    if item and isinstance(item.get("extract"), dict):
+        return _extract_from_catalog(item["extract"], lines, failed)
+    if tool:
+        return extract_generic(lines, failed)
     return "", "", False
 
 
@@ -194,7 +246,7 @@ def enrich_checks(checks: list[dict], log_text: str) -> list[dict]:
                 if group_step == check.get("name") and (not job or group_job == job):
                     lines = group_lines
                     break
-        findings, next_step, needs = extract_result(tool, lines)
+        findings, next_step, needs = extract_result(tool, lines, failed=check.get("status") == "fail")
         if check.get("status") == "fail":
             needs = True
             if not next_step:

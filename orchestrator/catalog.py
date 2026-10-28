@@ -11,8 +11,10 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import registry
+from . import registry, scanners
 from .state import STAGE_NAMES, target_of
+
+SCANNER_TIMEOUT = 900
 
 
 def _python() -> str:
@@ -171,3 +173,49 @@ def commands_for(stage: str, answers: dict | None, overrides: dict | None) -> li
     # A registry template or a validated custom slug: its commands arrive with the generated
     # artifacts in a later phase, never from this catalog.
     return []
+
+
+def scanner_argv(key: str, stage: str, *, root: str = ".", image: str = "", app_url: str = "", run_id: str = "") -> list[str]:
+    """The catalog argv for a scanner at a stage, with $ROOT, $IMAGE, $APP_URL, $RUN_ID filled."""
+    item = scanners.entry(key)
+    if not item:
+        raise ValueError(f"unknown scanner {key!r}; expected one of {scanners.keys()}")
+    by_stage = item.get("argv") or {}
+    argv = by_stage.get(stage) or (next(iter(by_stage.values())) if by_stage else [])
+    if not argv:
+        raise ValueError(f"scanner {key!r} has no command line for stage {stage!r}")
+    substitutions = {
+        "$ROOT": root or ".",
+        "$IMAGE": image or "langgraph-support-app:local",
+        "$APP_URL": app_url or "http://127.0.0.1:8000",
+        "$RUN_ID": run_id or "local",
+    }
+    rendered: list[str] = []
+    for part in argv:
+        text = str(part)
+        for placeholder, value in substitutions.items():
+            text = text.replace(placeholder, value)
+        rendered.append(text)
+    return rendered
+
+
+def scanner_commands(
+    key: str,
+    stage: str,
+    *,
+    runner: str = "local",
+    root: str = ".",
+    image: str = "",
+    app_url: str = "",
+    run_id: str = "",
+) -> dict:
+    """One catalog command for a scanner, or the skip record when its CLI is not on PATH."""
+    item = scanners.entry(key) or {}
+    ci = str(item.get("ci_action") or ".github/workflows/scanners.yml")
+    if runner == "local" and not scanners.cli_present(key):
+        return _skip(key, ci)
+    return {
+        "argv": scanner_argv(key, stage, root=root, image=image, app_url=app_url, run_id=run_id),
+        "timeout": SCANNER_TIMEOUT,
+        "label": key,
+    }

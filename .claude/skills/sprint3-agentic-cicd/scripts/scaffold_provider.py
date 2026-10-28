@@ -30,8 +30,9 @@ from __future__ import annotations
 import os
 import shutil
 
-from .base import Provider, ProviderStatus, StageRun, plan_result, run_argv
 from .. import credentials
+from .base import BaseProvider, ProviderStatus, StageRun, from_run_commands, plan_result
+from ..runner import run_commands
 
 RUNNER = "{runner}"
 PLATFORM = "{platform}"
@@ -39,49 +40,41 @@ CLI = {cli!r}
 GROUP = "{group}"
 
 
-class {class_name}(Provider):
+class {class_name}(BaseProvider):
     runner = RUNNER
     platform = PLATFORM
     cli = CLI
-    credential_keys = [GROUP]
+    credential_group = GROUP
     artifact_kinds = {kinds!r}
 
     def detect(self) -> ProviderStatus:
         present, missing = credentials.split_present(GROUP)
         cli_path = shutil.which(CLI) if CLI else ""
         cli_ok = bool(cli_path) if CLI else True
-        mode = "apply" if cli_ok and not missing and (os.getenv("ORCHESTRATOR_CLOUD_APPLY") == "1") else "plan"
+        mode = credentials.runner_mode(RUNNER, cli_ok and not missing)
         return ProviderStatus(runner=RUNNER, cli=cli_ok, cli_path=cli_path or "", present=present, missing=missing, mode=mode)
 
-    def render_skeleton(self, stage: dict, environment: dict) -> dict[str, str]:
-        from ..generator import render_template
+    def render_skeleton(self, stage: dict, environment: dict, *, run_id: str = "", placeholders: list[str] | None = None) -> dict[str, str]:
+        from ..templates import render_template
 
-        return {{kind: render_template(kind, stage, environment, runner=RUNNER) for kind in self.artifact_kinds}}
+        names = list(placeholders) if placeholders is not None else credentials.placeholders_for(GROUP)
+        return {{kind: render_template(kind, stage, environment, runner=RUNNER, run_id=run_id, placeholders=names) for kind in self.artifact_kinds}}
 
     def commands_for(self, stage: dict, records: list[dict]) -> list[dict]:
         return []  # remote runner: execution happens in execute()
 
-    def would_run(self, stage: dict, records: list[dict]) -> list[list[str]]:
-        # TODO(phase 4): build the exact argv from the runner matrix in 06-providers-runners.md
+    def would_run(self, stage: dict, records: list[dict], cwd: str, answers: dict) -> list[list[str]]:
+        # TODO: build the exact argv from the runner matrix in 06-providers-runners.md.
+        # Name config variables as $NAME; never put a secret on an argv.
         return [[CLI or "echo", "--version"]]
 
     def execute(self, stage: dict, records: list[dict], cwd: str, *, mode: str, answers: dict) -> StageRun:
         status = self.detect()
-        argvs = self.would_run(stage, records)
+        argvs = self.would_run(stage, records, cwd, answers or {{}})
         if mode != "apply" or status.mode != "apply":
             return plan_result(RUNNER, status.missing, argvs, records)
-        commands = [run_argv(argv, cwd, timeout=1800, label=f"{{RUNNER}} {{stage['name']}}") for argv in argvs]
-        failed = [c for c in commands if c["exit_code"] != 0]
-        evidence = "\\n".join(f"[{{c['label']}}] exit={{c['exit_code']}}\\n{{c['evidence']}}" for c in commands)
-        return StageRun(
-            status="fail" if failed else "pass",
-            exit_code=failed[0]["exit_code"] if failed else 0,
-            blocked=False,
-            commands=commands,
-            checks=[{{"name": c["label"], "status": "pass" if c["exit_code"] == 0 else "fail", "job": ""}} for c in commands],
-            evidence=evidence,
-            plan={{}},
-        )
+        commands = [{{"argv": argv, "timeout": self.timeout, "label": f"{{RUNNER}}:{{stage['name']}}"}} for argv in argvs]
+        return from_run_commands(run_commands(commands, cwd))
 '''
 
 TEST = '''from __future__ import annotations
@@ -109,7 +102,7 @@ def test_{runner}_is_registered():
 
 def test_{runner}_plans_without_credentials(tmp_path):
     provider = {class_name}()
-    stage = {{"name": "deploy_dev", "family": "deploy", "runner": "{runner}", "provider": "", "environment": {{"tier": "dev", "platform": "{platform}"}}}}
+    stage = {{"name": "deploy_dev", "family": "deploy", "runner": "{runner}", "provider": "", "environment": {{"tier": "dev", "platform": "{platform}"}}, "run_id": "run-1"}}
     run = provider.execute(stage, [], str(tmp_path), mode="plan", answers={{}})
     assert run.status == "planned"
     assert run.plan["runner"] == "{runner}"
