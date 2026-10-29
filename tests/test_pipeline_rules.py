@@ -12,7 +12,7 @@ from orchestrator.dispatch import (
     execute_stage,
     workflows_for,
 )
-from orchestrator.findings import apply_astra_advice, extract_result
+from orchestrator.findings import apply_astra_advice, enrich_checks, extract_result
 from orchestrator.graph import normalize_stages
 from orchestrator.guardrails import apply_guardrails
 from orchestrator.local_ops import package, release, secrets, uat
@@ -29,6 +29,24 @@ FORBIDDEN_WORKFLOWS = (
     "deploy.yml",
     "ci.yml",
 )
+
+
+def test_skipped_steps_do_not_read_as_clean_results():
+    """A step GitHub skipped after an earlier failure has no log; the tile must say so."""
+    checks = [
+        {"name": "Snyk Open Source (Python requirements)", "status": "fail", "job": "scan"},
+        {"name": "Vulnerabilities (Trivy filesystem)", "status": "skip", "job": "scan"},
+        {"name": "Secrets (Gitleaks)", "status": "skip", "job": "scan"},
+    ]
+    log = "scan\tSnyk Open Source (Python requirements)\tTested 67 dependencies for known issues, found 2 issues, 2 vulnerable paths.\n"
+    enriched = enrich_checks(checks, log)
+    assert enriched[0]["status"] == "fail" and enriched[0]["needs_astra"] is True
+    for check in enriched[1:]:
+        assert check["status"] == "skip"
+        assert check["findings"].startswith("This step did not run")
+        assert "no " not in check["findings"].lower()
+        assert check["next_step"] == "Fix the failed step, then run the stage again."
+        assert check["needs_astra"] is False
 
 
 def test_workflow_steps_become_pass_fail_and_skip_checks():

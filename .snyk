@@ -1,0 +1,15 @@
+# Snyk (https://snyk.io) policy file. `snyk test` reads it from the repository root.
+version: v1.25.0
+ignore:
+  SNYK-PYTHON-LANGGRAPH-17817813:
+    - '*':
+        reason: >-
+          Cache-key collision in langgraph's Functional API node cache (default_cache_key and
+          _freeze in langgraph/_internal/_cache.py). It needs @task or @entrypoint called with
+          keyword arguments, a CachePolicy with the default key function, a non-hashable
+          argument exposing .tobytes(), and a shared cache. This application uses none of
+          them: no @task, @entrypoint, or CachePolicy anywhere in app/, orchestrator/, or
+          mcp_server/. No released fix exists; review when one is published.
+        created: 2026-10-29T00:00:00.000Z
+        expires: 2027-01-27T00:00:00.000Z
+patch: {}

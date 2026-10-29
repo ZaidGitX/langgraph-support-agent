@@ -7,7 +7,7 @@ Verified on this machine on 2026-10-28. Re-run `scripts/preflight.py` to refresh
 | Tool | Path / version | Use |
 | --- | --- | --- |
 | Project Python | `/opt/anaconda3/envs/tcs_practice_env/bin/python` (3.14.6) | all `pytest`, `ruff`, `python -m orchestrator.*`, `uvicorn` |
-| Packages in that env | langgraph 1.2.10, langgraph-checkpoint-sqlite 3.1.1, langchain-core 1.6.9, langchain-openai 1.4.1, langchain-typesafe 0.0.1a3, langchain-mcp-adapters 0.3.2, mcp 1.30.0, openai 2.52, fastapi 0.142, pydantic 2.13, httpx 0.28, PyYAML 6.0.3, numpy 2.5, tiktoken 0.13, sqlite-vec 0.1.9, pytest 9.1, pytest-cov, ruff 0.16.2, pip-audit 2.10 | retrieval, providers, tests |
+| Packages in that env | langgraph 1.2.18, langgraph-checkpoint-sqlite 3.1.2 (langgraph-checkpoint 4.3.1), langchain-core 1.6.9, langchain-openai 1.4.1, langchain-typesafe 0.0.1a3, langchain-mcp-adapters 0.3.2, mcp 1.30.0, openai 2.52, fastapi 0.142, pydantic 2.13, httpx 0.28, PyYAML 6.0.3, numpy 2.5, tiktoken 0.13, sqlite-vec 0.1.9, pytest 9.1, pytest-cov, ruff 0.16.2, pip-audit 2.10 | retrieval, providers, tests |
 | System `python3` | `/opt/anaconda3/bin/python3` (3.13) | hooks and skill scripts only (stdlib) |
 | `node` / `npm` / `npx` | 26.11 / 11.20 | `frontend` build and dev server |
 | `uv` / `uvx` | 0.13.6 | MCP proxies, one-off tools (`uvx --from semgrep semgrep`, `uvx actionlint` is not a Python tool; see below) |

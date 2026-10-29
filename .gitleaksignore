@@ -1,0 +1,6 @@
+# Gitleaks fingerprints (commit:file:rule:line) for two synthetic strings in the git history.
+# Neither was a credential: a policy-rule test fixture and a redaction example in the skill
+# reference. Both lines are now built at runtime or described in words, so later commits
+# add no new fingerprints. The scanners workflow runs gitleaks over the full history.
+e3547f5de8291ad1b5e264d7dd8cbfa0c7f6ce67:tests/test_policy.py:generic-api-key:52
+0c4119549cd8d927d3df3289506ebf791007bae7:.claude/skills/sprint3-agentic-cicd/references/07-credentials-env-mcp.md:aws-access-token:133

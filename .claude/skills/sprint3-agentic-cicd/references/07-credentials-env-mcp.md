@@ -130,5 +130,6 @@ resources.
 - `readiness()` output serialized to JSON contains no value of a set variable (set a fake
   `AWS_SECRET_ACCESS_KEY=fake-value-xyz` with monkeypatch and assert the string is absent).
 - `render_env_example()` keys equal `all_names()`; the committed `.env.example` matches.
-- `redact("AKIAABCDEFGHIJKLMNOP")` → `[redacted]`; a JWT and a `github_pat_` are redacted.
+- `redact("AKIA" + "0" * 16)` → `[redacted]`; a JWT and a `github_pat_` are redacted. (Build
+  secret-shaped fixtures at runtime like this; a literal on one line trips Gitleaks in CI.)
 - `orchestrator/credentials.json` equals the skill asset when `.claude/skills/...` exists.

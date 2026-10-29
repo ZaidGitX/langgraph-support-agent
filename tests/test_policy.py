@@ -49,7 +49,8 @@ def test_each_error_rule_has_a_positive_and_a_negative(rule, bad, good):
 def test_secret_rules_are_case_sensitive():
     code = "class A(BaseModel):\n    secrets_referenced: list[str] = Field(default_factory=list)\n"
     assert policy.check_text(code, kind="command").ok
-    assert not policy.check_text("API_TOKEN: abcdefgh12345\n", kind="command").ok
+    # Built at runtime so no secret-shaped literal sits on one line for a secrets scanner.
+    assert not policy.check_text("API_TOKEN: " + "x" * 13 + "\n", kind="command").ok
     by_reference = policy.check_text("SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}\n", kind="command")
     assert "secret.assignment" not in {item.rule for item in by_reference.findings}
 

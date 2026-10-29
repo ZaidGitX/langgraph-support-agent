@@ -246,6 +246,16 @@ def enrich_checks(checks: list[dict], log_text: str) -> list[dict]:
                 if group_step == check.get("name") and (not job or group_job == job):
                     lines = group_lines
                     break
+        if check.get("status") == "skip":
+            # GitHub skips every later step of a job once one step fails. An empty log must
+            # not read as a clean result, so the tile says the step did not run.
+            updated = dict(check)
+            updated["tool"] = tool
+            updated["findings"] = "This step did not run. GitHub skipped it after an earlier step in the job failed."
+            updated["next_step"] = "Fix the failed step, then run the stage again."
+            updated["needs_astra"] = False
+            enriched.append(updated)
+            continue
         findings, next_step, needs = extract_result(tool, lines, failed=check.get("status") == "fail")
         if check.get("status") == "fail":
             needs = True

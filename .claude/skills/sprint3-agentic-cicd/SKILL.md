@@ -104,7 +104,7 @@ python3 .claude/skills/sprint3-agentic-cicd/scripts/sprint3_progress.py
 ```
 
 The project interpreter is `/opt/anaconda3/envs/tcs_practice_env/bin/python` (Python 3.14,
-LangGraph 1.2.10, langchain-core 1.6.9, langchain-typesafe 0.0.1a3, PyYAML, sqlite-vec,
+LangGraph 1.2.18, langchain-core 1.6.9, langchain-typesafe 0.0.1a3, PyYAML, sqlite-vec,
 numpy, tiktoken, pytest 9, ruff 0.16). Use it for every `pytest`, `ruff`, and `python -m`
 call; the system `python3` lacks the packages. Run the full check after each phase:
 

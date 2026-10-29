@@ -158,6 +158,8 @@ The checkpointer is SQLite (`langgraph-checkpoint-sqlite`), `thread_id` equal to
 | `support_agent_graph.png` | Support-agent graph picture. | Documentation only. |
 | `Agentic CI_CD Orchestrator.html` | Design note for the orchestrator. The running system is the code above, not this page. | Reference. |
 | `.gitignore` | Ignores `.env`, `var/`, `frontend/dist/`, caches, and `dist/`. | Git. |
+| `.snyk` | Snyk policy: records the one langgraph finding with no released fix (the Functional API cache-key collision, SNYK-PYTHON-LANGGRAPH-17817813) as accepted with its rationale and a 90-day expiry, because this code uses no `@task`, `@entrypoint`, or `CachePolicy`. | `snyk test` in `scanners.yml`. |
+| `.gitleaksignore` | Fingerprints of two synthetic strings in the git history (a policy-rule test fixture and a redaction example) that Gitleaks would otherwise report. | `gitleaks/gitleaks-action` in `scanners.yml`. |
 | `.env.example` | Names of the environment variables, with empty values. | Local setup. Not a secret store. |
 
 Generated trees are not source: `frontend/dist/` (the image build), `frontend/node_modules/`, `var/` (SQLite and reports), `dist/` (local package and plan files), and `audit.json`. `.env` is gitignored and is not part of the map.

@@ -1,7 +1,8 @@
 # 02 — Graph and session changes (Phases 2, 3, 5)
 
 The supervisor stays one `StateGraph(PipelineState)` compiled once with a checkpointer.
-LangGraph facts this design relies on (all true for langgraph 1.2.10, already used in Sprint 2):
+LangGraph facts this design relies on (true for langgraph 1.2.10, used in Sprint 2, and for
+1.2.18, the pin since the Snyk fix of 2026-10-29):
 `Send()` may target the same node several times in one super-step (map-reduce), a node reached
 by `Send` may call `interrupt()` (the `uat` node does), node names are fixed at compile time,
 and `Command(resume=...)` resumes the pending interrupt on the same `thread_id`.
