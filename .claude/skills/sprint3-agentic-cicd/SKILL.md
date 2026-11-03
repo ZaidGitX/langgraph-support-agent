@@ -89,8 +89,10 @@ The sprint is demo-ready when `references/10-testing-and-demo.md` acceptance che
   generated ones, is `workflow_dispatch` only and lives directly in `.github/workflows/`
   (GitHub ignores subfolders).
 - Secrets by reference only. Generated files reference `${{ secrets.NAME }}`, `$NAME`, or
-  `${NAME}`. No value is ever written to a file, a log, state, or a prompt. `scrub()` and
-  `redact()` cover every name in the credential registry.
+  `${NAME}`. A value lives only in the encrypted vault file (`var/vault/secrets.enc`, phase 8)
+  and in the service process environment; it is never written to state, a report, a prompt,
+  an artifact, a log, or an HTTP response. `scrub()` and `redact()` cover every name in the
+  credential registry and every value the vault exported.
 - Generated commands pass `orchestrator/policy.py` before they are shown for approval and again
   before execution. Cloud `apply` operations need `ORCHESTRATOR_CLOUD_APPLY=1`; otherwise the
   provider runs `plan`.
@@ -144,6 +146,17 @@ Read in this order, then only the reference that matches your task:
 | 5 | Astra v2 methods, Jev new edges, graph nodes `follow_up`, `generate_artifacts`, `generated_stage`; approval payload carries artifacts + policy; session view fields | `tests/test_orchestrator.py` new cases pass (generated stage runs an echo script; follow-up round; no prod) |
 | 6 | UI components, API endpoints, compose/env/docs updates | `npm run build` passes; manual UI walk-through per `09-ui-and-api.md` |
 | 7 | Demo rehearsal: local run end to end, cloud stages in plan mode, second run recalls the episode | `10-testing-and-demo.md` checklist green; `docs/SYSTEM_MAP.md` and `ORCHESTRATOR_RUNBOOK.md` updated |
+
+Sprint 4 (platform-agnostic autonomy, decided with the user on 2026-11-03) continues the
+numbering. Specs: `references/13-…` to `16-…`.
+
+| Phase | Deliverable | Done when |
+| --- | --- | --- |
+| 8 | `vault.py` (Fernet, names-only API), `connect.py` (device-code logins, verify cache), registry v2 `login`/`verify` blocks, connections API behind `ORCHESTRATOR_UI_TOKEN`, `Connections.jsx`, cloud CLIs in the image | `tests/test_vault.py`, `tests/test_connections_api.py` pass; a value never appears in any response |
+| 9 | Platform suites (Astra translates the fixed workflows per platform), `ORCHESTRATOR_DISPATCH=platform` for fixed stages, `provision` and `inject_secrets` per provider | suite tests per platform; provisioning and injection argv in plan mode |
+| 10 | `orchestrator.yaml` autopilot profile (questions and approval auto-answered; UAT stays human), push webhook with HMAC, remote poller, workspaces, run queue | autopilot and webhook tests pass; a second push waits |
+| 11 | Live dashboard: streamed node updates, events and SSE endpoints, stepper, timeline, run board, tabs | mid-run tiles flip to running in a test; SSR smoke; `npm run build` |
+| 12 | AWS live proof with the user's account (carded first), rehearsal scenarios, docs, skill | `scripts/rehearse_demo.py` ALL PASS; runbook records the live run |
 
 `scripts/sprint3_progress.py` infers the current phase from the files and tests present. If
 the user names a phase or component in `$ARGUMENTS`, start there but verify earlier phases'
@@ -223,6 +236,7 @@ Astra recalling the first episode. Script: `scripts/demo_walkthrough.sh`.
 - `references/10-testing-and-demo.md` — test plan, fakes, acceptance checklist, demo script.
 - `references/11-tooling-matrix.md` — CLIs, SDKs, MCP servers, install hints, dry-run rules.
 - `references/12-phase-plan.md` — per-phase file lists and acceptance detail.
+- `references/13-vault-and-connections.md` — Sprint 4 phase 8: vault, device-code logins, verify cache, connections API, UI token.
 - `assets/` — `credentials.json`, `scanners.json`, `mcp_servers.json`, `templates/*.tpl`.
 - `scripts/` — `preflight.py`, `sprint3_progress.py`, `policy_check.py`, `validate_workflow.py`,
   `run_sprint3_checks.sh`, `install_hooks.py`, `scaffold_provider.py`, `demo_walkthrough.sh`.

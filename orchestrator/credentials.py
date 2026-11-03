@@ -173,12 +173,26 @@ def runner_mode(runner: str, ready: bool, env: Mapping[str, str] | None = None) 
     return "apply" if cloud_apply(env) else "plan"
 
 
+def _verification(key: str) -> dict:
+    """The cached result of the group's verify command (phase 8); never runs anything here."""
+    try:
+        from . import connect
+
+        return dict(connect.verified(key) or {})
+    except ImportError:
+        return {}
+
+
 def group_status(key: str, env: Mapping[str, str] | None = None) -> dict:
     group = groups().get(key) or {}
     cli = group.get("cli")
     path = cli_path(key)
     present, missing = split_present(key, env)
-    ready = (not cli or bool(path)) and not missing
+    checked = _verification(key)
+    authenticated = checked.get("ok") if checked else None
+    # A CLI that proved it is signed in (device-code login, named profile) is ready even when
+    # the static key names are unset; a failed check never downgrades a complete group.
+    ready = (not cli or bool(path)) and (not missing or authenticated is True)
     return {
         "label": group.get("label") or key,
         "cli": (bool(path) if cli else None),
@@ -189,6 +203,10 @@ def group_status(key: str, env: Mapping[str, str] | None = None) -> dict:
         "alternatives": [list(alt) for alt in group.get("alternatives") or []],
         "mode": "apply" if ready else "plan",
         "runners": list(group.get("runners") or []),
+        "authenticated": authenticated,
+        "checked_at": checked.get("checked_at", "") if checked else "",
+        "login": bool(group.get("login")),
+        "verify": bool(group.get("verify")),
     }
 
 

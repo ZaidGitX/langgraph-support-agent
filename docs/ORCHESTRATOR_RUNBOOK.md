@@ -93,6 +93,17 @@ The Sprint 3 session screen walks the phases in order:
 
 Results list only the approved stages. Reloading on any phase shows the same screen, because the poll reads server state.
 
+## Connections (Sprint 4)
+
+The idle screen and the Connections button open one card per platform. Each card shows the CLI, the verified state, and which names are set and from where. Two ways to connect:
+
+- **Device-code login.** For GitHub (`gh auth login --web`), Azure (`az login --use-device-code`), AWS IAM Identity Center (`aws sso login --use-device-code --profile …`, needs `AWS_PROFILE`), and Google Cloud (`gcloud auth login --no-launch-browser`, paste the verification code back). The CLI runs on the orchestrator host; the page shows the URL and the one-time code; the vendor CLI keeps the resulting credentials in its own store. The Docker image carries all four CLIs (about 3 GB; `docker build --build-arg WITH_CLOUD_CLIS=0 .` gives the slim image, where every cloud runner stays in plan mode).
+- **Vault form.** For token-style platforms (Jenkins, SSH, Kubernetes, scanner services, static AWS or GCP keys). Values are encrypted on the host (`var/vault/secrets.enc`, key `ORCHESTRATOR_VAULT_KEY` or `var/vault/.key`), exported to the running service at once, and never displayed again. Forget removes one.
+
+Verify runs the platform's whoami command and the card turns `apply` when it passes, even when the static key names are unset. Nothing in a response, a log, a report, or a prompt ever carries a value.
+
+Set the `ORCHESTRATOR_UI_TOKEN` repository secret before a push-triggered demo: the tunnel URL is public, and with the token set the dashboard asks for it once per tab before it accepts any change.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

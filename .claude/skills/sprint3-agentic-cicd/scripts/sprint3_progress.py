@@ -32,6 +32,16 @@ PHASES = [
     (6, "UI and API", ["frontend/src/components/Readiness.jsx", "frontend/src/components/Candidates.jsx", "frontend/src/components/ArtifactViewer.jsx", "frontend/src/components/RetrievalPanel.jsx", "frontend/src/components/Episodes.jsx"],
      [("app/orchestrator_api.py", "/session/artifacts"), ("frontend/src/App.css", ".candidate-card")], "09-ui-and-api.md"),
     (7, "Demo rehearsal and docs", [], [("docs/ORCHESTRATOR_RUNBOOK.md", "Sprint 3"), ("docs/SYSTEM_MAP.md", "registry.py")], "10-testing-and-demo.md"),
+    # Sprint 4 (platform-agnostic autonomy) continues the numbering.
+    (8, "Vault and connections", ["orchestrator/vault.py", "orchestrator/connect.py", "frontend/src/components/Connections.jsx", "tests/test_vault.py", "tests/test_connections_api.py"],
+     [("app/orchestrator_api.py", "/connections"), ("orchestrator/credentials.json", "\"login\""), ("Dockerfile", "WITH_CLOUD_CLIS")], "13-vault-and-connections.md"),
+    (9, "Platform suites, provisioning, injection", ["orchestrator/suite.py"],
+     [("orchestrator/providers/base.py", "def provision"), ("orchestrator/providers/base.py", "def inject_secrets"), ("orchestrator/graph.py", "platform")], "14-suites-provisioning-injection.md"),
+    (10, "Autopilot, webhooks, poller", ["orchestrator/profile.py", "orchestrator/workspace.py", "orchestrator/watch.py", "app/webhooks.py", "orchestrator.yaml"],
+     [("orchestrator/session.py", "autopilot")], "15-autopilot-webhooks.md"),
+    (11, "Live dashboard", ["frontend/src/components/RunBoard.jsx", "frontend/src/components/Timeline.jsx", "frontend/src/components/Stepper.jsx"],
+     [("app/orchestrator_api.py", "/session/stream"), ("orchestrator/session.py", "events")], "16-live-ui.md"),
+    (12, "AWS live proof, rehearsal, docs", [], [("docs/ORCHESTRATOR_RUNBOOK.md", "Sprint 4"), ("scripts/rehearse_demo.py", "autopilot")], "12-phase-plan.md"),
 ]
 
 

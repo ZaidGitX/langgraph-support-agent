@@ -89,3 +89,8 @@ value). A provider whose names are missing runs in plan mode.
 
 Cloud runners apply only when `ORCHESTRATOR_CLOUD_APPLY=1`; otherwise they record the exact
 command they would run. Production is never a target.
+
+Sprint 4 adds the Connections panel: connect a platform from the dashboard with its CLI's
+device-code login, or store its names in an encrypted vault on the orchestrator host. Values
+are write-only and never shown back. Set the `ORCHESTRATOR_UI_TOKEN` repository secret so a
+public tunnel URL cannot change anything without the token.

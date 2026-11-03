@@ -34,6 +34,7 @@ services:
       AWS_ECS_SERVICE: ${AWS_ECS_SERVICE:-}
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
       AWS_CFN_STACK: ${AWS_CFN_STACK:-}
+      AWS_CODEBUILD_ROLE_ARN: ${AWS_CODEBUILD_ROLE_ARN:-}
       # Google Cloud (Cloud Build, Artifact Registry, Cloud Run, GCS) (placeholders; names only, values come from the host environment)
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       GCLOUD_SA_KEY: ${GCLOUD_SA_KEY:-}
@@ -89,6 +90,10 @@ services:
       # Artifact signing (placeholders; names only, values come from the host environment)
       COSIGN_KEY: ${COSIGN_KEY:-}
       COSIGN_PASSWORD: ${COSIGN_PASSWORD:-}
+      # Git remote (non-GitHub hosts) (placeholders; names only, values come from the host environment)
+      GIT_REMOTE_URL: ${GIT_REMOTE_URL:-}
+      GIT_REMOTE_USER: ${GIT_REMOTE_USER:-}
+      GIT_REMOTE_TOKEN: ${GIT_REMOTE_TOKEN:-}
       # Orchestrator toggles (placeholders; names only, values come from the host environment)
       ORCHESTRATOR_DISPATCH: ${ORCHESTRATOR_DISPATCH:-local}
       ORCHESTRATOR_AUTOSTART: ${ORCHESTRATOR_AUTOSTART:-1}
@@ -99,6 +104,11 @@ services:
       ORCHESTRATOR_MCP: ${ORCHESTRATOR_MCP:-0}
       ORCHESTRATOR_ASTRA_TEMPERATURE: ${ORCHESTRATOR_ASTRA_TEMPERATURE:-0.7}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
+      ORCHESTRATOR_VAULT_KEY: ${ORCHESTRATOR_VAULT_KEY:-}
+      ORCHESTRATOR_UI_TOKEN: ${ORCHESTRATOR_UI_TOKEN:-}
+      ORCHESTRATOR_WEBHOOK_SECRET: ${ORCHESTRATOR_WEBHOOK_SECRET:-}
+      ORCHESTRATOR_WATCH_REMOTE: ${ORCHESTRATOR_WATCH_REMOTE:-}
+      ORCHESTRATOR_WATCH_INTERVAL: ${ORCHESTRATOR_WATCH_INTERVAL:-60}
     volumes:
       - orchestrator-sqlite:/app/var
       # Uncomment to let the docker runner build and run images from inside the container:

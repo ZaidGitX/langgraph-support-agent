@@ -50,15 +50,32 @@ FILE_SCAN_PATTERNS = [
 _TOKENS = [re.compile(pattern) for pattern in TOKEN_PATTERNS]
 _ASSIGNMENT = re.compile(ASSIGNMENT_PATTERN)
 _FILE_SCAN = [re.compile(pattern) for pattern in FILE_SCAN_PATTERNS]
+# Values the vault exported (phase 8). Registered verbatim so a config value such as a
+# Jenkins URL with an embedded token is scrubbed too, whatever its registry kind.
+_REGISTERED: set[str] = set()
 
 
 def secret_env_names() -> list[str]:
     return credentials.secret_names()
 
 
+def register_values(values) -> int:
+    """Remember values that must never appear in output. Returns how many are registered."""
+    for value in values or []:
+        if isinstance(value, str) and len(value.strip()) >= _MIN_VALUE_CHARS:
+            _REGISTERED.add(value.strip())
+    return len(_REGISTERED)
+
+
+def forget_values() -> None:
+    _REGISTERED.clear()
+
+
 def redact(text: str, limit: int | None = None) -> str:
     """Remove credential material; optionally truncate to ``limit`` characters."""
     cleaned = text or ""
+    for value in sorted(_REGISTERED, key=len, reverse=True):
+        cleaned = cleaned.replace(value, MARK)
     for name in secret_env_names():
         value = os.getenv(name, "")
         if value and len(value) >= _MIN_VALUE_CHARS:

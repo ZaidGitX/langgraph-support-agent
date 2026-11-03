@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
+import { apiFetch, errorDetail } from "./api.js"
 import ArtifactViewer from "./components/ArtifactViewer.jsx"
 import Candidates from "./components/Candidates.jsx"
 import { EnvChip, KindChip, ModeBadge, NameChips, PolicyBadge, ProviderChip, RunnerChip } from "./components/Chips.jsx"
+import Connections from "./components/Connections.jsx"
 import Episodes from "./components/Episodes.jsx"
 import { Mark, toneOf } from "./components/Mark.jsx"
-import Readiness from "./components/Readiness.jsx"
 import RetrievalPanel from "./components/RetrievalPanel.jsx"
+import TokenPrompt from "./components/TokenPrompt.jsx"
 
 // Phase router and data fetcher. The panels live in ./components; this file decides which
 // of them a phase shows and posts every human answer to the session API.
@@ -80,18 +82,6 @@ function hasPolicyErrors(artifacts) {
   return false
 }
 
-async function errorDetail(response) {
-  try {
-    const body = await response.json()
-    if (typeof body.detail === "string") {
-      return body.detail
-    }
-  } catch {
-    // The body was not JSON.
-  }
-  return `The orchestrator returned ${response.status}.`
-}
-
 // `initialSession` seeds the view before the first poll (server-side renders and the
 // offline rehearsal use it); the live page leaves it empty and polls.
 export default function Dashboard({ initialSession = null }) {
@@ -99,6 +89,7 @@ export default function Dashboard({ initialSession = null }) {
   const [draft, setDraft] = useState({})
   const [error, setError] = useState("")
   const [sending, setSending] = useState(false)
+  const [showConnections, setShowConnections] = useState(false)
 
   useEffect(() => {
     const previous = document.title
@@ -140,14 +131,14 @@ export default function Dashboard({ initialSession = null }) {
     if (session?.phase !== "idle") {
       return
     }
-    fetch("/api/orchestrator/session", { method: "POST" }).catch(() => {})
+    apiFetch("/api/orchestrator/session", { method: "POST" }).catch(() => {})
   }, [session?.phase])
 
   useEffect(() => {
     if (session?.phase !== "results" || session.results_viewed) {
       return
     }
-    fetch("/api/orchestrator/session/viewed", { method: "POST" }).catch(() => {})
+    apiFetch("/api/orchestrator/session/viewed", { method: "POST" }).catch(() => {})
   }, [session?.phase, session?.results_viewed])
 
   const phase = session?.phase || "starting"
@@ -177,9 +168,8 @@ export default function Dashboard({ initialSession = null }) {
       for (const question of questions) {
         answers[question.id] = String(draft[question.id] || "").trim()
       }
-      const response = await fetch("/api/orchestrator/session/answer", {
+      const response = await apiFetch("/api/orchestrator/session/answer", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ gate: gateName, answers }),
       })
       if (!response.ok) {
@@ -201,9 +191,8 @@ export default function Dashboard({ initialSession = null }) {
     setSending(true)
     setError("")
     try {
-      const response = await fetch("/api/orchestrator/session/answer", {
+      const response = await apiFetch("/api/orchestrator/session/answer", {
         method: "POST",
-        headers: { "content-type": "application/json" },
         body: JSON.stringify({ gate, decision }),
       })
       if (!response.ok) {
@@ -258,8 +247,19 @@ export default function Dashboard({ initialSession = null }) {
         <div className="hero-meta">
           <p>{session?.run_id ? `Run id: ${session.run_id}` : "Opening a session…"}</p>
           <p>Support stays on #/support</p>
+          <button
+            type="button"
+            className="tab header-action"
+            onClick={() => setShowConnections((current) => !current)}
+            aria-pressed={showConnections}
+          >
+            {showConnections ? "Hide connections" : "Connections"}
+          </button>
         </div>
       </header>
+
+      <TokenPrompt required={false} />
+      {showConnections && phase !== "idle" && phase !== "starting" ? <Connections /> : null}
 
       {error ? <p className="error">{error}</p> : null}
       {session?.error ? <p className="error">{session.error}</p> : null}
@@ -396,7 +396,7 @@ export default function Dashboard({ initialSession = null }) {
           ) : null}
           {phase !== "running" ? (
             <>
-              <Readiness readiness={session?.readiness} />
+              <Connections />
               <Episodes />
             </>
           ) : null}

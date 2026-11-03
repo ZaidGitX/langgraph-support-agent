@@ -105,6 +105,34 @@ Commit: `Sprint 3 phase 6: readiness, candidates, artifacts, retrieval, episodes
 - Fill the acceptance checklist in `10`; fix anything red.
 Commit: `Sprint 3 phase 7: demo rehearsal and docs`.
 
+## Sprint 4 — platform-agnostic autonomy (decided 2026-11-03)
+
+Decisions: hybrid credential intake (vendor device-code logins plus a write-only vault);
+autopilot answers the question and approval gates from a committed profile while
+`uat_signoff` stays human; AWS is the platform proven live with the user's account (every
+apply carded first); non-GitHub remotes start runs through a signed webhook plus a poller.
+
+## Phase 8 — Vault and connections (ref `13`)
+
+- `orchestrator/vault.py`, `orchestrator/connect.py`, registry v2 (`login`, `verify`, new
+  names, the `git` group), `credentials.group_status` reads the verify cache.
+- `app/orchestrator_api.py`: `mutating` router behind `require_token`; `/connections…` routes.
+  `app/main.py` exports the vault at startup.
+- `frontend/src/api.js`, `components/Connections.jsx`, `components/TokenPrompt.jsx`; the idle
+  screen shows Connections; a header button opens it elsewhere.
+- `Dockerfile` installs aws, kubectl, az, gcloud behind `WITH_CLOUD_CLIS=1`;
+  `orchestrator.yml` passes the `ORCHESTRATOR_UI_TOKEN` repository secret through.
+- Tests: `tests/test_vault.py`, `tests/test_connections_api.py`, `tests/fakes/fake_login.py`.
+Commit: `Sprint 4 phase 8: vault, device-code logins, connections panel`.
+
+## Phase 9 — Platform suites, provisioning, injection (ref `14`, to be written with the phase)
+
+## Phase 10 — Autopilot profile, webhooks, poller (ref `15`, to be written with the phase)
+
+## Phase 11 — Live dashboard (ref `16`, to be written with the phase)
+
+## Phase 12 — AWS live proof, rehearsal, docs
+
 ## Resuming after a break
 
 1. `git log --oneline | head`, `git status --short`.

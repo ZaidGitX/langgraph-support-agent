@@ -2,14 +2,36 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Request
+import hmac
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from orchestrator import credentials
+from orchestrator import connect, credentials, vault
 from orchestrator.session import SessionService
 
+
+def require_token(request: Request) -> None:
+    """Mutating routes need X-Orchestrator-Token when ORCHESTRATOR_UI_TOKEN is set.
+
+    The push workflow always sets one, because the tunnel URL it prints is public.
+    """
+    expected = os.getenv("ORCHESTRATOR_UI_TOKEN", "").strip()
+    if not expected:
+        return
+    given = request.headers.get("x-orchestrator-token", "")
+    if not hmac.compare_digest(given.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="a valid X-Orchestrator-Token header is required")
+
+
+def token_required() -> bool:
+    return bool(os.getenv("ORCHESTRATOR_UI_TOKEN", "").strip())
+
+
 router = APIRouter(prefix="/api/orchestrator")
+mutating = APIRouter(prefix="/api/orchestrator", dependencies=[Depends(require_token)])
 
 
 @router.get("/readiness")
@@ -45,12 +67,12 @@ def get_session(request: Request) -> dict:
     return _service(request).snapshot()
 
 
-@router.post("/session")
+@mutating.post("/session")
 def start_session(request: Request) -> dict:
     return _service(request).start()
 
 
-@router.post("/session/answer")
+@mutating.post("/session/answer")
 def answer_session(body: AnswerBody, request: Request) -> dict:
     try:
         return _service(request).submit(body.model_dump())
@@ -81,7 +103,7 @@ def get_episodes(request: Request, limit: int = Query(5, ge=1, le=50)) -> list[d
     return _service(request).episodes(limit)
 
 
-@router.post("/session/viewed")
+@mutating.post("/session/viewed")
 def mark_session_viewed(request: Request) -> dict:
     try:
         return _service(request).mark_viewed()
@@ -89,7 +111,7 @@ def mark_session_viewed(request: Request) -> dict:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
-@router.post("/public-url")
+@mutating.post("/public-url")
 def set_public_url(body: PublicUrlBody, request: Request) -> dict:
     try:
         return _service(request).set_public_url(body.url)
@@ -97,3 +119,159 @@ def set_public_url(body: PublicUrlBody, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+# --- Connections (phase 8): names only in every response --------------------------------
+
+
+class SecretsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    values: dict[str, str] = Field(min_length=1)
+
+
+class InputBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=512)
+
+
+def _connection_view(key: str, group: dict, status: dict, stored: set[str]) -> dict:
+    env_rows = []
+    for item in group.get("env") or []:
+        name = item["name"]
+        in_vault = name in stored
+        present = credentials.is_present(name)
+        env_rows.append(
+            {
+                "name": name,
+                "kind": item.get("kind") or "config",
+                "required": bool(item.get("required")),
+                "purpose": item.get("purpose") or "",
+                "set": bool(present or in_vault),
+                "source": "vault" if in_vault else ("env" if present else "unset"),
+            }
+        )
+    can_login, reason = connect.can_login(key)
+    login = group.get("login") or {}
+    return {
+        "key": key,
+        "label": status.get("label") or key,
+        "cli_name": status.get("cli_name") or "",
+        "cli": status.get("cli"),
+        "mode": status.get("mode"),
+        "runners": list(status.get("runners") or []),
+        "present": list(status.get("present") or []),
+        "missing": list(status.get("missing") or []),
+        "alternatives": list(status.get("alternatives") or []),
+        "authenticated": status.get("authenticated"),
+        "checked_at": status.get("checked_at") or "",
+        "env": env_rows,
+        "vault": sorted(name for name in stored if any(row["name"] == name for row in env_rows)),
+        "login": {"available": can_login, "reason": reason, "note": login.get("note") or "", "input": login.get("input") or ""},
+        "verify": bool(group.get("verify")),
+        "docs": group.get("docs") or "",
+    }
+
+
+def connections_view() -> dict:
+    """Every provider group: CLI, names set (by source), verified state, login availability."""
+    readiness = credentials.readiness()
+    try:
+        stored = set(vault.names())
+    except vault.VaultError:
+        stored = set()
+    groups = []
+    for key, group in credentials.groups().items():
+        if key in credentials.APP_GROUPS:
+            continue
+        status = readiness["providers"].get(key) or credentials.group_status(key)
+        groups.append(_connection_view(key, group, status, stored))
+    return {"generated_at": readiness["generated_at"], "token_required": token_required(), "groups": groups}
+
+
+def _group_or_404(key: str) -> dict:
+    group = credentials.groups().get(key)
+    if group is None or key in credentials.APP_GROUPS:
+        raise HTTPException(status_code=404, detail=f"no provider group {key!r}")
+    return group
+
+
+@router.get("/connections")
+def get_connections() -> dict:
+    return connections_view()
+
+
+@mutating.post("/connections/{key}/secrets")
+def put_connection_secrets(key: str, body: SecretsBody) -> dict:
+    """Write-only: store values for this group's names. The response never carries a value."""
+    group = _group_or_404(key)
+    allowed = {item["name"] for item in group.get("env") or []}
+    unknown = sorted(name for name in body.values if name not in allowed)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"{', '.join(unknown)} do not belong to {key}")
+    try:
+        stored = vault.set_many(body.values)
+    except vault.VaultError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    connect.forget(key)
+    return {"stored": stored, "connection": next(item for item in connections_view()["groups"] if item["key"] == key)}
+
+
+@mutating.delete("/connections/{key}/secrets/{name}")
+def delete_connection_secret(key: str, name: str) -> dict:
+    group = _group_or_404(key)
+    if name not in {item["name"] for item in group.get("env") or []}:
+        raise HTTPException(status_code=404, detail=f"{name} does not belong to {key}")
+    removed = vault.delete(name)
+    connect.forget(key)
+    return {"removed": removed, "connection": next(item for item in connections_view()["groups"] if item["key"] == key)}
+
+
+@mutating.post("/connections/{key}/login")
+def start_connection_login(key: str) -> dict:
+    _group_or_404(key)
+    try:
+        return {"flow": connect.start_login(key)}
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/connections/{key}/login/{flow_id}")
+def get_connection_login(key: str, flow_id: str) -> dict:
+    _group_or_404(key)
+    try:
+        flow = connect.flow_status(flow_id)
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if flow["group"] != key:
+        raise HTTPException(status_code=404, detail="no such login flow")
+    return {"flow": flow}
+
+
+@mutating.post("/connections/{key}/login/{flow_id}/input")
+def input_connection_login(key: str, flow_id: str, body: InputBody) -> dict:
+    _group_or_404(key)
+    try:
+        return {"flow": connect.provide_input(flow_id, body.text)}
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@mutating.post("/connections/{key}/login/{flow_id}/cancel")
+def cancel_connection_login(key: str, flow_id: str) -> dict:
+    _group_or_404(key)
+    try:
+        return {"flow": connect.cancel(flow_id)}
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@mutating.post("/connections/{key}/verify")
+def verify_connection(key: str) -> dict:
+    _group_or_404(key)
+    try:
+        result = connect.verify(key)
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"verified": result, "connection": next(item for item in connections_view()["groups"] if item["key"] == key)}

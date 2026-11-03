@@ -1399,3 +1399,103 @@ main.dashboard {
 .dashboard .panel-compact {
   padding: 12px;
 }
+
+/* Sprint 4: connections, vault form, login flows, dashboard token. */
+
+.dashboard .header-action {
+  margin-left: auto;
+}
+
+.dashboard .notice {
+  color: var(--accent-ink);
+}
+
+.dashboard .connect-form {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.dashboard .connect-form h4 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}
+
+.dashboard .connect-login {
+  margin-bottom: 12px;
+}
+
+.dashboard .login-flow {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--amber);
+  background: var(--plane);
+  font-size: 0.9rem;
+}
+
+.dashboard .login-flow.tone-ok {
+  border-left-color: var(--ok);
+}
+
+.dashboard .login-flow.tone-bad {
+  border-left-color: var(--fail);
+}
+
+.dashboard .login-flow a {
+  color: var(--accent-ink);
+  word-break: break-all;
+}
+
+.dashboard .inline-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.dashboard .inline-form input,
+.dashboard .vault-form input,
+.dashboard .token-prompt input {
+  flex: 1;
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--code-bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.dashboard .vault-form label {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.dashboard .cred-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dashboard .cred-state {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.dashboard .cred-state.cred-set {
+  color: var(--ok);
+}
+
+.dashboard button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-ink);
+  font-size: 0.75rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.dashboard .token-prompt {
+  border-color: var(--amber);
+}

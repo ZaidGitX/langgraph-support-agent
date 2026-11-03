@@ -20,6 +20,30 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends gh \
     && rm -rf /var/lib/apt/lists/*
 
+# Sprint 4: the orchestrator host carries the platform CLIs (aws, az, gcloud, kubectl) so a
+# run is never constrained by what is installed on a person's machine. Build with
+# --build-arg WITH_CLOUD_CLIS=0 for a smaller image that keeps every cloud runner in plan mode.
+ARG WITH_CLOUD_CLIS=1
+RUN if [ "$WITH_CLOUD_CLIS" = "1" ]; then \
+      set -eux; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends unzip apt-transport-https lsb-release; \
+      arch="$(uname -m)"; \
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o /tmp/awscliv2.zip; \
+      unzip -q /tmp/awscliv2.zip -d /tmp; /tmp/aws/install; rm -rf /tmp/aws /tmp/awscliv2.zip; \
+      karch="$(dpkg --print-architecture)"; \
+      curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/${karch}/kubectl" -o /usr/local/bin/kubectl; \
+      chmod 0755 /usr/local/bin/kubectl; \
+      curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg; \
+      echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" > /etc/apt/sources.list.d/google-cloud-sdk.list; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends google-cloud-cli; \
+      rm -rf /var/lib/apt/lists/*; \
+      python -m venv /opt/azure-cli; \
+      /opt/azure-cli/bin/pip install --no-cache-dir --quiet azure-cli; \
+      ln -s /opt/azure-cli/bin/az /usr/local/bin/az; \
+    fi
+
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements-dev.txt

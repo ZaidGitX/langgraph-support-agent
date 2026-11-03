@@ -11,14 +11,22 @@ from fastapi.staticfiles import StaticFiles
 
 from . import config, tools
 from .graph import run_agent
+from .orchestrator_api import mutating as orchestrator_mutating
 from .orchestrator_api import router as orchestrator_router
 from .schemas import AgentRequest, AgentResponse
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from orchestrator import vault
     from orchestrator.session import SessionService
 
+    try:
+        exported = vault.export_env()
+        if exported:
+            print(f"Orchestrator vault: {len(exported)} name(s) loaded", flush=True)
+    except vault.VaultError as exc:
+        print(f"Orchestrator vault is unreadable: {exc}", flush=True)
     service = SessionService()
     app.state.sessions = service
     if os.getenv("ORCHESTRATOR_AUTOSTART") == "1":
@@ -33,6 +41,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="LangGraph Support Agent", version="1.0.0", lifespan=lifespan)
 app.include_router(orchestrator_router)
+app.include_router(orchestrator_mutating)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
