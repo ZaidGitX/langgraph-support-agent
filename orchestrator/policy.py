@@ -97,6 +97,11 @@ CODE_RULE_IDS = (
     "shell.no_strict", "size.too_large", "path.outside", "path.workflow_name",
 )
 CASE_SENSITIVE_RULES = {"secret.assignment", "secret.literal"}
+# By-reference bindings a platform needs: Jenkins credentials('NAME'), CodeBuild secrets-manager
+# "<secret-id>:<KEY>" and parameter-store "/path" references, Azure $(NAME). None is a value.
+_SECRET_REFERENCE = re.compile(
+    r"credentials\(|\$\(|[=:][ \t]*[\"']?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]*:[A-Z][A-Z0-9_]*[\"']?[ \t]*$|[=:][ \t]*[\"']?/[A-Za-z0-9._/\-]+[\"']?[ \t]*$"
+)
 
 ASK_PATTERNS: list[tuple[str, str]] = [
     ("cloud.aws_mutate", r"\baws\s+(codebuild\s+start-build|ecs\s+(update|create|run)-\S+|ecr\s+(create|put|batch-delete)\S*|cloudformation\s+(create|update|deploy)\S*|s3\s+(cp|sync|mb)\b|lambda\s+(create|update)\S*|iam\s+(create|put|attach)\S*|sts\s+assume-role|logs\s+(create|put)\S*)"),
@@ -202,7 +207,7 @@ def check_text(text: str, *, kind: str = "shell", path: str = "") -> PolicyResul
             line_text = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
             if rule_id == "prod.reference" and any(rule.search(line_text) for rule in _PROD_EXEMPT):
                 continue
-            if rule_id == "secret.assignment" and "${{" in line_text:
+            if rule_id == "secret.assignment" and ("${{" in line_text or _SECRET_REFERENCE.search(line_text)):
                 continue
             key = (rule_id, line_no)
             if key in seen:
@@ -251,6 +256,12 @@ def kind_for_path(path: str) -> str:
         return "buildspec"
     if name.startswith("cloudbuild"):
         return "cloudbuild"
+    if name.startswith("codebuild-project"):
+        return "codebuild_project"
+    if name.startswith("jenkins-job"):
+        return "jenkins_job"
+    if name.endswith(("-stack.yaml", "-stack.yml")) or name.startswith("cloudformation"):
+        return "cloudformation"
     if name.startswith("azure-pipelines"):
         return "azure_pipeline"
     if name.startswith("Dockerfile"):

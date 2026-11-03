@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -111,6 +112,46 @@ def artifact_of_kind(records: list[dict] | None, *kinds: str, cwd: str | None = 
     return None
 
 
+def artifact_for_stage(records: list[dict] | None, stage_name: str, *kinds: str, cwd: str | None = None) -> str | None:
+    """The stored path of the suite file that runs ``stage_name`` (``buildspec-<stage>.yml``)."""
+    needles = (f"-{stage_name}.", f"/{stage_name}.", f"_{stage_name}.")
+    for record in records or []:
+        if kinds and record.get("kind") not in kinds:
+            continue
+        path = str(record.get("path") or "")
+        if any(needle in path for needle in needles):
+            return stored_path(record, cwd)
+    return None
+
+
+@dataclass
+class ProvisionResult:
+    """What provisioning or secret injection did, or would do. Names only, never a value."""
+
+    runner: str
+    action: str  # provision | inject
+    status: str  # planned | pass | fail | skipped
+    mode: str  # plan | apply
+    commands: list[list[str]] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)
+    evidence: str = ""
+    target: str = ""
+
+    def as_dict(self) -> dict:
+        return {
+            "runner": self.runner,
+            "action": self.action,
+            "status": self.status,
+            "mode": self.mode,
+            "commands": [list(argv) for argv in self.commands],
+            "names": list(self.names),
+            "missing": list(self.missing),
+            "evidence": self.evidence,
+            "target": self.target,
+        }
+
+
 def stored_script(records: list[dict] | None, cwd: str | None = None) -> str | None:
     return artifact_of_kind(records, "shell", "script", cwd=cwd)
 
@@ -214,3 +255,72 @@ class BaseProvider:
             for position, argv in enumerate(argvs)
         ]
         return from_run_commands(run_commands(commands, cwd))
+
+    # --- Sprint 4 phase 9: provisioning and secret injection ---------------------------------
+
+    injection_target = ""  # human-readable store name, for example "GitHub repository secrets"
+
+    def provision_commands(self, records: list[dict], cwd: str, answers: dict) -> list[list[str]]:
+        """Commands that create the platform objects a suite needs. Placeholders by name."""
+        return []
+
+    def prepare_provision(self, records: list[dict], cwd: str, answers: dict) -> str:
+        """Hook run before an apply (for example zip the checkout for S3). Returns a note."""
+        return ""
+
+    def provision(self, records: list[dict], cwd: str, *, mode: str, answers: dict) -> ProvisionResult:
+        argvs = self.provision_commands(records, cwd, answers or {})
+        status = self.detect()
+        if not argvs:
+            return ProvisionResult(self.runner, "provision", "skipped", mode, evidence="nothing to provision for this runner")
+        if mode != "apply" or status.mode != "apply":
+            note = "planned: " + ("missing " + ", ".join(status.missing) if status.missing else "cloud apply is off")
+            return ProvisionResult(self.runner, "provision", "planned", "plan", argvs, missing=list(status.missing), evidence=note)
+        note = self.prepare_provision(records, cwd, answers or {})
+        commands = [
+            {"argv": expand_env(argv), "timeout": 600, "label": f"{self.runner}:provision:{position + 1}"}
+            for position, argv in enumerate(argvs)
+        ]
+        ran = run_commands(commands, cwd)
+        evidence = (note + "\n" if note else "") + str(ran.get("evidence") or "")
+        return ProvisionResult(self.runner, "provision", "pass" if ran.get("status") == "pass" else "fail", "apply", argvs, evidence=evidence)
+
+    def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:
+        """Commands that copy vault values into the platform's secret store, one per name.
+
+        A value never appears on an argv: the command reads it from stdin at apply time.
+        """
+        return []
+
+    def inject_secrets(self, names: list[str], *, mode: str, answers: dict, cwd: str = ".") -> ProvisionResult:
+        wanted = [name for name in dict.fromkeys(names or []) if name in credentials.all_names()]
+        argvs = self.inject_commands(wanted, answers or {})
+        status = self.detect()
+        target = self.injection_target or self.runner
+        if not wanted or not argvs:
+            return ProvisionResult(self.runner, "inject", "skipped", mode, names=wanted, target=target, evidence="nothing to inject")
+        missing_values = [name for name in wanted if not credentials.is_present(name)]
+        if mode != "apply" or status.mode != "apply":
+            note = "planned: " + ("missing " + ", ".join(status.missing) if status.missing else "cloud apply is off")
+            return ProvisionResult(self.runner, "inject", "planned", "plan", argvs, names=wanted, missing=list(status.missing) + missing_values, target=target, evidence=note)
+        if missing_values:
+            return ProvisionResult(self.runner, "inject", "fail", "apply", argvs, names=wanted, missing=missing_values, target=target,
+                                   evidence="no value for " + ", ".join(missing_values))
+        outcomes = []
+        ok = True
+        for name, argv in zip(wanted, argvs, strict=False):
+            result = self.run_injection(name, argv, cwd)
+            outcomes.append(f"{name}: {'ok' if result else 'failed'}")
+            ok = ok and result
+        return ProvisionResult(self.runner, "inject", "pass" if ok else "fail", "apply", argvs, names=wanted, target=target, evidence="; ".join(outcomes))
+
+    def run_injection(self, name: str, argv: list[str], cwd: str) -> bool:
+        """Run one injection command with the value on stdin. Returns whether it succeeded."""
+        value = os.getenv(name, "")
+        try:
+            completed = subprocess.run(
+                expand_env(argv), cwd=cwd, input=value, capture_output=True, text=True, timeout=120, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return completed.returncode == 0

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import os
 
-from .base import BaseProvider, run_id_of
+from .base import BaseProvider, run_id_of, tier_of
 
 APP = "langgraph-support-app"
 
@@ -32,5 +32,16 @@ class AzureProvider(BaseProvider):
         return [[
             "az", "pipelines", "run", "--id", "$AZURE_PIPELINE_ID", "--branch", branch,
             "--org", "$AZURE_DEVOPS_ORG_URL", "--project", "$AZURE_DEVOPS_PROJECT",
-            "--parameters", f"runId={run_id}",
+            "--parameters", f"runId={run_id}", f"tier={tier_of(stage, answers)}", f"stage={stage.get('name') or ''}",
         ]]
+
+    # --- Sprint 4 phase 9 ----------------------------------------------------------------------
+
+    injection_target = "Azure Pipelines variable group 'orchestrator' (secret variables)"
+
+    def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:
+        """``az pipelines variable create --secret true`` reads the value from AZURE_DEVOPS_EXT_* env; here it is piped."""
+        return [[
+            "az", "pipelines", "variable", "create", "--name", name, "--secret", "true", "--value", "@-",
+            "--pipeline-id", "$AZURE_PIPELINE_ID", "--org", "$AZURE_DEVOPS_ORG_URL", "--project", "$AZURE_DEVOPS_PROJECT",
+        ] for name in names]

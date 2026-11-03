@@ -237,6 +237,7 @@ Astra recalling the first episode. Script: `scripts/demo_walkthrough.sh`.
 - `references/11-tooling-matrix.md` — CLIs, SDKs, MCP servers, install hints, dry-run rules.
 - `references/12-phase-plan.md` — per-phase file lists and acceptance detail.
 - `references/13-vault-and-connections.md` — Sprint 4 phase 8: vault, device-code logins, verify cache, connections API, UI token.
+- `references/14-suites-provisioning-injection.md` — Sprint 4 phase 9: platform suites, `ORCHESTRATOR_DISPATCH=platform`, provisioning, secret injection.
 - `assets/` — `credentials.json`, `scanners.json`, `mcp_servers.json`, `templates/*.tpl`.
 - `scripts/` — `preflight.py`, `sprint3_progress.py`, `policy_check.py`, `validate_workflow.py`,
   `run_sprint3_checks.sh`, `install_hooks.py`, `scaffold_provider.py`, `demo_walkthrough.sh`.

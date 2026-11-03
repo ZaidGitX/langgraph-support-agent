@@ -33,6 +33,18 @@ KIND_FILES = {
     "kubernetes_manifest": "kubernetes-deployment.yaml.tpl",
     "env_example": "env.target.example.tpl",
     "doc": "deploy-doc.md.tpl",
+    "cloudformation": "ecs-stack.yaml.tpl",
+    "codebuild_project": "codebuild-project.json.tpl",
+    "jenkins_job": "jenkins-job.xml.tpl",
+}
+
+# Whole-pipeline skeletons (one file per platform) and the per-stage CodeBuild buildspec
+# that the suite renders for every fixed stage.
+SUITE_TEMPLATES = {
+    "jenkinsfile": "Jenkinsfile.suite.tpl",
+    "buildspec": "buildspec.stage.yml.tpl",
+    "cloudbuild": "cloudbuild.suite.yaml.tpl",
+    "azure_pipeline": "azure-pipelines.suite.yml.tpl",
 }
 
 # Where a rendered artifact of each kind lives inside the checkout.
@@ -49,11 +61,14 @@ KIND_PATHS = {
     "kubernetes_manifest": "deploy/k8s/{stage}.yaml",
     "env_example": ".env.{tier}.example",
     "doc": "docs/deploy/{platform}-{tier}.md",
+    "cloudformation": "deploy/ecs-stack.yaml",
+    "codebuild_project": "deploy/codebuild-project.json",
+    "jenkins_job": "deploy/jenkins-job.xml",
 }
 
 
-def template_text(kind: str) -> str:
-    name = KIND_FILES.get(kind)
+def template_text(kind: str, template: str | None = None) -> str:
+    name = template or KIND_FILES.get(kind)
     if not name:
         raise KeyError(f"no template for artifact kind {kind!r}")
     return (TEMPLATE_DIR / name).read_text(encoding="utf-8")
@@ -118,14 +133,30 @@ def variables(stage: dict, environment: dict | None = None, *, runner: str = "lo
         "SECRETS_LINES": _env_lines("github_workflow", names),
         "STAGE_TABLE": "",
         "READINESS_SUMMARY": "",
+        # Suite and provisioning skeletons (phase 9). Config names stay as placeholders in the
+        # stored file; the provider expands them at apply time. Never a value here.
+        "STAGE_BLOCKS": "",
+        "STAGE_COMMANDS": "",
+        "STAGE_NAMES": "",
+        "SECRETS_MANAGER_LINES": "",
+        "CONTAINER_ENV_LINES": "",
+        "WORKFLOW_FILE": "",
+        "CODEBUILD_PROJECT": "$AWS_CODEBUILD_PROJECT",
+        "S3_BUCKET": "$AWS_S3_BUCKET",
+        "CODEBUILD_ROLE_ARN": "$AWS_CODEBUILD_ROLE_ARN",
+        "REPO_URL": "$GIT_REMOTE_URL",
+        "BRANCH": "main",
     }
     values.update({str(k): str(v) for k, v in (extra or {}).items() if k != "kind"})
     return values
 
 
-def render_template(kind: str, stage: dict, environment: dict | None = None, *, runner: str = "local", run_id: str = "", placeholders: list[str] | None = None, extra: dict | None = None) -> str:
-    """Render one skeleton. Unknown placeholders stay as ``$NAME`` so they are visible."""
+def render_template(kind: str, stage: dict, environment: dict | None = None, *, runner: str = "local", run_id: str = "", placeholders: list[str] | None = None, extra: dict | None = None, template: str | None = None) -> str:
+    """Render one skeleton. Unknown placeholders stay as ``$NAME`` so they are visible.
+
+    ``template`` picks a different file for the same kind (the suite skeletons).
+    """
     merged = dict(extra or {})
     merged["kind"] = kind
     values = variables(stage, environment, runner=runner, run_id=run_id, placeholders=placeholders, extra=merged)
-    return Template(template_text(kind)).safe_substitute(values)
+    return Template(template_text(kind, template)).safe_substitute(values)

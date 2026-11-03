@@ -137,6 +137,11 @@ READ_ONLY_PATTERNS: list[str] = [
 # Rules that must stay case-sensitive: environment names are UPPER_CASE, and a
 # case-insensitive match would flag ordinary code such as `secrets_referenced: list[str]`.
 CASE_SENSITIVE_RULES = {"secret.assignment", "secret.literal"}
+# By-reference bindings a platform needs: Jenkins credentials('NAME'), CodeBuild secrets-manager
+# "<secret-id>:<KEY>" and parameter-store "/path" references, Azure $(NAME). None is a value.
+_SECRET_REFERENCE = re.compile(
+    r"credentials\(|\$\(|[=:][ \t]*[\"']?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]*:[A-Z][A-Z0-9_]*[\"']?[ \t]*$|[=:][ \t]*[\"']?/[A-Za-z0-9._/\-]+[\"']?[ \t]*$"
+)
 
 
 def compile_rules():
@@ -213,7 +218,7 @@ def check_text(text: str, *, kind: str = "shell", path: str = "") -> list[dict]:
             line_text = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
             if rule_id == "prod.reference" and any(r.search(line_text) for r in _PROD_EXEMPT):
                 continue
-            if rule_id == "secret.assignment" and "${{" in line_text:
+            if rule_id == "secret.assignment" and ("${{" in line_text or _SECRET_REFERENCE.search(line_text)):
                 continue
             key = (rule_id, line_no)
             if key in seen:
@@ -263,6 +268,12 @@ def kind_for_path(path: str) -> str:
         return "buildspec"
     if name.startswith("cloudbuild"):
         return "cloudbuild"
+    if name.startswith("codebuild-project"):
+        return "codebuild_project"
+    if name.startswith("jenkins-job"):
+        return "jenkins_job"
+    if name.endswith("-stack.yaml") or name.endswith("-stack.yml") or name.startswith("cloudformation"):
+        return "cloudformation"
     if name.startswith("azure-pipelines"):
         return "azure_pipeline"
     if name.startswith("Dockerfile"):

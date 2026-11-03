@@ -104,6 +104,15 @@ Verify runs the platform's whoami command and the card turns `apply` when it pas
 
 Set the `ORCHESTRATOR_UI_TOKEN` repository secret before a push-triggered demo: the tunnel URL is public, and with the token set the dashboard asks for it once per tab before it accepts any change.
 
+## Platform dispatch (Sprint 4)
+
+Set `ORCHESTRATOR_DISPATCH=platform` and answer the platform question with `jenkins`, `aws`, `gcp`, or `azure`. The fixed stages then run on that platform instead of the host or GitHub Actions:
+
+1. After the candidates are ranked, Astra translates the fixed workflows into the platform's own files (the suite): a `ci/pipeline.Jenkinsfile` with one stage per approved stage and `deploy/jenkins-job.xml`; one `ci/buildspec-<stage>.yml` per stage with `deploy/codebuild-project.json` and, when deploy is a stage, `deploy/ecs-stack.yaml`; one `ci/cloudbuild.yaml`; or one `ci/azure-pipelines.yml`. The policy checks every file and Jev reviews the set. A rejected suite drops the platform and the fixed stages fall back to the host.
+2. The approval screen shows the suite under the **pipeline** tab of Generated artifacts and a **Platform** panel: which file runs each stage, the provisioning commands (upload the source zip to S3, create the ECR repository and the CodeBuild project; create the Jenkins job), and the secret names that will be injected into the platform's store (Secrets Manager, Jenkins credentials, GitHub secrets, Google Secret Manager, an Azure variable group). Names only.
+3. Once approved, provisioning and injection run before the first wave: in plan mode they are recorded as `planned`; with the platform connected and `ORCHESTRATOR_CLOUD_APPLY=1` they apply, and a failed apply stops the run through the quality gate.
+4. Each fixed stage then triggers its suite file: `aws codebuild start-build --buildspec-override`, Jenkins `buildWithParameters` with `STAGE=<name>`, `gcloud builds submit --substitutions _STAGE=<name>`, `az pipelines run --parameters stage=<name>`. Without credentials the stage records `planned` with the exact command. `uat` always stays on the host as the human gate.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

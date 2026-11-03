@@ -96,6 +96,9 @@ class PipelineState(TypedDict):
     clarify_rounds: Annotated[int, operator.add]
     follow_up_decision: dict
     artifact_review: Annotated[dict, merge_dict]
+    # Sprint 4 phase 9: the platform suite's provisioning and secret injection (plan or result).
+    provision: Annotated[dict, merge_dict]
+    injection: Annotated[dict, merge_dict]
 
 
 def initial_state(root: str, run_id: str | None = None) -> PipelineState:
@@ -150,6 +153,8 @@ def initial_state(root: str, run_id: str | None = None) -> PipelineState:
         "clarify_rounds": 0,
         "follow_up_decision": {},
         "artifact_review": {},
+        "provision": {},
+        "injection": {},
     }
 
 

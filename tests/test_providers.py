@@ -245,7 +245,7 @@ def test_templates_render_for_every_kind(kind):
     stage = {"name": "container_scan", "family": "scan", "purpose": "scan the image", "provider": "trivy"}
     text = templates.render_template(kind, stage, {"tier": "dev", "platform": "aws"}, runner="aws_codebuild", run_id="run-42", placeholders=["AWS_REGION", "TRIVY_TOKEN"])
     assert "dev" in text
-    if kind not in {"doc", "env_example", "dockerfile", "compose", "kubernetes_manifest"}:
+    if kind not in {"doc", "env_example", "dockerfile", "compose", "kubernetes_manifest", "cloudformation", "codebuild_project", "jenkins_job"}:
         assert "container_scan" in text
     # Pure template variables are substituted; $TIER / $RUN_ID may remain as shell variables.
     for leftover in ("$FAMILY", "$PURPOSE", "$GENERATED_AT", "$PLACEHOLDER_NAMES", "$ENV_LINES", "$SECRETS_LINES", "$APP_NAME"):
@@ -257,7 +257,7 @@ def test_templates_render_for_every_kind(kind):
         assert "set -euo pipefail" in text and "${RUN_ID:-run-42}" in text and '"${AWS_REGION:=}"' in text
     if kind == "compose":
         assert "AWS_REGION: ${AWS_REGION:-}" in text
-    assert "production|prod)" in text or kind in {"doc", "env_example", "dockerfile", "compose", "kubernetes_manifest"}
+    assert "production|prod)" in text or kind in {"doc", "env_example", "dockerfile", "compose", "kubernetes_manifest", "cloudformation", "codebuild_project", "jenkins_job"}
     assert templates.artifact_path(kind, "container_scan", {"tier": "dev", "platform": "aws"})
 
 

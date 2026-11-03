@@ -74,6 +74,9 @@ ArtifactKind = Literal[
     "doc",
     "kubernetes_manifest",
     "script",
+    "cloudformation",
+    "codebuild_project",
+    "jenkins_job",
 ]
 
 
@@ -226,6 +229,25 @@ class RunnerDecision(BaseModel):
 class ArtifactSet(BaseModel):
     stage: str
     artifacts: list[GeneratedArtifact] = Field(min_length=1, max_length=6)
+    notes: str = ""
+
+
+class PipelineSuite(BaseModel):
+    """Every file one platform needs to run the approved fixed stages (Sprint 4, phase 9).
+
+    Astra translates the repository's fixed workflows into the platform's own format: one
+    pipeline file with a stage per fixed stage (Jenkins, Cloud Build, Azure Pipelines) or one
+    buildspec per stage (CodeBuild), plus scripts, a provisioning document, and a deploy
+    stack where the platform needs them. Secrets only by placeholder name.
+    """
+
+    platform: str
+    runner: str
+    artifacts: list[GeneratedArtifact] = Field(min_length=1, max_length=14)
+    stage_files: dict[str, str] = Field(
+        default_factory=dict,
+        description="Stage name to the artifact path that runs it (buildspec-<stage>.yml, or the pipeline file).",
+    )
     notes: str = ""
 
 

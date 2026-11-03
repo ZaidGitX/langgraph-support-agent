@@ -64,6 +64,10 @@ ARTIFACT_KINDS = (
     "doc",
     "kubernetes_manifest",
     "script",
+    # Sprint 4 phase 9: platform suites and provisioning documents.
+    "cloudformation",
+    "codebuild_project",
+    "jenkins_job",
 )
 
 # Runners that execute on each platform, most natural first. `local` can also use docker.

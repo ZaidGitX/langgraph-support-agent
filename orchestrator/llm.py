@@ -38,6 +38,7 @@ from .schemas import (
     FollowUpDecision,
     FollowUpSet,
     GateDecision,
+    PipelineSuite,
     PlanProposal,
     QuestionSet,
     RankDecision,
@@ -86,6 +87,25 @@ GENERATE_SYSTEM = (
     "workflow triggers only on workflow_dispatch. Print machine-readable summary lines so "
     "findings can be extracted. When policy_findings are present, fix every one of them and "
     "change nothing else. Return full file contents for every artifact."
+)
+
+SUITE_SYSTEM = (
+    "You are Astra. Translate this repository's fixed GitHub Actions workflows into the complete "
+    "set of files one platform needs to run the approved stages: Jenkins (one Jenkinsfile with a "
+    "stage per approved stage gated on the STAGE parameter, plus the job XML), AWS CodeBuild (one "
+    "buildspec per stage plus the CodeBuild project document and, when deploy is a stage, the ECS "
+    "CloudFormation stack), Google Cloud Build (one cloudbuild.yaml with a step per stage gated on "
+    "_STAGE), or Azure Pipelines (one azure-pipelines.yml with a stage per approved stage gated on "
+    "the stage parameter). Start from the skeletons and keep every file valid for its format. Keep "
+    "the suggested paths. Reproduce what each workflow does: install, compile, lint, audit, test, "
+    "scan with the catalog's docker images, package, build the image, release, deploy with the "
+    "platform's own CLI. Reference credentials only by the placeholder names given ($NAME, "
+    "${NAME}, credentials('NAME'), or a secrets-manager reference by NAME); never write a value. "
+    "Never reference production; the tier guard stays. Never use destructive commands, curl piped "
+    "to a shell, sudo, world-writable permissions, or --force on main. Print a machine-readable "
+    "summary line at the end of every stage. Fill stage_files with the path that runs each stage. "
+    "When policy_findings are present, fix every one of them and change nothing else. Return full "
+    "file contents."
 )
 
 DOCS_SYSTEM = (
@@ -634,6 +654,10 @@ class OpenAIAstra:
 
     def write_docs(self, payload: dict) -> DeployDoc:
         return invoke_structured(config.astra_model(), DeployDoc, DOCS_SYSTEM, payload)
+
+    def generate_suite(self, payload: dict) -> PipelineSuite:
+        """Sprint 4: the whole pipeline in one platform's format (see orchestrator/suite.py)."""
+        return invoke_structured(config.astra_model(), PipelineSuite, SUITE_SYSTEM, payload, temperature=self.temperature)
 
     def brief(self, payload: dict) -> StageBrief:
         return invoke_structured(config.astra_model(), StageBrief, BRIEF_SYSTEM, payload)

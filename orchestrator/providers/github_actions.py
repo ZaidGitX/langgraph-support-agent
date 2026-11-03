@@ -46,6 +46,16 @@ class GithubActionsProvider(BaseProvider):
             command.extend(["--repo", repo])
         return [command]
 
+    # --- Sprint 4 phase 9 ----------------------------------------------------------------------
+
+    injection_target = "GitHub repository secrets"
+
+    def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:
+        """``gh secret set NAME --body-file -`` reads the value from stdin; never a literal body."""
+        repo = os.getenv("GITHUB_REPOSITORY", "").strip()
+        extra = ["--repo", repo] if repo else []
+        return [["gh", "secret", "set", name, "--body-file", "-", *extra] for name in names]
+
     def execute(self, stage: dict, records: list[dict], cwd: str, *, mode: str, answers: dict) -> StageRun:
         status = self.detect()
         argvs = self.would_run(stage, records, cwd, answers or {})

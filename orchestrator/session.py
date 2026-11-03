@@ -45,6 +45,9 @@ def _empty_view() -> dict:
         "clarify_round": 0,
         "follow_up": {},
         "retrieval_evidence": [],
+        "provision": {},
+        "injection": {},
+        "suite": {},
     }
 
 
@@ -306,6 +309,9 @@ class SessionService:
                     "clarify_round": int(payload.get("round") or values.get("clarify_rounds") or 0),
                     "follow_up": dict(values.get("follow_up_decision") or {}),
                     "retrieval_evidence": list(payload.get("retrieval_evidence") or (values.get("ecosystem") or {}).get("evidence") or []),
+                    "provision": dict(payload.get("provision") or values.get("provision") or {}),
+                    "injection": dict(payload.get("injection") or values.get("injection") or {}),
+                    "suite": dict((values.get("pipeline") or {}).get("suite") or {}),
                 }
             )
         print(f"orchestrator session {values.get('run_id')} phase={phase}", flush=True)
@@ -346,6 +352,9 @@ class SessionService:
                     "clarify_round": int(values.get("clarify_rounds") or 0),
                     "follow_up": dict(values.get("follow_up_decision") or {}),
                     "retrieval_evidence": list((values.get("ecosystem") or {}).get("evidence") or []),
+                    "provision": dict(values.get("provision") or {}),
+                    "injection": dict(values.get("injection") or {}),
+                    "suite": dict((values.get("pipeline") or {}).get("suite") or {}),
                 }
             )
         print(

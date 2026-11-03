@@ -1499,3 +1499,16 @@ main.dashboard {
 .dashboard .token-prompt {
   border-color: var(--amber);
 }
+
+/* Sprint 4 phase 9: platform plan. */
+
+.dashboard .platform-block {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.dashboard .platform-block h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}

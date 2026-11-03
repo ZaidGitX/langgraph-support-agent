@@ -6,6 +6,7 @@ import { EnvChip, KindChip, ModeBadge, NameChips, PolicyBadge, ProviderChip, Run
 import Connections from "./components/Connections.jsx"
 import Episodes from "./components/Episodes.jsx"
 import { Mark, toneOf } from "./components/Mark.jsx"
+import PlatformPlan from "./components/PlatformPlan.jsx"
 import RetrievalPanel from "./components/RetrievalPanel.jsx"
 import TokenPrompt from "./components/TokenPrompt.jsx"
 
@@ -318,6 +319,7 @@ export default function Dashboard({ initialSession = null }) {
             <StageList stages={liveStages} evidence={[]} runnerPlan={runnerPlan} />
           </section>
           <ArtifactViewer artifacts={sessionArtifacts} review={artifactReview} />
+          <PlatformPlan suite={session?.suite} provision={session?.provision} injection={session?.injection} />
           <section className="panel">
             <h2>Policy</h2>
             <PolicySummary policy={session?.policy} />
@@ -458,6 +460,7 @@ export default function Dashboard({ initialSession = null }) {
           </section>
 
           <ArtifactViewer artifacts={artifacts} review={artifactReview} readOnly />
+          <PlatformPlan suite={report.suite || session?.suite} provision={report.provision || session?.provision} injection={report.injection || session?.injection} />
           <RetrievalPanel retrieval={retrieval} evidence={retrievalEvidence} />
           <Episodes episodes={report.episodes || session?.episodes || []} />
 

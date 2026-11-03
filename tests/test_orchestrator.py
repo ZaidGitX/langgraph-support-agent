@@ -25,6 +25,7 @@ from orchestrator.graph import (
 from orchestrator.guardrails import apply_guardrails
 from orchestrator.llm import TypeSafeJev
 from orchestrator.local_ops import deploy
+from orchestrator.policy import kind_for_path as policy_kind_for_path
 from orchestrator.schemas import (
     ArtifactReview,
     ArtifactSet,
@@ -36,6 +37,7 @@ from orchestrator.schemas import (
     FollowUpSet,
     GateDecision,
     GeneratedArtifact,
+    PipelineSuite,
     PlanProposal,
     QuestionSet,
     RankDecision,
@@ -127,6 +129,18 @@ class FakeAstra:
 
     def write_docs(self, payload: dict) -> DeployDoc:
         return DeployDoc(path="docs/deploy/local-local.md", content="# demo deployment\n")
+
+    def generate_suite(self, payload: dict) -> PipelineSuite:
+        """Sprint 4: return the skeletons as the suite, with the file that runs each stage."""
+        artifacts = []
+        stage_files = {}
+        for path, skeleton in payload["skeletons"].items():
+            kind = policy_kind_for_path(path)
+            artifacts.append(GeneratedArtifact(kind=kind, path=path, purpose=f"{payload['platform']} suite file", content=skeleton))
+            for stage in payload["stages"]:
+                if path.endswith(f"buildspec-{stage['name']}.yml") or path.startswith("ci/pipeline.") or path in ("ci/cloudbuild.yaml", "ci/azure-pipelines.yml"):
+                    stage_files.setdefault(stage["name"], path)
+        return PipelineSuite(platform=payload["platform"], runner=payload["runner"], artifacts=artifacts, stage_files=stage_files, notes="fake suite")
 
 
 class GeneratedAstra(FakeAstra):

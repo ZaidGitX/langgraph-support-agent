@@ -125,7 +125,15 @@ apply carded first); non-GitHub remotes start runs through a signed webhook plus
 - Tests: `tests/test_vault.py`, `tests/test_connections_api.py`, `tests/fakes/fake_login.py`.
 Commit: `Sprint 4 phase 8: vault, device-code logins, connections panel`.
 
-## Phase 9 — Platform suites, provisioning, injection (ref `14`, to be written with the phase)
+## Phase 9 — Platform suites, provisioning, injection (ref `14`)
+
+- `orchestrator/suite.py`, suite and provisioning templates, `PipelineSuite`, new artifact
+  kinds, `SUITE_SYSTEM` + `OpenAIAstra.generate_suite`, `ProvisionResult` + `provision` +
+  `inject_secrets` on every provider, `_runner_plan` platform mode, `_platform_setup` before
+  the first wave, fixed stage nodes through `execute_stage_v2`, `PlatformPlan.jsx`.
+- Policy: by-reference secret bindings exempt in both copies.
+- Tests: `tests/test_suite.py`, `tests/test_policy.py` reference case.
+Commit: `Sprint 4 phase 9: platform suites, provisioning, secret injection`.
 
 ## Phase 10 — Autopilot profile, webhooks, poller (ref `15`, to be written with the phase)
 

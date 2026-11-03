@@ -3,7 +3,7 @@ and Cloud Storage helpers for deploy-family stages."""
 
 from __future__ import annotations
 
-from .base import BaseProvider, artifact_of_kind, run_id_of, tier_of
+from .base import BaseProvider, artifact_for_stage, artifact_of_kind, run_id_of, tier_of
 
 APP = "langgraph-support-app"
 
@@ -27,8 +27,16 @@ class GcpProvider(BaseProvider):
             return [["gcloud", "storage", "cp", "dist/langgraph-support-app.tgz", f"gs://$GCS_BUCKET/{run_id}/", *project]]
         if provider == "artifact_registry":
             return [["gcloud", "builds", "submit", "--tag", image, *project, "."]]
-        config = artifact_of_kind(records, "cloudbuild", cwd=cwd) or f"ci/cloudbuild-{stage.get('name')}.yaml"
+        config = artifact_for_stage(records, str(stage.get("name") or ""), "cloudbuild", cwd=cwd) or artifact_of_kind(records, "cloudbuild", cwd=cwd) or f"ci/cloudbuild-{stage.get('name')}.yaml"
         return [[
             "gcloud", "builds", "submit", "--config", config, *project,
-            "--substitutions", f"_RUN_ID={run_id},_TIER={tier_of(stage, answers)}", ".",
+            "--substitutions", f"_RUN_ID={run_id},_TIER={tier_of(stage, answers)},_STAGE={stage.get('name') or ''}", ".",
         ]]
+
+    # --- Sprint 4 phase 9 ----------------------------------------------------------------------
+
+    injection_target = "Google Secret Manager (secret per NAME)"
+
+    def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:
+        """``gcloud secrets versions add NAME --data-file=-`` reads the value from stdin."""
+        return [["gcloud", "secrets", "versions", "add", name, "--data-file=-", "--project", "$GCP_PROJECT_ID"] for name in names]
