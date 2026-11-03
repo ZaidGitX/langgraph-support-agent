@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
+import json
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from orchestrator import connect, credentials, vault
@@ -80,6 +82,58 @@ def answer_session(body: AnswerBody, request: Request) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/session/events")
+def get_session_events(request: Request, since: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=1000)) -> dict:
+    """Timeline events with seq > since: node, stage, wave, jev, gate, autopilot, note."""
+    return _service(request).events_since(since, limit)
+
+
+@router.get("/session/stream")
+async def stream_session(request: Request, max_changes: int = Query(0, ge=0, le=100000, alias="max")) -> StreamingResponse:
+    """Server-sent events: one `change` frame per published view (seq, phase, running stages).
+
+    The dashboard refetches the view on each frame; polling stays as the fallback. `max`
+    ends the stream after that many frames (tests). A comment line every 15 s keeps proxies
+    from closing an idle stream.
+    """
+    service = _service(request)
+
+    async def generate():
+        yield "retry: 2000\n\n"
+        last = -1
+        sent = 0
+        idle = 0.0
+        while True:
+            if await request.is_disconnected():
+                return
+            seq = service.view_seq()
+            if seq != last:
+                last = seq
+                snapshot = service.snapshot()
+                payload = {
+                    "seq": seq,
+                    "run_id": snapshot.get("run_id"),
+                    "phase": snapshot.get("phase"),
+                    "status": snapshot.get("status"),
+                    "gate": snapshot.get("gate"),
+                    "running_stages": list(snapshot.get("running_stages") or []),
+                    "trace_length": len(snapshot.get("trace") or []),
+                }
+                yield f"event: change\ndata: {json.dumps(payload)}\n\n"
+                sent += 1
+                idle = 0.0
+                if max_changes and sent >= max_changes:
+                    return
+            else:
+                idle += 0.25
+                if idle >= 15:
+                    idle = 0.0
+                    yield ": ping\n\n"
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @router.get("/session/artifacts")

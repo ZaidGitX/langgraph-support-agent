@@ -82,6 +82,8 @@ npm install
 npm run dev
 ```
 
+Sprint 4 turned the screen into a shell that stays in place for the whole run: a stepper (Connect → Questions → Plan → Approve → Run → UAT → Results), one action card for whatever the person can do right now, and five tabs. Overview shows the live run board (tiles per dispatch wave that spin while a stage runs, then show the result and how long it took) or the results summary; Plan the candidates, stages, and platform plan; Artifacts the generated files with their policy verdicts; Evidence the test and scan tiles, retrieval excerpts, episodes, and Jev decisions; History the timeline of every event, including the commands the runner printed and every autopilot decision. The page listens to a server-sent-events feed and falls back to polling; toasts announce gate changes.
+
 The Sprint 3 session screen walks the phases in order:
 
 - **idle / starting** — the readiness panel (CLIs and credential names on this host, `apply` or `plan` per provider, the orchestrator toggles) and the episodes Astra will recall. Nothing here shows a value.

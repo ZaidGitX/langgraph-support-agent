@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import os
 import threading
+import time
 from collections import deque
 from urllib.parse import urlparse
 
@@ -17,7 +18,10 @@ from app import config
 from . import generator
 from . import profile as run_profile
 from .llm import scrub
-from .state import initial_state
+from .runner import reset_printer, set_printer
+from .state import STAGE_NAMES, initial_state
+
+MAX_EVENTS = 500
 
 
 def _empty_view() -> dict:
@@ -53,22 +57,33 @@ def _empty_view() -> dict:
         "autopilot": {"enabled": False, "profile": "", "events": []},
         "trigger": {},
         "queue": [],
+        # Sprint 4 phase 11: the live feed. ``seq`` changes on every publish; ``events`` is
+        # the timeline (node, stage, wave, jev, gate, autopilot, note); ``running_stages``
+        # are dispatched and not yet finished; ``timeline`` is the node trace with seconds.
+        "seq": 0,
+        "events": [],
+        "running_stages": [],
+        "timeline": [],
+        "started_at": "",
     }
 
 
-def _stage_board(values: dict) -> list[dict]:
+def _stage_board(values: dict, running: set[str] | None = None) -> list[dict]:
     from .state import latest_results
 
     latest = latest_results(values)
     board = []
     for stage in (values.get("pipeline") or {}).get("stages") or []:
         row = latest.get(stage["name"]) or {}
+        status = row.get("status") or "pending"
+        if running and stage["name"] in running and status == "pending":
+            status = "running"
         board.append(
             {
                 "name": stage["name"],
                 "depends_on": list(stage.get("depends_on") or []),
                 "purpose": stage.get("purpose") or "",
-                "status": row.get("status") or "pending",
+                "status": status,
                 "evidence": row.get("evidence") or "",
                 "brief": row.get("brief") or "",
                 "watch_for": row.get("watch_for") or "",
@@ -126,6 +141,9 @@ class SessionService:
         self._run_root = self.repo_root
         self.profile = None
         self.trigger: dict = {}
+        self._seq = 0
+        self._running: set[str] = set()
+        self._run_started = 0.0
 
     def snapshot(self) -> dict:
         with self._cv:
@@ -155,6 +173,9 @@ class SessionService:
             self.view["trigger"] = dict(self.trigger)
             self.view["queue"] = [dict(item["trigger"]) for item in self._queue]
             self.view["autopilot"] = self._load_profile()
+            self._running = set()
+            self._run_started = time.time()
+            self.view["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._run_started))
             self._active = True
             self._thread = threading.Thread(
                 target=self._run,
@@ -221,6 +242,126 @@ class SessionService:
         from .episodes import recall
 
         return recall(self.repo_root, limit=max(1, min(int(limit), 50)), db_path=self.db_path)
+
+    def view_seq(self) -> int:
+        with self._cv:
+            return int(self.view.get("seq") or 0)
+
+    def events_since(self, since: int = 0, limit: int = 200) -> dict:
+        """Events with seq > since (oldest first), plus the latest seq and phase."""
+        with self._cv:
+            events = [item for item in self.view.get("events") or [] if int(item.get("seq") or 0) > since]
+            return {
+                "seq": int(self.view.get("seq") or 0),
+                "phase": self.view.get("phase"),
+                "run_id": self.view.get("run_id"),
+                "events": [dict(item) for item in events[:limit]],
+                "more": len(events) > limit,
+            }
+
+    def _emit(self, kind: str, name: str = "", detail: str = "", **extra) -> None:
+        """Append one timeline event and bump seq."""
+        with self._cv:
+            self._seq += 1
+            record = {
+                "seq": self._seq,
+                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "t": round(time.time() - self._run_started, 2) if self._run_started else 0.0,
+                "kind": kind,
+                "name": name,
+                "detail": scrub(detail)[:400],
+                **{key: value for key, value in extra.items() if value is not None},
+            }
+            events = self.view.setdefault("events", [])
+            events.append(record)
+            if len(events) > MAX_EVENTS:
+                del events[: len(events) - MAX_EVENTS]
+            self.view["seq"] = self._seq
+            self._cv.notify_all()
+
+    def _note(self, message: str) -> None:
+        """Runner notes (the argv a stage runs) become timeline events, redacted."""
+        text = scrub(str(message or "")).strip()
+        if text:
+            self._emit("note", "", text)
+
+    def _on_node(self, node: str, update: dict, values: dict) -> None:
+        """Translate one node update into events and refresh the live view."""
+        if not isinstance(update, dict):
+            update = {}
+        seconds = round(time.time() - self._run_started, 2) if self._run_started else 0.0
+        if node == "dispatch_stages":
+            ready = [name for name in update.get("ready_stages") or [] if name]
+            if ready:
+                self._running = set(ready)
+                self._emit("wave", "dispatch", "running " + ", ".join(ready), stages=ready)
+            elif update.get("stop_at") == "report":
+                self._running = set()
+        for result in update.get("stage_results") or []:
+            if isinstance(result, dict) and result.get("stage"):
+                self._running.discard(result["stage"])
+                self._emit("stage", result["stage"], f"attempt {result.get('attempt') or 1}: {result.get('status')}", status=result.get("status"), runner=result.get("runner"), seconds=seconds)
+        for item in update.get("jev_decisions") or []:
+            if isinstance(item, dict):
+                self._emit("jev", str(item.get("kind") or ""), f"{item.get('schema') or ''} via {item.get('client') or ''}", decision=item.get("decision"))
+        if node == "plan_pipeline":
+            chosen = (update.get("pipeline") or {}).get("id") or ""
+            self._emit("plan", chosen, f"Jev ranked {chosen}" if chosen else "no pipeline")
+        if node == "generate_artifacts":
+            count = sum(len(records or []) for records in (update.get("generated_artifacts") or {}).values())
+            if count:
+                self._emit("artifacts", "generate_artifacts", f"{count} generated file(s)")
+        if node == "report":
+            self._emit("report", "report", str(update.get("status") or ""))
+        if node not in STAGE_NAMES and node != "generated_stage":
+            self._emit("node", node, "", seconds=seconds)
+        with self._cv:
+            timeline = self.view.setdefault("timeline", [])
+            timeline.append({"node": node, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "t": seconds})
+            if len(timeline) > MAX_EVENTS:
+                del timeline[: len(timeline) - MAX_EVENTS]
+        self._publish_progress(values)
+
+    def _publish_progress(self, values: dict) -> None:
+        """Refresh everything the dashboard shows while the graph runs (no gate change)."""
+        from .graph import pipeline_view
+
+        pipeline = pipeline_view(values.get("pipeline") or {})
+        with self._cv:
+            if self.view.get("phase") in {"results", "error"}:
+                return
+            self.view.update(
+                {
+                    "run_id": values.get("run_id") or self.view.get("run_id"),
+                    "stages": _stage_board(values, self._running),
+                    "pipeline": pipeline if pipeline.get("stages") else None,
+                    "jev_decisions": list(values.get("jev_decisions") or []),
+                    "quality_gate": dict(values.get("gate") or {}),
+                    "retrieval": dict(values.get("retrieval") or {}),
+                    "episodes": list(values.get("episodes") or []),
+                    "readiness": dict(values.get("readiness") or {}),
+                    "candidates": list(values.get("candidates") or []),
+                    "artifacts": {
+                        stage: generator.records_for_view(records)
+                        for stage, records in (values.get("generated_artifacts") or {}).items()
+                    },
+                    "artifact_review": dict(values.get("artifact_review") or {}),
+                    "policy": list(values.get("policy") or []),
+                    "runner_plan": dict(values.get("runner_plan") or {}),
+                    "clarify_round": int(values.get("clarify_rounds") or 0),
+                    "follow_up": dict(values.get("follow_up_decision") or {}),
+                    "retrieval_evidence": list((values.get("ecosystem") or {}).get("evidence") or []),
+                    "provision": dict(values.get("provision") or {}),
+                    "injection": dict(values.get("injection") or {}),
+                    "suite": dict((values.get("pipeline") or {}).get("suite") or {}),
+                    "trace": list(values.get("trace") or []),
+                    "running_stages": sorted(self._running),
+                    "has_answers": bool(values.get("answers")) or self.view.get("has_answers"),
+                }
+            )
+            self._seq += 1
+            self.view["seq"] = self._seq
+            self._cv.notify_all()
 
     def _load_profile(self) -> dict:
         """Read orchestrator.yaml from the run's checkout; an invalid file disables autopilot."""
@@ -292,6 +433,7 @@ class SessionService:
         with self._cv:
             auto = self.view.setdefault("autopilot", {"enabled": True, "profile": "", "events": []})
             auto.setdefault("events", []).append(record)
+        self._emit("autopilot", gate, f"{action}: {record['detail']}", action=action)
         print(f"orchestrator autopilot {gate}: {action} ({record['detail']})", flush=True)
 
     def _start_next(self) -> None:
@@ -365,6 +507,9 @@ class SessionService:
             self.view["phase"] = "error"
             self.view["status"] = "error"
             self.view["error"] = scrub(message)
+            self._seq += 1
+            self.view["seq"] = self._seq
+            self._cv.notify_all()
         print("orchestrator session phase=error", flush=True)
 
     def _touch_running(self) -> None:
@@ -385,6 +530,8 @@ class SessionService:
             "uat_signoff": "uat",
         }.get(gate, "running")
         pipeline = pipeline_view(values.get("pipeline") or {})
+        self._running = set()
+        self._emit("gate", gate, f"waiting at {gate}", phase=phase, questions=[q.get("id") for q in payload.get("questions") or []])
         with self._cv:
             self.view.update(
                 {
@@ -393,7 +540,7 @@ class SessionService:
                     "run_id": values.get("run_id"),
                     "questions": list(payload.get("questions") or values.get("open_questions") or []),
                     "pipeline": pipeline if pipeline.get("stages") else None,
-                    "stages": _stage_board(values),
+                    "stages": _stage_board(values, self._running),
                     "report": None,
                     "error": "",
                     "gate": gate,
@@ -416,8 +563,13 @@ class SessionService:
                     "provision": dict(payload.get("provision") or values.get("provision") or {}),
                     "injection": dict(payload.get("injection") or values.get("injection") or {}),
                     "suite": dict((values.get("pipeline") or {}).get("suite") or {}),
+                    "running_stages": [],
+                    "trace": list(values.get("trace") or []),
                 }
             )
+            self._seq += 1
+            self.view["seq"] = self._seq
+            self._cv.notify_all()
         print(f"orchestrator session {values.get('run_id')} phase={phase}", flush=True)
 
     def _publish_results(self, values: dict) -> None:
@@ -425,6 +577,8 @@ class SessionService:
 
         report = visible_report(values)
         pipeline = pipeline_view(values.get("pipeline") or {})
+        self._running = set()
+        self._emit("done", "results", str(values.get("status") or report.get("status") or ""), status=values.get("status") or report.get("status"))
         with self._cv:
             self.view.update(
                 {
@@ -459,8 +613,13 @@ class SessionService:
                     "provision": dict(values.get("provision") or {}),
                     "injection": dict(values.get("injection") or {}),
                     "suite": dict((values.get("pipeline") or {}).get("suite") or {}),
+                    "running_stages": [],
+                    "trace": list(values.get("trace") or []),
                 }
             )
+            self._seq += 1
+            self.view["seq"] = self._seq
+            self._cv.notify_all()
         print(
             f"orchestrator session {values.get('run_id')} phase=results status={self.view['status']}",
             flush=True,
@@ -487,26 +646,36 @@ class SessionService:
                     commands=self.commands,
                     episodes_db=self.db_path,
                 )
-                for _ in range(12):
-                    self._touch_running()
-                    graph.invoke(pending, thread)
-                    snapshot = graph.get_state(thread)
-                    payload = interrupt_payload(graph, thread)
-                    if payload is not None:
-                        self._publish_interrupt(payload, snapshot.values)
-                        resume = self._autopilot(payload)
-                        if resume is None:
-                            resume = self._wait_for_resume()
-                        if not isinstance(resume, dict) or resume.get("_cancel"):
-                            self._set_error("session closed before a human answer")
+                token = set_printer(self._note)
+                try:
+                    for _ in range(12):
+                        self._touch_running()
+                        for chunk in graph.stream(pending, thread, stream_mode="updates"):
+                            if not isinstance(chunk, dict):
+                                continue
+                            for node, update in chunk.items():
+                                if node == "__interrupt__":
+                                    continue
+                                self._on_node(str(node), update if isinstance(update, dict) else {}, graph.get_state(thread).values)
+                        snapshot = graph.get_state(thread)
+                        payload = interrupt_payload(graph, thread)
+                        if payload is not None:
+                            self._publish_interrupt(payload, snapshot.values)
+                            resume = self._autopilot(payload)
+                            if resume is None:
+                                resume = self._wait_for_resume()
+                            if not isinstance(resume, dict) or resume.get("_cancel"):
+                                self._set_error("session closed before a human answer")
+                                return
+                            pending = Command(resume=resume)
+                            continue
+                        if not snapshot.next:
+                            self._publish_results(snapshot.values)
                             return
-                        pending = Command(resume=resume)
-                        continue
-                    if not snapshot.next:
-                        self._publish_results(snapshot.values)
-                        return
-                    raise RuntimeError(f"graph paused at {snapshot.next} without an interrupt")
-                raise RuntimeError("stopped after 12 interrupt resumes")
+                        raise RuntimeError(f"graph paused at {snapshot.next} without an interrupt")
+                    raise RuntimeError("stopped after 12 interrupt resumes")
+                finally:
+                    reset_printer(token)
         except Exception as exc:  # noqa: BLE001 — the UI must show any session failure
             self._set_error(str(exc))
         finally:

@@ -41,7 +41,7 @@ PHASES = [
      [("orchestrator/session.py", "autopilot")], "15-autopilot-webhooks.md"),
     (11, "Live dashboard", ["frontend/src/components/RunBoard.jsx", "frontend/src/components/Timeline.jsx", "frontend/src/components/Stepper.jsx"],
      [("app/orchestrator_api.py", "/session/stream"), ("orchestrator/session.py", "events")], "16-live-ui.md"),
-    (12, "AWS live proof, rehearsal, docs", [], [("docs/ORCHESTRATOR_RUNBOOK.md", "Sprint 4"), ("scripts/rehearse_demo.py", "autopilot")], "12-phase-plan.md"),
+    (12, "AWS live proof, rehearsal, docs", ["scripts/aws_teardown.sh"], [("docs/ORCHESTRATOR_RUNBOOK.md", "AWS live run"), ("scripts/rehearse_demo.py", "autopilot")], "12-phase-plan.md"),
 ]
 
 

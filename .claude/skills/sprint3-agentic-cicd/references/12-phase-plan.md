@@ -144,7 +144,13 @@ Commit: `Sprint 4 phase 9: platform suites, provisioning, secret injection`.
 - Tests: `tests/test_autopilot.py`, `tests/test_webhooks.py`.
 Commit: `Sprint 4 phase 10: autopilot profile, push webhook, poller, workspaces`.
 
-## Phase 11 — Live dashboard (ref `16`, to be written with the phase)
+## Phase 11 — Live dashboard (ref `16`)
+
+- `session.py` streams node updates (`_on_node`, `_publish_progress`, `_emit`, `events_since`);
+  `GET /session/events`, `GET /session/stream` (SSE); `useSession.js`; `Stepper.jsx`,
+  `RunBoard.jsx`, `Timeline.jsx`, `Toasts.jsx`; `Dashboard.jsx` as the tabbed shell.
+- Tests: `tests/test_live.py`; SSR smoke from captured views.
+Commit: `Sprint 4 phase 11: live dashboard with streamed events`.
 
 ## Phase 12 — AWS live proof, rehearsal, docs
 

@@ -1516,3 +1516,303 @@ main.dashboard {
 .dashboard .autopilot-note {
   color: var(--accent-ink);
 }
+
+/* Sprint 4 phase 11: stepper, tabs, run board, timeline, toasts, live indicator. */
+
+.dashboard .stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+}
+
+.dashboard .step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--plane);
+}
+
+.dashboard .step-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--line);
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.dashboard .step-done {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.dashboard .step-done .step-dot {
+  background: var(--ok);
+  color: #082126;
+}
+
+.dashboard .step-current {
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.dashboard .step-current .step-dot {
+  background: var(--accent);
+  color: #082126;
+}
+
+.dashboard .step-failed {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+
+.dashboard .live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.dashboard .live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dashboard .live-sse .live-dot {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}
+
+.dashboard .live-polling .live-dot {
+  background: var(--amber);
+}
+
+.dashboard .action-card {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent) inset;
+}
+
+.dashboard .tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 16px 0 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.dashboard .tab-badge {
+  font-size: 0.68rem;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--line);
+  color: var(--ink);
+}
+
+.dashboard .tab.active .tab-badge {
+  background: var(--accent);
+  color: #082126;
+}
+
+.dashboard .run-board {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dashboard .run-wave {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+
+.dashboard .run-wave-label {
+  padding-top: 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.dashboard .run-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.dashboard .run-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.dashboard .run-tile.tone-ok {
+  border-left-color: var(--ok);
+}
+
+.dashboard .run-tile.tone-warn {
+  border-left-color: var(--amber);
+}
+
+.dashboard .run-tile.tone-bad {
+  border-left-color: var(--fail);
+}
+
+.dashboard .run-tile.selected {
+  border-color: var(--accent);
+}
+
+.dashboard .run-tile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard .run-tile-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-height: 1em;
+}
+
+.dashboard .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--line);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: dashboard-spin 0.9s linear infinite;
+}
+
+@keyframes dashboard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dashboard .run-drawer {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--plane);
+}
+
+.dashboard .run-drawer pre {
+  background: var(--code-bg);
+  max-height: 280px;
+  overflow: auto;
+}
+
+.dashboard .timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 480px;
+  overflow: auto;
+}
+
+.dashboard .timeline-row {
+  display: grid;
+  grid-template-columns: 56px 86px 150px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+
+.dashboard .timeline-t {
+  color: var(--muted);
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+.dashboard .timeline-name {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard .timeline-detail {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.dashboard .timeline-row.kind-note .timeline-detail code {
+  font-size: 0.75rem;
+}
+
+.dashboard .toasts {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.dashboard .toast {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.dashboard .toast.tone-ok {
+  border-left-color: var(--ok);
+}
+
+.dashboard .toast.tone-warn {
+  border-left-color: var(--amber);
+}
+
+.dashboard .toast.tone-bad {
+  border-left-color: var(--fail);
+}
+
+@media (max-width: 640px) {
+  .dashboard .run-wave {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard .timeline-row {
+    grid-template-columns: 48px 70px 1fr;
+  }
+
+  .dashboard .timeline-detail {
+    grid-column: 1 / -1;
+  }
+}

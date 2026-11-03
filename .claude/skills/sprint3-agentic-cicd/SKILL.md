@@ -241,6 +241,7 @@ Astra recalling the first episode. Script: `scripts/demo_walkthrough.sh`.
 - `references/13-vault-and-connections.md` — Sprint 4 phase 8: vault, device-code logins, verify cache, connections API, UI token.
 - `references/14-suites-provisioning-injection.md` — Sprint 4 phase 9: platform suites, `ORCHESTRATOR_DISPATCH=platform`, provisioning, secret injection.
 - `references/15-autopilot-webhooks.md` — Sprint 4 phase 10: `orchestrator.yaml` autopilot (UAT stays human), push webhook, poller, workspaces, run queue.
+- `references/16-live-ui.md` — Sprint 4 phase 11: streamed node updates, events and SSE endpoints, stepper, run board, timeline, tabs.
 - `assets/` — `credentials.json`, `scanners.json`, `mcp_servers.json`, `templates/*.tpl`.
 - `scripts/` — `preflight.py`, `sprint3_progress.py`, `policy_check.py`, `validate_workflow.py`,
   `run_sprint3_checks.sh`, `install_hooks.py`, `scaffold_provider.py`, `demo_walkthrough.sh`.
