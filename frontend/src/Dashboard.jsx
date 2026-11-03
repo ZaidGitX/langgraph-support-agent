@@ -247,6 +247,21 @@ export default function Dashboard({ initialSession = null }) {
         </p>
         <div className="hero-meta">
           <p>{session?.run_id ? `Run id: ${session.run_id}` : "Opening a session…"}</p>
+          {session?.trigger?.source ? (
+            <p>
+              Triggered by {session.trigger.source}
+              {session.trigger.ref ? ` on ${String(session.trigger.ref).replace("refs/heads/", "")}` : ""}
+              {session.trigger.sha ? ` at ${String(session.trigger.sha).slice(0, 8)}` : ""}
+            </p>
+          ) : null}
+          {session?.autopilot?.enabled ? (
+            <p className="autopilot-note">
+              Autopilot on ({(session.autopilot.events || []).filter((e) => e.action !== "human").length} gate
+              {(session.autopilot.events || []).filter((e) => e.action !== "human").length === 1 ? "" : "s"} answered
+              {session.autopilot.profile ? ", UAT stays human" : ""})
+            </p>
+          ) : null}
+          {session?.queue?.length ? <p className="autopilot-note">{session.queue.length} push{session.queue.length === 1 ? "" : "es"} waiting</p> : null}
           <p>Support stays on #/support</p>
           <button
             type="button"
@@ -529,6 +544,21 @@ export default function Dashboard({ initialSession = null }) {
               <p className="empty">No Jev decisions.</p>
             )}
           </section>
+
+          {session?.autopilot?.events?.length ? (
+            <section className="panel">
+              <h2>Autopilot</h2>
+              <ul className="finding-list">
+                {session.autopilot.events.map((item, index) => (
+                  <li className={`finding tone-${item.action === "human" ? "warn" : "ok"}`} key={`${item.gate}-${index}`}>
+                    <span className="finding-rule">{item.gate}</span>
+                    <span>{item.action}</span>
+                    <span>{item.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           {report.diagnosis ? (
             <section className="panel">

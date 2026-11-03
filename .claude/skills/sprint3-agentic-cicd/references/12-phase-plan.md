@@ -135,7 +135,14 @@ Commit: `Sprint 4 phase 8: vault, device-code logins, connections panel`.
 - Tests: `tests/test_suite.py`, `tests/test_policy.py` reference case.
 Commit: `Sprint 4 phase 9: platform suites, provisioning, secret injection`.
 
-## Phase 10 — Autopilot profile, webhooks, poller (ref `15`, to be written with the phase)
+## Phase 10 — Autopilot profile, webhooks, poller (ref `15`)
+
+- `orchestrator.yaml`, `orchestrator/profile.py`, `orchestrator/workspace.py`,
+  `orchestrator/watch.py`, `app/webhooks.py`, `scripts/git-post-receive.sample`;
+  `session.start(repo_root, trigger)` with the run queue and `_autopilot`; `approvals.pipeline_by`.
+- Dashboard hero: trigger, autopilot gates answered, pushes waiting; Results: autopilot events.
+- Tests: `tests/test_autopilot.py`, `tests/test_webhooks.py`.
+Commit: `Sprint 4 phase 10: autopilot profile, push webhook, poller, workspaces`.
 
 ## Phase 11 — Live dashboard (ref `16`, to be written with the phase)
 

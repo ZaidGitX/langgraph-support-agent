@@ -113,6 +113,24 @@ Set `ORCHESTRATOR_DISPATCH=platform` and answer the platform question with `jenk
 3. Once approved, provisioning and injection run before the first wave: in plan mode they are recorded as `planned`; with the platform connected and `ORCHESTRATOR_CLOUD_APPLY=1` they apply, and a failed apply stops the run through the quality gate.
 4. Each fixed stage then triggers its suite file: `aws codebuild start-build --buildspec-override`, Jenkins `buildWithParameters` with `STAGE=<name>`, `gcloud builds submit --substitutions _STAGE=<name>`, `az pipelines run --parameters stage=<name>`. Without credentials the stage records `planned` with the exact command. `uat` always stays on the host as the human gate.
 
+## Autopilot and pushes (Sprint 4)
+
+`orchestrator.yaml` at the checkout root is the run profile. With it, a push can start and finish a run without a person at the question and approval gates:
+
+- **Questions.** Each of Astra's questions is answered from `answers.by_id`, then the platform and tier defaults, then `answers.by_topic` keywords matched against the id and prompt. One unmatched question and the gate waits for a person, as before.
+- **Approval.** Autopilot approves when no artifact has a policy error, every artifact review accepted, and Jev's rank confidence is at least `autopilot.min_confidence`. Otherwise the approval gate waits for a person. The report records `approvals.pipeline_by: autopilot`.
+- **UAT.** Never automatic. The run waits at `uat_signoff` until someone signs off in the dashboard.
+
+Set `ORCHESTRATOR_AUTOPILOT=0` to ignore the profile for a run you want to walk through by hand (the offline rehearsal does this for its manual scenarios and keeps one autopilot scenario).
+
+The dashboard shows what triggered the run, how many gates autopilot answered, every autopilot decision under Results, and how many pushes are waiting.
+
+Three ways a push reaches the orchestrator:
+
+1. **GitHub Actions** (`orchestrator.yml`), unchanged.
+2. **Webhook.** Point the host at `POST <orchestrator>/api/orchestrator/hooks/push` with the `ORCHESTRATOR_WEBHOOK_SECRET` value as the HMAC secret (GitHub, Gitea, Bitbucket) or the token (GitLab). The orchestrator clones the pushed commit into `var/workspaces/<slug>` (private HTTPS remotes need `GIT_REMOTE_USER` and `GIT_REMOTE_TOKEN` in the vault; SSH remotes `SSH_KEY_PATH`) and starts the run there. A push that arrives while a run is active waits in the queue. `remotes.branches` in the profile filters branches. For a bare remote on any host, install `scripts/git-post-receive.sample`.
+3. **Polling.** Set `ORCHESTRATOR_WATCH_REMOTE` (and `ORCHESTRATOR_WATCH_INTERVAL`) when the host cannot reach the orchestrator; the service runs `git ls-remote` on the interval and starts a run when a watched branch moves.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

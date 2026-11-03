@@ -1,0 +1,44 @@
+# Orchestrator run profile (Sprint 4). Committed with the code, read at the start of every run.
+# It lets a push start and finish a run without a person at the question and approval gates.
+# UAT sign-off is never automatic. Values here are answers and thresholds, never credentials.
+version: 1
+
+# Where a push-triggered run should go. local keeps every stage on the orchestrator host;
+# jenkins, aws, gcp, or azure run the fixed stages on that platform (ORCHESTRATOR_DISPATCH=platform).
+platform: local
+tier: dev
+
+answers:
+  # Exact question ids Astra tends to use. Unmatched questions fall back to the dashboard.
+  by_id:
+    env_platform: local
+    env_target: dev
+    test_depth: unit and integration
+    release_policy: manual release after UAT sign-off
+    scan_policy: fail the run on high or critical findings
+  # Keywords matched against the question id and prompt when no id matches.
+  by_topic:
+    platform: local
+    target: dev
+    tier: dev
+    runner: local
+    test: unit and integration
+    scan: fail the run on high or critical findings
+    severity: high
+    release: manual release after UAT sign-off
+    deploy: dev only; there is no production target
+    container: build the image with the repository Dockerfile
+    database: no database migration in this run
+    secret: credentials by name only, from the orchestrator vault
+
+autopilot:
+  answer_questions: true
+  approve: true
+  min_confidence: 0.6
+  require_policy_clean: true
+  require_review_accept: true
+
+remotes:
+  branches: [main]
+  webhook_secret_name: ORCHESTRATOR_WEBHOOK_SECRET
+  poll_interval_seconds: 60

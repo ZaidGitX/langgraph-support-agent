@@ -1512,3 +1512,7 @@ main.dashboard {
   margin: 0;
   font-size: 0.9rem;
 }
+
+.dashboard .autopilot-note {
+  color: var(--accent-ink);
+}

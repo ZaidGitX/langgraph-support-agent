@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
@@ -114,6 +115,9 @@ def test_jenkins_platform_run_triggers_one_job_per_stage(tmp_path, monkeypatch):
     argv = test["plan"]["would_run"][0]
     assert argv[0] == "curl" and "STAGE=test" in argv and "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters" in argv
     assert values["provision"]["commands"][0][-1] == "$JENKINS_URL/createItem?name=$JENKINS_JOB"
+    stored = next(record for record in values["generated_artifacts"]["pipeline"] if record["path"] == "ci/pipeline.Jenkinsfile")
+    text = Path(stored["stored_at"]).read_text(encoding="utf-8")
+    assert "credentials('" in text and "[redacted]" not in text  # by-reference bindings survive storage
 
 
 def test_local_dispatch_is_unchanged(tmp_path, monkeypatch):

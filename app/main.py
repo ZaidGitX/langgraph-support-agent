@@ -14,6 +14,7 @@ from .graph import run_agent
 from .orchestrator_api import mutating as orchestrator_mutating
 from .orchestrator_api import router as orchestrator_router
 from .schemas import AgentRequest, AgentResponse
+from .webhooks import router as webhook_router
 
 
 @asynccontextmanager
@@ -30,18 +31,37 @@ async def lifespan(app: FastAPI):
     service = SessionService()
     app.state.sessions = service
     if os.getenv("ORCHESTRATOR_AUTOSTART") == "1":
-        service.start()
+        service.start(trigger={"source": "autostart"})
         print(
             "Orchestrator session is waiting for answers at http://localhost:8000/#/orchestrator",
             flush=True,
         )
+    watcher = None
+    remote = os.getenv("ORCHESTRATOR_WATCH_REMOTE", "").strip()
+    if remote:
+        from orchestrator import profile as run_profile
+        from orchestrator.watch import RemoteWatcher
+
+        try:
+            loaded = run_profile.load(service.repo_root)
+        except run_profile.ProfileError as exc:
+            loaded = None
+            print(f"Orchestrator profile is invalid: {exc}", flush=True)
+        interval = int(os.getenv("ORCHESTRATOR_WATCH_INTERVAL", "0") or (loaded.remotes.poll_interval_seconds if loaded else 60))
+        watcher = RemoteWatcher(service, remote, interval=interval, branches=loaded.remotes.branches if loaded else [])
+        watcher.start()
+        print(f"Orchestrator polls {remote} every {watcher.interval}s", flush=True)
+    app.state.watcher = watcher
     yield
+    if watcher is not None:
+        watcher.stop()
     service.close()
 
 
 app = FastAPI(title="LangGraph Support Agent", version="1.0.0", lifespan=lifespan)
 app.include_router(orchestrator_router)
 app.include_router(orchestrator_mutating)
+app.include_router(webhook_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],

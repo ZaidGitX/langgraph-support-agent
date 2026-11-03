@@ -1,0 +1,25 @@
+#!/bin/sh
+# Sample post-receive hook for a bare git remote that is not GitHub, GitLab, Gitea, or Bitbucket.
+# Install as hooks/post-receive on the remote (chmod +x) and set two variables in the hook's
+# environment (or edit the defaults): ORCHESTRATOR_URL and ORCHESTRATOR_WEBHOOK_SECRET.
+# Every pushed branch becomes one signed POST to /api/orchestrator/hooks/push. The orchestrator
+# clones the remote itself, so CLONE_URL must be reachable from the orchestrator host.
+set -eu
+
+ORCHESTRATOR_URL="${ORCHESTRATOR_URL:-http://127.0.0.1:8000}"
+CLONE_URL="${CLONE_URL:-$(pwd)}"
+: "${ORCHESTRATOR_WEBHOOK_SECRET:?set ORCHESTRATOR_WEBHOOK_SECRET in the hook environment}"
+
+while read -r oldrev newrev refname; do
+  case "$refname" in
+    refs/heads/*) ;;
+    *) continue ;;
+  esac
+  body=$(printf '{"clone_url":"%s","ref":"%s","sha":"%s","repo":"%s"}' "$CLONE_URL" "$refname" "$newrev" "$(basename "$CLONE_URL")")
+  signature=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$ORCHESTRATOR_WEBHOOK_SECRET" | sed 's/^.* //')
+  curl -sS -o /dev/null -w "orchestrator: %{http_code} for $refname\n" \
+    -H "Content-Type: application/json" \
+    -H "X-Orchestrator-Signature: $signature" \
+    --data "$body" \
+    "$ORCHESTRATOR_URL/api/orchestrator/hooks/push" || echo "orchestrator: the push notification failed"
+done

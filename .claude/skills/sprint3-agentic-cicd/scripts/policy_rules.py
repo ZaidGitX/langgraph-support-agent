@@ -140,7 +140,7 @@ CASE_SENSITIVE_RULES = {"secret.assignment", "secret.literal"}
 # By-reference bindings a platform needs: Jenkins credentials('NAME'), CodeBuild secrets-manager
 # "<secret-id>:<KEY>" and parameter-store "/path" references, Azure $(NAME). None is a value.
 _SECRET_REFERENCE = re.compile(
-    r"credentials\(|\$\(|[=:][ \t]*[\"']?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]*:[A-Z][A-Z0-9_]*[\"']?[ \t]*$|[=:][ \t]*[\"']?/[A-Za-z0-9._/\-]+[\"']?[ \t]*$"
+    r"credentials\(|\$\(|[=:][ \t]*[\"']?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]*:[A-Z][A-Z0-9_]*[\"']?[ \t]*$|[=:][ \t]*[\"']/?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]+[\"'][ \t]*$|[=:][ \t]*[\"']?/[A-Za-z0-9._/\-]+[\"']?[ \t]*$"
 )
 
 

@@ -84,7 +84,9 @@ The sprint is demo-ready when `references/10-testing-and-demo.md` acceptance che
   `Choice`/`Noul` (never `Score`, never a ChatOpenAI fallback). Astra never chooses an edge.
 - A stage runs only if it is in the approved pipeline. Retries cap at 2 per stage and cannot add
   a stage. The DAG stays acyclic. Human gates (`ecosystem_qa`, `follow_up_qa`,
-  `pipeline_approval`, `uat_signoff`) are LangGraph `interrupt()`s answered only through the UI.
+  `pipeline_approval`, `uat_signoff`) are LangGraph `interrupt()`s. Since Sprint 4 the first
+  three may be answered by the committed `orchestrator.yaml` profile through the session
+  (autopilot, phase 10); `uat_signoff` is answered only through the UI.
 - Only `.github/workflows/orchestrator.yml` runs on push. Every other workflow, including
   generated ones, is `workflow_dispatch` only and lives directly in `.github/workflows/`
   (GitHub ignores subfolders).
@@ -238,6 +240,7 @@ Astra recalling the first episode. Script: `scripts/demo_walkthrough.sh`.
 - `references/12-phase-plan.md` — per-phase file lists and acceptance detail.
 - `references/13-vault-and-connections.md` — Sprint 4 phase 8: vault, device-code logins, verify cache, connections API, UI token.
 - `references/14-suites-provisioning-injection.md` — Sprint 4 phase 9: platform suites, `ORCHESTRATOR_DISPATCH=platform`, provisioning, secret injection.
+- `references/15-autopilot-webhooks.md` — Sprint 4 phase 10: `orchestrator.yaml` autopilot (UAT stays human), push webhook, poller, workspaces, run queue.
 - `assets/` — `credentials.json`, `scanners.json`, `mcp_servers.json`, `templates/*.tpl`.
 - `scripts/` — `preflight.py`, `sprint3_progress.py`, `policy_check.py`, `validate_workflow.py`,
   `run_sprint3_checks.sh`, `install_hooks.py`, `scaffold_provider.py`, `demo_walkthrough.sh`.

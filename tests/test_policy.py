@@ -159,9 +159,19 @@ def test_secret_assignment_allows_platform_references_but_not_values():
         '    SNYK_TOKEN: "langgraph-support-app/SNYK_TOKEN:SNYK_TOKEN"\n',
         '    HAWK_API_KEY: "/langgraph-support-app/HAWK_API_KEY"\n',
         "  SNYK_TOKEN: $(SNYK_TOKEN)\n",
+        '    SNYK_TOKEN: "langgraph-support-app/SNYK_TOKEN"\n',
     ]
     for text in by_reference:
         assert "secret.assignment" not in {item.rule for item in policy.check_text(text, kind="command").findings}, text
     # A literal value, built at runtime so no secret-shaped assignment sits in this file.
     literal = "SNYK_TOKEN" + " = '" + "x" * 16 + "'\n"
     assert not policy.check_text(literal, kind="command").ok
+
+
+def test_redaction_keeps_by_reference_bindings_intact():
+    from orchestrator import redaction
+
+    for line in ("SNYK_TOKEN = credentials('SNYK_TOKEN')", "SNYK_TOKEN: $SNYK_TOKEN", "SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}", 'SNYK_TOKEN: "app/SNYK_TOKEN"'):
+        assert redaction.redact(line) == line, line
+    literal = "SNYK_TOKEN" + "=" + "x" * 12
+    assert redaction.redact(literal) == "SNYK_TOKEN=[redacted]"

@@ -32,7 +32,7 @@ TOKEN_PATTERNS = [
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     "api" + r"key_[A-Za-z0-9_]+",
 ]
-ASSIGNMENT_PATTERN = r"(?i)((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)[^\s\"',;]+"
+ASSIGNMENT_PATTERN = r"(?i)((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)(?!credentials\(|\$|\{\{|secrets\.)[^\s\"',;]+"
 
 FILE_SCAN_PATTERNS = [
     r"sk-[A-Za-z0-9]{20,}",

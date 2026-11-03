@@ -9,11 +9,13 @@ from __future__ import annotations
 import copy
 import os
 import threading
+from collections import deque
 from urllib.parse import urlparse
 
 from app import config
 
 from . import generator
+from . import profile as run_profile
 from .llm import scrub
 from .state import initial_state
 
@@ -48,6 +50,9 @@ def _empty_view() -> dict:
         "provision": {},
         "injection": {},
         "suite": {},
+        "autopilot": {"enabled": False, "profile": "", "events": []},
+        "trigger": {},
+        "queue": [],
     }
 
 
@@ -115,25 +120,42 @@ class SessionService:
         self.results_viewed = False
         self.public_url = ""
         self.view = _empty_view()
+        # Sprint 4 phase 10: pushes queue behind the active run; the profile drives autopilot.
+        self._queue: deque[dict] = deque()
+        self._active = False
+        self._run_root = self.repo_root
+        self.profile = None
+        self.trigger: dict = {}
 
     def snapshot(self) -> dict:
         with self._cv:
             return copy.deepcopy(self.view)
 
-    def start(self) -> dict:
+    def start(self, repo_root: str | None = None, trigger: dict | None = None) -> dict:
+        """Start a run on ``repo_root`` (default: this checkout). A run that arrives while
+        another is active waits in the queue and starts when that run ends."""
         with self._cv:
-            if self._thread and self._thread.is_alive():
+            if self._active and self._thread and self._thread.is_alive():
+                if repo_root or trigger:
+                    self._queue.append({"repo_root": repo_root or self.repo_root, "trigger": dict(trigger or {"source": "manual"})})
+                    self.view["queue"] = [dict(item["trigger"]) for item in self._queue]
                 return copy.deepcopy(self.view)
             self._closed = False
             self._resume_ready = False
             self._resume_payload = None
             self.results_viewed = False
-            self._state = initial_state(self.repo_root)
+            self._run_root = repo_root or self.repo_root
+            self.trigger = dict(trigger or {"source": "manual"})
+            self._state = initial_state(self._run_root)
             self.view = _empty_view()
             self.view["run_id"] = self._state["run_id"]
             self.view["phase"] = "starting"
             self.view["status"] = "running"
             self.view["public_url"] = self.public_url
+            self.view["trigger"] = dict(self.trigger)
+            self.view["queue"] = [dict(item["trigger"]) for item in self._queue]
+            self.view["autopilot"] = self._load_profile()
+            self._active = True
             self._thread = threading.Thread(
                 target=self._run,
                 name="orchestrator-session",
@@ -200,9 +222,91 @@ class SessionService:
 
         return recall(self.repo_root, limit=max(1, min(int(limit), 50)), db_path=self.db_path)
 
+    def _load_profile(self) -> dict:
+        """Read orchestrator.yaml from the run's checkout; an invalid file disables autopilot."""
+        self.profile = None
+        if os.getenv("ORCHESTRATOR_AUTOPILOT", "1").strip().lower() in {"0", "false", "off", "no"}:
+            return {"enabled": False, "profile": "", "disabled_by": "ORCHESTRATOR_AUTOPILOT", "events": []}
+        try:
+            self.profile = run_profile.load(self._run_root)
+        except run_profile.ProfileError as exc:
+            return {"enabled": False, "profile": str(run_profile.path_for(self._run_root)), "error": scrub(str(exc)), "events": []}
+        if self.profile is None:
+            return {"enabled": False, "profile": "", "events": []}
+        return {
+            "enabled": self.profile.enabled,
+            "profile": self.profile.path,
+            "platform": self.profile.platform,
+            "tier": self.profile.tier,
+            "approve": self.profile.autopilot.approve,
+            "answer_questions": self.profile.autopilot.answer_questions,
+            "min_confidence": self.profile.autopilot.min_confidence,
+            "events": [],
+        }
+
+    def _autopilot(self, payload: dict) -> dict | None:
+        """Answer a gate from the profile, or None to wait for a person. UAT is never answered."""
+        loaded = self.profile
+        gate = str(payload.get("gate") or "")
+        if loaded is None or not loaded.enabled:
+            return None
+        if gate == "uat_signoff":
+            self._autopilot_event(gate, "human", "UAT sign-off is always a person")
+            return None
+        with self._cv:
+            phase = self.view.get("phase")
+            questions = list(self.view.get("questions") or [])
+            view = copy.deepcopy(self.view)
+        if gate in {"ecosystem_qa", "follow_up_qa"}:
+            if not loaded.autopilot.answer_questions:
+                return None
+            answers, unmatched = run_profile.answers_for(loaded, questions)
+            if unmatched:
+                self._autopilot_event(gate, "human", "no profile answer for " + ", ".join(unmatched))
+                return None
+            try:
+                resume = self._resume_for(phase, {"gate": gate, "answers": answers})
+            except ValueError as exc:
+                self._autopilot_event(gate, "human", scrub(str(exc)))
+                return None
+            self._autopilot_event(gate, "answered", "answered " + ", ".join(sorted(answers)))
+            with self._cv:
+                self.view["phase"] = "running"
+                self.view["status"] = "running"
+                self.view["has_answers"] = True
+            return resume
+        if gate == "pipeline_approval":
+            ok, reason = run_profile.approval(loaded, view)
+            if not ok or _has_policy_errors(view.get("artifacts") or {}):
+                self._autopilot_event(gate, "human", reason if not ok else "an artifact has a policy error")
+                return None
+            self._autopilot_event(gate, "approved", reason)
+            with self._cv:
+                self.view["phase"] = "running"
+                self.view["status"] = "running"
+            return {"decision": "approved", "by": "autopilot"}
+        return None
+
+    def _autopilot_event(self, gate: str, action: str, detail: str) -> None:
+        record = run_profile.event(gate, action, scrub(detail))
+        with self._cv:
+            auto = self.view.setdefault("autopilot", {"enabled": True, "profile": "", "events": []})
+            auto.setdefault("events", []).append(record)
+        print(f"orchestrator autopilot {gate}: {action} ({record['detail']})", flush=True)
+
+    def _start_next(self) -> None:
+        """When a run ends, start the next queued push (called from the run thread)."""
+        with self._cv:
+            self._active = False
+            if self._closed or not self._queue:
+                return
+            item = self._queue.popleft()
+        self.start(repo_root=item["repo_root"], trigger=item["trigger"])
+
     def close(self) -> None:
         with self._cv:
             self._closed = True
+            self._queue.clear()
             self._cv.notify_all()
         thread = self._thread
         if thread is not None:
@@ -368,7 +472,7 @@ class SessionService:
         from .checkpoints import open_checkpointer
         from .graph import build_graph, interrupt_payload
 
-        state = self._state or initial_state(self.repo_root)
+        state = self._state or initial_state(self._run_root)
         thread = {"configurable": {"thread_id": state["run_id"]}, "recursion_limit": 160}
         pending: dict | Command = state
         try:
@@ -390,7 +494,9 @@ class SessionService:
                     payload = interrupt_payload(graph, thread)
                     if payload is not None:
                         self._publish_interrupt(payload, snapshot.values)
-                        resume = self._wait_for_resume()
+                        resume = self._autopilot(payload)
+                        if resume is None:
+                            resume = self._wait_for_resume()
                         if not isinstance(resume, dict) or resume.get("_cancel"):
                             self._set_error("session closed before a human answer")
                             return
@@ -403,3 +509,5 @@ class SessionService:
                 raise RuntimeError("stopped after 12 interrupt resumes")
         except Exception as exc:  # noqa: BLE001 — the UI must show any session failure
             self._set_error(str(exc))
+        finally:
+            self._start_next()

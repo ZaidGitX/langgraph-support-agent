@@ -172,7 +172,7 @@ def _secrets_manager_lines(names: list[str]) -> str:
     if not secret_names:
         return "  # secrets-manager references go here by NAME when a stage needs one"
     lines = ["  secrets-manager:"]
-    lines.extend(f"    {name}: \"{templates.APP_NAME}/{name}:{name}\"" for name in secret_names)
+    lines.extend(f"    {name}: \"{templates.APP_NAME}/{name}\"" for name in secret_names)
     return "\n".join(lines)
 
 

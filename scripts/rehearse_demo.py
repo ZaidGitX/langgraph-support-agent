@@ -80,8 +80,13 @@ def _dump(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, indent=1, default=str) + "\n", encoding="utf-8")
 
 
-def run_scenario(name: str, astra, out: Path, db_path: str) -> dict:
-    """Drive one session over HTTP exactly as the dashboard does. Returns what was observed."""
+def run_scenario(name: str, astra, out: Path, db_path: str, *, autopilot: bool = False) -> dict:
+    """Drive one session over HTTP exactly as the dashboard does. Returns what was observed.
+
+    With ``autopilot`` the committed orchestrator.yaml answers the questions and approves the
+    pipeline; the rehearsal then only signs off UAT, as a person would.
+    """
+    os.environ["ORCHESTRATOR_AUTOPILOT"] = "1" if autopilot else "0"
     from fastapi.testclient import TestClient
 
     from app.main import app
@@ -99,23 +104,29 @@ def run_scenario(name: str, astra, out: Path, db_path: str) -> dict:
             readiness = client.get(f"{API}/readiness").json()
             episodes_before = client.get(f"{API}/episodes?limit=5").json()
             run_id = client.post(f"{API}/session").json()["run_id"]
-            view = _wait(service, {"questions"}, 120)
-            views["questions"] = view
-            client.post(f"{API}/session/answer", json={"gate": "ecosystem_qa", "answers": _answers_for(view)}).raise_for_status()
-            view = _wait(service, {"follow_up", "approval"}, 120)
-            if view["phase"] == "follow_up":
-                views["follow_up"] = view
-                client.post(f"{API}/session/answer", json={"gate": "follow_up_qa", "answers": _answers_for(view)}).raise_for_status()
-                view = _wait(service, {"approval"}, 120)
-            views["approval"] = view
-            artifacts = client.get(f"{API}/session/artifacts").json()
-            texts = {
-                f"{stage}/{index}": client.get(f"{API}/session/artifacts/{stage}/{index}").text
-                for stage, records in artifacts.items()
-                for index in range(len(records))
-            }
-            client.post(f"{API}/session/answer", json={"gate": "pipeline_approval", "decision": "approved"}).raise_for_status()
-            view = _wait(service, {"uat", "results"}, 180)
+            if autopilot:
+                view = _wait(service, {"uat", "questions", "approval"}, 180)
+                views["approval"] = client.get(f"{API}/session").json()
+                artifacts = client.get(f"{API}/session/artifacts").json()
+                texts = {}
+            else:
+                view = _wait(service, {"questions"}, 120)
+                views["questions"] = view
+                client.post(f"{API}/session/answer", json={"gate": "ecosystem_qa", "answers": _answers_for(view)}).raise_for_status()
+                view = _wait(service, {"follow_up", "approval"}, 120)
+                if view["phase"] == "follow_up":
+                    views["follow_up"] = view
+                    client.post(f"{API}/session/answer", json={"gate": "follow_up_qa", "answers": _answers_for(view)}).raise_for_status()
+                    view = _wait(service, {"approval"}, 120)
+                views["approval"] = view
+                artifacts = client.get(f"{API}/session/artifacts").json()
+                texts = {
+                    f"{stage}/{index}": client.get(f"{API}/session/artifacts/{stage}/{index}").text
+                    for stage, records in artifacts.items()
+                    for index in range(len(records))
+                }
+                client.post(f"{API}/session/answer", json={"gate": "pipeline_approval", "decision": "approved"}).raise_for_status()
+                view = _wait(service, {"uat", "results"}, 180)
             if view["phase"] == "uat":
                 views["uat"] = view
                 client.post(f"{API}/session/answer", json={"gate": "uat_signoff", "decision": "approved"}).raise_for_status()
@@ -265,6 +276,18 @@ def check(results: dict[str, dict], planted: dict[str, str]) -> list[tuple[str, 
         )
     )
 
+    auto = results["autopilot"]["views"]["results"]
+    events = [(item["gate"], item["action"]) for item in (auto.get("autopilot") or {}).get("events") or []]
+    rows.append(
+        (
+            "autopilot answered the questions and approved from orchestrator.yaml, then waited for UAT",
+            ("ecosystem_qa", "answered") in events and ("pipeline_approval", "approved") in events
+            and ("uat_signoff", "human") in events and "uat" in results["autopilot"]["phases"]
+            and (auto.get("report") or {}).get("approvals", {}).get("pipeline_by") == "autopilot",
+            f"events={events} phases={results['autopilot']['phases']}",
+        )
+    )
+
     rows.append(
         (
             "a follow-up round ran once on the real checkout",
@@ -288,9 +311,9 @@ def main(argv: list[str] | None = None) -> int:
 
     db_path = str(out / "session.sqlite")
     results: dict[str, dict] = {}
-    for name, astra in (("local", GeneratedAstra()), ("cloud_plan", PlannedCloudAstra()), ("recall", GeneratedAstra())):
+    for name, astra, autopilot in (("local", GeneratedAstra(), False), ("cloud_plan", PlannedCloudAstra(), False), ("recall", GeneratedAstra(), False), ("autopilot", GeneratedAstra(), True)):
         print(f"==> {name}", flush=True)
-        results[name] = run_scenario(name, astra, out, db_path)
+        results[name] = run_scenario(name, astra, out, db_path, autopilot=autopilot)
         print(f"    run {results[name]['run_id']} phases={results[name]['phases']} in {results[name]['seconds']}s", flush=True)
 
     rows = check(results, planted)

@@ -93,7 +93,9 @@ command they would run. Production is never a target.
 Sprint 4 adds platform dispatch (`ORCHESTRATOR_DISPATCH=platform`): Astra writes the whole
 pipeline in Jenkins, CodeBuild, Cloud Build, or Azure Pipelines format, provisions what the
 platform needs, injects the secret names it references, and runs every fixed stage there.
-It also adds the Connections panel: connect a platform from the dashboard with its CLI's
+A committed `orchestrator.yaml` lets a push (GitHub Actions, a signed webhook from any git
+host, or a polled remote) answer the questions and approve the pipeline on its own; UAT
+sign-off stays with a person. It also adds the Connections panel: connect a platform from the dashboard with its CLI's
 device-code login, or store its names in an encrypted vault on the orchestrator host. Values
 are write-only and never shown back. Set the `ORCHESTRATOR_UI_TOKEN` repository secret so a
 public tunnel URL cannot change anything without the token.

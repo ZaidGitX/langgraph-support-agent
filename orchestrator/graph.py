@@ -1265,8 +1265,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         payload = interrupt(approval_payload(state))
         waited = max(0.0, time.time() - paused)
         approved = isinstance(payload, dict) and payload.get("decision") == "approved"
+        decided_by = str(payload.get("by") or "human") if isinstance(payload, dict) else "human"
         update = {
-            "approvals": {"pipeline": "approved" if approved else "rejected"},
+            "approvals": {"pipeline": "approved" if approved else "rejected", "pipeline_by": decided_by},
             "trace": ["approve_pipeline"],
             "hops": 1,
             "held_seconds": waited,
