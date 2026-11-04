@@ -73,7 +73,7 @@ every moved stage ("on the host instead: …"). Without a suite there is no proj
 | jenkins | `buildWithParameters` with `RUN_ID`, `TIER`, `STAGE` | `POST $JENKINS_URL/createItem?name=$JENKINS_JOB` with `deploy/jenkins-job.xml` | `POST …/credentials/store/system/domain/_/createCredentials` (secret text, id = NAME, JSON on stdin) |
 | gcp | `gcloud builds submit --config ci/cloudbuild.yaml --substitutions …,_STAGE=<stage>` | none (submit-based) | `gcloud secrets versions add NAME --data-file=-` |
 | azure | `az pipelines run --parameters runId tier stage=<stage>` | none | `az pipelines variable create --name NAME --secret true --value @-` |
-| github_actions | unchanged | none | `gh secret set NAME --body-file -` |
+| github_actions | unchanged | none | `gh secret set NAME` (gh reads stdin when `--body` is absent) |
 
 `ProvisionResult` (`runner, action, status planned/pass/fail/skipped, mode, commands, names,
 missing, evidence, target`) is what the state, the approval payload, and the report carry.

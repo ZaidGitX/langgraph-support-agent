@@ -13,7 +13,8 @@ redacted before it is kept and only a short tail is ever returned.
 
 ``sync_secrets`` (phase 12) copies the values present here (vault, .env, environment) into a
 platform's own secret store so a push-triggered run finds them: GitHub repository secrets
-through ``gh secret set NAME --body-file -``, the value on stdin and never on an argv.
+through ``gh secret set NAME`` (gh reads the value from stdin when ``--body`` is absent),
+the value never on an argv.
 ``python -m orchestrator.connect sync-github`` does the same from a shell; both report names only.
 """
 
@@ -417,8 +418,9 @@ def sync_secrets(
 ) -> dict:
     """Copy the values present here into the platform's secret store; the result names names only.
 
-    GitHub: one ``gh secret set NAME --body-file - --repo owner/name`` per present name, the value
-    on stdin (never on the argv, never in the result), with the gh CLI's own login or GITHUB_TOKEN.
+    GitHub: one ``gh secret set NAME --repo owner/name`` per present name, the value on stdin
+    (gh reads it there when ``--body`` is absent; never on the argv, never in the result), with
+    the gh CLI's own login or GITHUB_TOKEN.
     Names without a value here are listed as ``skipped``; a failed command names the name and a
     redacted one-line reason under ``failed``.
     """
@@ -445,7 +447,7 @@ def sync_secrets(
     synced: list[str] = []
     failed: list[str] = []
     for name in present:
-        argv = ["gh", "secret", "set", name, "--body-file", "-", "--repo", repository]
+        argv = ["gh", "secret", "set", name, "--repo", repository]
         ok, detail = run(argv, str(source.get(name, "")))
         if ok:
             synced.append(name)

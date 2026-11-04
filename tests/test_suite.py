@@ -186,7 +186,7 @@ def test_suite_rejection_falls_back_to_the_local_host(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     ("provider", "first", "target"),
     [
-        (GithubActionsProvider(), ["gh", "secret", "set", "SNYK_TOKEN", "--body-file", "-"], "GitHub repository secrets"),
+        (GithubActionsProvider(), ["gh", "secret", "set", "SNYK_TOKEN"], "GitHub repository secrets"),
         (AwsProvider(), ["aws", "secretsmanager", "put-secret-value", "--secret-id", f"{templates.APP_NAME}/SNYK_TOKEN", "--secret-string", "file:///dev/stdin"], "AWS Secrets Manager"),
         (GcpProvider(), ["gcloud", "secrets", "versions", "add", "SNYK_TOKEN", "--data-file=-"], "Google Secret Manager"),
         (JenkinsProvider(), ["curl", "-sS", "-f", "-u", "$JENKINS_USER:$JENKINS_API_TOKEN"], "Jenkins credentials store"),

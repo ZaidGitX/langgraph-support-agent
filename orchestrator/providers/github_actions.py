@@ -51,10 +51,11 @@ class GithubActionsProvider(BaseProvider):
     injection_target = "GitHub repository secrets"
 
     def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:
-        """``gh secret set NAME --body-file -`` reads the value from stdin; never a literal body."""
+        """``gh secret set NAME`` reads the value from stdin when ``--body`` is absent; never a
+        literal body (live run 4 found that ``--body-file`` is not a gh flag)."""
         repo = os.getenv("GITHUB_REPOSITORY", "").strip()
         extra = ["--repo", repo] if repo else []
-        return [["gh", "secret", "set", name, "--body-file", "-", *extra] for name in names]
+        return [["gh", "secret", "set", name, *extra] for name in names]
 
     def execute(self, stage: dict, records: list[dict], cwd: str, *, mode: str, answers: dict) -> StageRun:
         status = self.detect()

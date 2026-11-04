@@ -26,7 +26,9 @@ def test_sync_sends_values_on_stdin_and_reports_names_only():
     assert result["failed"] == ["AWS_ACCESS_KEY_ID: HTTP 403: not permitted " + FAKE]
     assert all(FAKE not in " ".join(argv) for argv, _ in calls)
     assert {argv[3] for argv, _ in calls} == {"OPENAI_API_KEY", "AWS_ACCESS_KEY_ID"}
-    assert all(argv[:3] == ["gh", "secret", "set"] and argv[4:] == ["--body-file", "-", "--repo", "owner/name"] for argv, _ in calls)
+    # gh reads the value from stdin when --body is absent; --body-file is not a gh flag (live run 4).
+    assert all(argv[:3] == ["gh", "secret", "set"] and argv[4:] == ["--repo", "owner/name"] for argv, _ in calls)
+    assert all("--body" not in " ".join(argv) for argv, _ in calls)
     assert all(value == FAKE for _, value in calls)
     # A value never reaches the result except inside a redacted failure line from the CLI itself.
     assert FAKE not in str(result["synced"]) + str(result["skipped"])

@@ -59,8 +59,9 @@ New names: `ORCHESTRATOR_VAULT_KEY`, `ORCHESTRATOR_UI_TOKEN`, `ORCHESTRATOR_WEBH
   network.
 - `sync_secrets("github", groups=, names=, env=, runner=)` (phase 12, live run 4): copies the
   values present on the host (vault, `.env`, environment) whose names are `github_secret` in
-  the registry into the repository's Actions secrets, one `gh secret set NAME --body-file -
-  --repo owner/name` per name with the value on stdin (never on an argv). The repository comes
+  the registry into the repository's Actions secrets, one `gh secret set NAME --repo owner/name`
+  per name with the value on stdin (gh reads it there when `--body` is absent; `--body-file` is
+  not a gh flag, live run 4 found the usage text in the failure line). The repository comes
   from `GITHUB_REPOSITORY` or, for the live environment, the origin remote. The result names
   names only: `synced`, `skipped` (no value here), `failed` (name plus a redacted one-line
   reason). `python -m orchestrator.connect sync-github [--group aws]` is the shell form.
