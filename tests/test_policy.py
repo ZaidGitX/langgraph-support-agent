@@ -86,9 +86,12 @@ def test_production_refusals_are_exempt_but_targets_are_not():
 
 
 def test_paths():
-    for good in ("ci/x.sh", ".github/workflows/gen-container_scan.yml", "docs/deploy/aws-dev.md", ".env.dev.example", "Dockerfile.generated", "deploy/k8s/app.yaml"):
+    for good in (
+        "ci/x.sh", ".github/workflows/gen-container_scan.yml", "docs/deploy/aws-dev.md", ".env.dev.example", "Dockerfile.generated",
+        "deploy/k8s/app.yaml", "Dockerfile.dev.generated", "docker-compose.dev.generated.yml", "Dockerfile.generated.dev",
+    ):
         assert policy.check_path(good).ok, good
-    for bad in ("../x.sh", "/etc/x", "app/evil.sh", ""):
+    for bad in ("../x.sh", "/etc/x", "app/evil.sh", "", "Dockerfile", "Dockerfile.dev", "docker-compose.yml"):
         assert not policy.check_path(bad).ok, bad
     rules = {item.rule for item in policy.check_path(".github/workflows/bad.yml").findings}
     assert rules == {"path.outside", "path.workflow_name"}

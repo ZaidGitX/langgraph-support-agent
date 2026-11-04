@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import subprocess
 from contextvars import ContextVar
@@ -24,6 +25,36 @@ def note(message: str) -> None:
     printer = _printer.get()
     if printer is not None:
         printer(message)
+
+
+# Progress hook (Sprint 4, after live run 4): the generation node's worker threads report
+# when a stage's files are being written and when they are done, so the dashboard timeline
+# moves during the minutes a node takes. A plain module attribute, not a ContextVar: the
+# ThreadPoolExecutor threads do not inherit the session thread's context. One session runs
+# per process (pushes queue), so the hook is the active session's.
+_progress_hook = None
+
+
+def set_progress(hook) -> object:
+    """Install ``hook(kind, name, detail, **extra)``; returns what to pass to ``reset_progress``."""
+    global _progress_hook
+    previous = _progress_hook
+    _progress_hook = hook
+    return previous
+
+
+def reset_progress(previous) -> None:
+    global _progress_hook
+    _progress_hook = previous
+
+
+def progress(kind: str, name: str = "", detail: str = "", **extra) -> None:
+    """Report progress from inside a node. A hook failure never fails the run."""
+    hook = _progress_hook
+    if hook is None:
+        return
+    with contextlib.suppress(Exception):  # the timeline is a convenience, the run is not
+        hook(kind, name, redaction.redact(str(detail or "")), **extra)
 
 
 def redact_secrets(text: str) -> str:

@@ -60,7 +60,7 @@ severity, message, and the 1-based line.
 | `shell.eval` | warn | `(^\|[;&|\s])eval\s` | all |
 | `shell.base64_exec` | error | `base64\s+(-d\|--decode)[^\n]*\|\s*(ba\|)sh` | all |
 | `shell.no_verify` | warn | `--no-verify` | all |
-| `path.outside` | error | path not under `ALLOWED_PATH_PREFIXES`, contains `..`, or starts with `/` | all (path rule) |
+| `path.outside` | error | path not under `ALLOWED_PATH_PREFIXES` (a root Dockerfile or docker-compose file is also fine when `.generated` sits anywhere after its base name, `ROOT_GENERATED_FILE`; live run 4 lost build_image to `Dockerfile.dev.generated`), contains `..`, or starts with `/` | all (path rule) |
 | `path.workflow_name` | error | a github_workflow whose path is not `.github/workflows/gen-<stage>.yml` | github_workflow |
 | `toggle.in_artifact` | error | `ORCHESTRATOR_CLOUD_APPLY\|ORCHESTRATOR_WRITE_ARTIFACTS` set inside an artifact | all |
 | `size.too_large` | error | content over 32 KB | all |

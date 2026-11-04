@@ -39,6 +39,10 @@ ALLOWED_PATH_PREFIXES = (
     "Dockerfile.generated",
     "docker-compose.generated",
 )
+# A root Dockerfile or Compose file is also fine when ".generated" sits anywhere after the base
+# name (``Dockerfile.dev.generated``, ``docker-compose.dev.generated.yml``): live run 4 lost its
+# build_image stage to that spelling. A bare ``Dockerfile`` at the root stays refused.
+ROOT_GENERATED_FILE = re.compile(r"(Dockerfile|docker-compose)(\.[A-Za-z0-9_-]+)*\.generated(\.[A-Za-z0-9_.-]+)?")
 
 WORKFLOW_KINDS = ("github_workflow",)
 SHELL_KINDS = ("shell",)
@@ -238,8 +242,8 @@ def check_path(path: str) -> PolicyResult:
     if not clean or clean.startswith("/") or ".." in clean.split("/"):
         findings.append(_finding("path.outside", "error", "artifact path must be relative and inside the checkout", 0))
         return PolicyResult(ok=False, findings=findings)
-    if not any(clean.startswith(prefix) for prefix in ALLOWED_PATH_PREFIXES):
-        findings.append(_finding("path.outside", "error", f"artifact path must start with one of {ALLOWED_PATH_PREFIXES}", 0))
+    if not (any(clean.startswith(prefix) for prefix in ALLOWED_PATH_PREFIXES) or ROOT_GENERATED_FILE.fullmatch(clean)):
+        findings.append(_finding("path.outside", "error", f"artifact path must start with one of {ALLOWED_PATH_PREFIXES} (a root Dockerfile or docker-compose file carries .generated in its name)", 0))
     if clean.startswith(".github/workflows/") and not re.fullmatch(r"\.github/workflows/gen-[a-z0-9_]+\.yml", clean):
         findings.append(_finding("path.workflow_name", "error", "generated workflows are named .github/workflows/gen-<stage>.yml", 0))
     return PolicyResult(ok=not findings, findings=findings)

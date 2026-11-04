@@ -39,6 +39,7 @@ from .llm import (
     scrub,
 )
 from .providers import registry as providers
+from .runner import progress
 from .schemas import (
     ArtifactReview,
     CandidatePipeline,
@@ -1278,7 +1279,38 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
 
     review_lock = threading.Lock()
 
+    def _worker_label(worker, spec: dict | None = None) -> tuple[str, str]:
+        """(model, effort) for the timeline: the worker's own (an AstraWorker, which may have
+        lowered its effort after a timeout), else the assignment the orchestrator recorded."""
+        assigned = dict(spec or {})
+        model = str(getattr(worker, "model", "") or assigned.get("model") or "")
+        effort = str(getattr(worker, "reasoning_effort", "") or assigned.get("reasoning_effort") or "")
+        return model, effort
+
     def _generate_stage(state: dict, stage: dict, run_id: str, root: str) -> dict:
+        """One generated stage on a worker thread, reported to the timeline as it starts and
+        ends (live run 4 showed a 21-minute node with no sign of life)."""
+        name = stage["name"]
+        worker = _worker_for(stage)
+        spec = dict(stage.get("worker") or {})
+        model, effort = _worker_label(worker, spec)
+        started = time.time()
+        progress("worker", name, f"{name}: writing files with {model or 'astra'} at {effort or 'default'} effort", model=model, effort=effort, action="start")
+        outcome = _generate_stage_body(state, stage, run_id, root, worker)
+        seconds = round(time.time() - started, 1)
+        _, final_effort = _worker_label(worker, spec)
+        if outcome["dropped"]:
+            detail = f"{name}: dropped after {seconds}s ({outcome['dropped']})"
+        else:
+            verdict = (outcome["review"] or {}).get("verdict") or "none"
+            detail = f"{name}: {len(outcome['records'])} file(s) in {seconds}s, review {verdict}"
+        timed_out_at = str(getattr(worker, "timed_out_at", "") or "")
+        if timed_out_at:
+            detail += f"; timed out at {timed_out_at} effort, finished at {final_effort}"
+        progress("worker", name, detail, model=model, effort=final_effort, seconds=seconds, action="dropped" if outcome["dropped"] else "done")
+        return outcome
+
+    def _generate_stage_body(state: dict, stage: dict, run_id: str, root: str, worker) -> dict:
         """One generated stage: Astra writes its files, the policy checks them, Jev reviews.
 
         Runs on a worker thread beside the other generated stages and the platform suite
@@ -1292,7 +1324,6 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         except KeyError as exc:
             outcome["dropped"] = f"{name}: {exc}"
             return outcome
-        worker = _worker_for(stage)
         revisions_left = MAX_ARTIFACT_REVISIONS
         try:
             context = generator.context_for(state, stage, provider)
@@ -1329,11 +1360,31 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         return outcome
 
     def _generate_suite(state: dict, platform_runner: str, events: list[dict]) -> tuple[dict | None, str]:
-        """The platform suite on its own worker thread: (outcome, fallback reason)."""
+        """The platform suite on its own worker thread: (outcome, fallback reason), reported to
+        the timeline as it starts and ends like a stage."""
+        spec = dict((state.get("worker_plan") or {}).get(suite.SUITE_STAGE) or {})
+        worker = _worker_for({"worker": spec})
+        model, effort = _worker_label(worker, spec)
+        started = time.time()
+        progress("worker", suite.SUITE_STAGE, f"{suite.SUITE_STAGE}: writing the {platform_runner} suite with {model or 'astra'} at {effort or 'default'} effort", model=model, effort=effort, action="start")
+        outcome, fallback = _generate_suite_body(state, platform_runner, events, worker)
+        seconds = round(time.time() - started, 1)
+        _, final_effort = _worker_label(worker, spec)
+        if outcome is None:
+            detail = f"{suite.SUITE_STAGE}: failed after {seconds}s ({fallback})"
+        else:
+            detail = f"{suite.SUITE_STAGE}: {len(outcome.get('records') or [])} file(s) in {seconds}s, review {(outcome.get('review') or {}).get('verdict') or 'none'}"
+        timed_out_at = str(getattr(worker, "timed_out_at", "") or "")
+        if timed_out_at:
+            detail += f"; timed out at {timed_out_at} effort, finished at {final_effort}"
+        progress("worker", suite.SUITE_STAGE, detail, model=model, effort=final_effort, seconds=seconds, action="dropped" if outcome is None else "done")
+        return outcome, fallback
+
+    def _generate_suite_body(state: dict, platform_runner: str, events: list[dict], worker) -> tuple[dict | None, str]:
         try:
             suite_provider = providers.for_runner(platform_runner)
             outcome = suite.generate(
-                state, _worker_for({"worker": (state.get("worker_plan") or {}).get(suite.SUITE_STAGE) or {}}), suite_provider,
+                state, worker, suite_provider,
                 lambda result, left, paths: _review(suite.SUITE_STAGE, result, left, paths, events),
                 max_revisions=MAX_ARTIFACT_REVISIONS,
             )
@@ -1370,6 +1421,11 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         suite_result: tuple[dict | None, str] = (None, "planner has no generate_suite")
         outcomes: dict[str, dict] = {}
         workers = max(1, min(astra_concurrency(), len(to_generate) + (1 if run_suite else 0)))
+        progress(
+            "generation", "generate_artifacts",
+            f"writing {len(to_generate)} generated stage(s)" + (f" and the {platform} suite" if run_suite else "") + f" on {workers} worker thread(s)",
+            stages=[stage["name"] for stage in to_generate], suite=run_suite, workers=workers,
+        )
         pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="astra")
         try:
             futures = {pool.submit(_generate_stage, state, stage, run_id, root): stage["name"] for stage in to_generate}

@@ -165,7 +165,7 @@ class _RejectsReasoning:
 def test_a_model_that_rejects_reasoning_effort_is_retried_without_it(monkeypatch):
     calls: list = []
 
-    def fake_client(model_name, temperature=None, reasoning=None):
+    def fake_client(model_name, temperature=None, reasoning=None, timeout=None):
         calls.append(reasoning)
         return _RejectsReasoning(calls)
 

@@ -217,6 +217,28 @@ longer sets `AWS_REGION` (the project supplies it) and an empty one is dropped i
 worker prompt carries the five-minute budget, and `tests/test_hardening.py` pins all of it.
 The next attempt needs a new card.
 
+### Live run 4 (2026-11-04, 17:33–19:06 UTC, workflow run 41878484209, run 19c8e9ab): started by the push alone, lost the platform suite to a timeout, ended at the human approval gate
+
+The first run nobody started by hand. `git push` of the phase-12 commits (c6daab6, 566eff5) started `orchestrator.yml`; the profile step exported `ORCHESTRATOR_DISPATCH=platform`, `ORCHESTRATOR_CLOUD_APPLY=1`, and `AWS_REGION`; Compose built the image and started the app on the pushed checkout (`/workspace`); the tunnel came up and AWS readiness in the runner read `apply` with no missing name (the five repository secrets had been synced from the vault minutes earlier, after the first sync attempt found that `gh secret set` has no `--body-file` flag).
+
+| Step | When (UTC) |
+| --- | --- |
+| Runner picked up the job (GitHub Actions was in a degraded-availability incident from 17:40) | 17:33 |
+| App up, checkout and retrieval done | 17:35:40 |
+| Autopilot answered the five questions from `orchestrator.yaml` (aws, dev, release, scan, test depth) | 17:35:51 |
+| Jev: proceed; ranked `generated_ecs_dev_delivery` (1.00); runners `aws_codebuild` for the seven generated stages; Astra assigned twelve workers | 17:36:56 |
+| Generation finished: 23 files | 17:57:57 |
+| Autopilot handed the approval to a person ("an artifact has a policy error") | 17:57:58 |
+| The 90-minute session wait expired, the workflow stopped the app | 19:05:57 |
+
+What went wrong, and the fix that followed each:
+
+- The platform suite went to `gpt-6-astra` at high effort and the call ran past the 300 s timeout twice, so every platform stage fell back to the host and the AWS run was gone before approval. Now a worker call's timeout follows its effort (`high` 900 s, `medium` 600 s, never below `ORCHESTRATOR_ASTRA_TIMEOUT`) and a call that still times out is retried once at the next lower effort before the stage or suite is given up (`llm.AstraWorker`, `timeout_for`, `LOWER_EFFORT`).
+- `build_image`'s worker named its file `Dockerfile.dev.generated`; the policy only knew the `Dockerfile.generated` prefix, so the stage failed policy and Jev rejected it. A root Dockerfile or Compose file is now fine when `.generated` sits anywhere after the base name (`policy.ROOT_GENERATED_FILE`, both copies).
+- The 21 minutes of generation showed nothing on the timeline (node events arrive when a node ends). The generation node now reports one `generation` event and a `worker` event when each stage's files start and finish (model, effort, seconds, review verdict, any lower-effort retry) through `runner.progress`; the Stages tab of the timeline lists them.
+
+Nothing was applied on AWS; OpenAI usage was one question round, two proposals, one worker assignment, about 16 generation and review calls, and the two timed-out suite calls.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

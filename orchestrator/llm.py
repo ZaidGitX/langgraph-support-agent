@@ -182,8 +182,11 @@ def scrub(text: str) -> str:
     return redaction.redact(text)
 
 
-def _client(model_name: str, temperature: float | None = None, reasoning: str | None = None) -> ChatOpenAI:
-    """One ChatOpenAI client. ``reasoning`` overrides ``ORCHESTRATOR_ASTRA_REASONING``; "" sends no effort."""
+def _client(
+    model_name: str, temperature: float | None = None, reasoning: str | None = None, timeout: float | None = None
+) -> ChatOpenAI:
+    """One ChatOpenAI client. ``reasoning`` overrides ``ORCHESTRATOR_ASTRA_REASONING``; "" sends no
+    effort. ``timeout`` overrides ``ORCHESTRATOR_ASTRA_TIMEOUT`` (a worker passes its effort's)."""
     api_key = config.get_openai_api_key()
     if not api_key:
         raise RuntimeError(
@@ -194,7 +197,7 @@ def _client(model_name: str, temperature: float | None = None, reasoning: str | 
         "model": model_name,
         "api_key": api_key,
         "use_responses_api": True,
-        "timeout": astra_timeout(),
+        "timeout": astra_timeout() if timeout is None else timeout,
         # One client retry, not two: with invoke_structured's own second attempt, a failing
         # call could otherwise hold a stage for six timeouts (half an hour in live run 2).
         "max_retries": 1,
@@ -257,6 +260,21 @@ def astra_timeout() -> float:
     return min(900.0, max(30.0, value))
 
 
+# Seconds a worker call may take at each reasoning effort, never less than ORCHESTRATOR_ASTRA_TIMEOUT.
+# Live run 4 (2026-11-04): the platform suite at high effort ran past the 300 s default twice and
+# every platform stage fell back to the host.
+EFFORT_TIMEOUTS = {"high": 900.0, "medium": 600.0}
+# The effort a worker retries at once when its call times out; a minimal call that times out stays failed.
+LOWER_EFFORT = {"high": "medium", "medium": "low", "low": "minimal"}
+_TIMEOUT_MARKERS = ("timed out", "timeout")
+
+
+def timeout_for(effort: str) -> float:
+    """The timeout for a worker call at ``effort``: the effort's own, or the env default."""
+    base = astra_timeout()
+    return max(base, EFFORT_TIMEOUTS.get(effort or "", base))
+
+
 def astra_temperature() -> float:
     """Sampling temperature for proposals and generation (ORCHESTRATOR_ASTRA_TEMPERATURE)."""
     raw = os.getenv("ORCHESTRATOR_ASTRA_TEMPERATURE", "0.7").strip()
@@ -291,11 +309,13 @@ def invoke_structured(
     *,
     temperature: float | None = None,
     reasoning: str | None = None,
+    timeout: float | None = None,
 ) -> SchemaT:
     """One Astra structured-output call. Retried once on a bad payload.
 
     ``reasoning`` is the effort for this call (None: ``ORCHESTRATOR_ASTRA_REASONING``; "": the
-    model default); a stage worker passes the effort the orchestrator assigned it.
+    model default); a stage worker passes the effort the orchestrator assigned it, and
+    ``timeout`` the seconds that effort may take (None: ``ORCHESTRATOR_ASTRA_TIMEOUT``).
 
     Some reasoning models reject ``temperature``; when the error says so the call is retried
     once more without it, so a stochastic proposal degrades to the model default instead of
@@ -312,7 +332,7 @@ def invoke_structured(
     use_reasoning: str | None = reasoning
     while attempts > 0:
         attempts -= 1
-        model = _client(model_name, use_temperature, reasoning=use_reasoning).with_structured_output(schema)
+        model = _client(model_name, use_temperature, reasoning=use_reasoning, timeout=timeout).with_structured_output(schema)
         try:
             raw = model.invoke(messages)
         except call_errors as exc:
@@ -808,21 +828,39 @@ class AstraWorker:
         self.reasoning_effort = reasoning_effort if reasoning_effort in REASONING_EFFORTS else ""
         self.temperature = temperature
         self.stage = stage
+        # Set when a timed-out call was retried at the next lower effort (the effort it started at).
+        self.timed_out_at = ""
 
     def describe(self) -> dict:
         return {"model": self.model, "reasoning_effort": self.reasoning_effort, "stage": self.stage}
 
+    def _invoke(self, schema, system: str, payload: dict, temperature: float | None):
+        return invoke_structured(
+            self.model, schema, system, payload,
+            temperature=temperature, reasoning=self.reasoning_effort, timeout=timeout_for(self.reasoning_effort),
+        )
+
     def _call(self, schema, system: str, payload: dict, *, temperature: float | None = None):
+        """One call at the worker's model and effort, with two one-time recoveries: a model the
+        account cannot use falls back to the orchestrator model, and a call that times out is
+        retried once at the next lower effort (its timeout is the effort's, see ``timeout_for``)
+        before the stage is given up. Live run 4 lost its platform suite, and with it the whole
+        AWS run, to two high-effort timeouts."""
         try:
-            return invoke_structured(self.model, schema, system, payload, temperature=temperature, reasoning=self.reasoning_effort)
+            return self._invoke(schema, system, payload, temperature)
         except AstraQuotaError:
             raise
         except RuntimeError as exc:
             text = str(exc).lower()
-            if self.model == config.astra_model() or not any(marker in text for marker in _MODEL_MISSING):
-                raise
-            self.model = config.astra_model()
-            return invoke_structured(self.model, schema, system, payload, temperature=temperature, reasoning=self.reasoning_effort)
+            if self.model != config.astra_model() and any(marker in text for marker in _MODEL_MISSING):
+                self.model = config.astra_model()
+                return self._invoke(schema, system, payload, temperature)
+            lower = LOWER_EFFORT.get(self.reasoning_effort)
+            if lower and not self.timed_out_at and any(marker in text for marker in _TIMEOUT_MARKERS):
+                self.timed_out_at = self.reasoning_effort
+                self.reasoning_effort = lower
+                return self._invoke(schema, system, payload, temperature)
+            raise
 
     def brief(self, payload: dict) -> StageBrief:
         return self._call(StageBrief, BRIEF_SYSTEM, payload)

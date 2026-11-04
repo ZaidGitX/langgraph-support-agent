@@ -31,7 +31,7 @@ class _Failing:
 
 def test_a_quota_error_is_raised_at_once_without_a_second_attempt(monkeypatch):
     calls: list = []
-    monkeypatch.setattr(llm, "_client", lambda model_name, temperature=None, reasoning=None: _Failing(OpenAIError(QUOTA_TEXT), calls))
+    monkeypatch.setattr(llm, "_client", lambda model_name, temperature=None, reasoning=None, timeout=None: _Failing(OpenAIError(QUOTA_TEXT), calls))
     with pytest.raises(llm.AstraQuotaError) as caught:
         llm.invoke_structured("gpt-test", StageBrief, "system", {"stage": "build"})
     assert len(calls) == 1 and "insufficient_quota" in str(caught.value)
@@ -40,7 +40,7 @@ def test_a_quota_error_is_raised_at_once_without_a_second_attempt(monkeypatch):
 
 def test_other_errors_still_get_the_second_attempt(monkeypatch):
     calls: list = []
-    monkeypatch.setattr(llm, "_client", lambda model_name, temperature=None, reasoning=None: _Failing(OpenAIError("Error code: 500 - server error"), calls))
+    monkeypatch.setattr(llm, "_client", lambda model_name, temperature=None, reasoning=None, timeout=None: _Failing(OpenAIError("Error code: 500 - server error"), calls))
     with pytest.raises(RuntimeError) as caught:
         llm.invoke_structured("gpt-test", StageBrief, "system", {"stage": "build"})
     assert len(calls) == 2 and not isinstance(caught.value, llm.AstraQuotaError)

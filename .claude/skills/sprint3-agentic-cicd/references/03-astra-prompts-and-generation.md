@@ -23,7 +23,12 @@ def invoke_structured(model_name, schema, system, payload, *, temperature=None):
 and `generate_artifacts` pass the temperature; questions, briefs, advice, diagnosis, and docs
 stay at the model default. The fake doubles ignore temperature. `ORCHESTRATOR_ASTRA_TIMEOUT`
 (default 300 s, clamped 30–900) bounds one call; the old fixed 120 s lost a CloudFormation
-artifact to two timeouts in live run 1. Every Astra output model must pass OpenAI strict mode:
+artifact to two timeouts in live run 1. A stage worker's call is bounded by its effort instead
+(`timeout_for`: `high` 900 s, `medium` 600 s, never below the env value), and a worker call
+that still times out is retried once at the next lower effort (`LOWER_EFFORT`,
+`AstraWorker.timed_out_at` records where it started) before the stage or suite is given up:
+live run 4 (2026-11-04) lost its platform suite, and with it the AWS run, to two high-effort
+timeouts of the 300 s default. Every Astra output model must pass OpenAI strict mode:
 no `dict[...]` field, every property required (`tests/test_astra_schemas.py`). The client
 retries once (`max_retries=1`); `invoke_structured` makes its own second attempt. A 429 with
 `insufficient_quota` / `credit_balance_exhausted` raises `AstraQuotaError` at once and passes

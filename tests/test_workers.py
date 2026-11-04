@@ -140,7 +140,7 @@ def test_openai_astra_builds_workers_from_the_assignment(monkeypatch):
     assert planner.worker({"reasoning_effort": ""}).reasoning_effort == ""
     seen: list[dict] = []
 
-    def fake_invoke(model_name, schema, system, payload, *, temperature=None, reasoning=None):
+    def fake_invoke(model_name, schema, system, payload, *, temperature=None, reasoning=None, timeout=None):
         seen.append({"model": model_name, "schema": schema.__name__, "temperature": temperature, "reasoning": reasoning})
         return StageBrief(summary="ok", watch_for="nothing")
 
@@ -155,7 +155,7 @@ def test_a_worker_whose_model_is_unavailable_falls_back_to_the_orchestrator_mode
     monkeypatch.setenv("OPENAI_MODEL", "gpt-orchestrator")
     calls: list[str] = []
 
-    def fake_invoke(model_name, schema, system, payload, *, temperature=None, reasoning=None):
+    def fake_invoke(model_name, schema, system, payload, *, temperature=None, reasoning=None, timeout=None):
         calls.append(model_name)
         if model_name == "gpt-retired":
             raise RuntimeError("gpt-retired structured output failed: Error code: 404 - model_not_found: The model `gpt-retired` does not exist")

@@ -15,7 +15,11 @@ happens.
   `timeline[]` (`{node, at, t}`), `started_at`.
 - Event kinds: `node` (a non-stage node finished), `wave` (dispatch: `stages[]`), `stage`
   (`status`, `runner`), `jev` (`decision`), `plan` (chosen id), `artifacts`, `gate`
-  (`phase`, `questions[]`), `autopilot` (`action`), `note`, `report`, `done`.
+  (`phase`, `questions[]`), `autopilot` (`action`), `note`, `report`, `done`; since live run 4
+  also `generation` (the generate_artifacts node starting: `stages[]`, `suite`, `workers`) and
+  `worker` (`action` start / done / dropped, `model`, `effort`, `seconds`) from the worker
+  threads through `runner.progress`, so the timeline moves while that node runs. The session
+  installs its `_progress` hook with `set_progress` for the run and resets it after.
 - `_stage_board(values, running)` marks a dispatched stage without a result as `running`.
   `_publish_interrupt` / `_publish_results` clear `running_stages` and bump `seq`.
 - `events_since(since, limit)` and `view_seq()` back the API.

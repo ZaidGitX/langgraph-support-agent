@@ -18,7 +18,7 @@ from app import config
 from . import generator, registry
 from . import profile as run_profile
 from .llm import scrub
-from .runner import reset_printer, set_printer
+from .runner import reset_printer, reset_progress, set_printer, set_progress
 from .state import ALLOWED_TARGETS, STAGE_NAMES, initial_state
 
 MAX_EVENTS = 500
@@ -279,6 +279,12 @@ class SessionService:
                 del events[: len(events) - MAX_EVENTS]
             self.view["seq"] = self._seq
             self._cv.notify_all()
+
+    def _progress(self, kind: str, name: str = "", detail: str = "", **extra) -> None:
+        """Progress from inside a node (the generation workers: kind ``generation`` once, then a
+        ``worker`` event when each stage's files start and finish), so the timeline moves while
+        a node runs. Live run 4 showed a 21-minute generate_artifacts node with no event."""
+        self._emit(kind, name, detail, **extra)
 
     def _note(self, message: str) -> None:
         """Runner notes (the argv a stage runs) become timeline events, redacted."""
@@ -674,6 +680,7 @@ class SessionService:
                     episodes_db=self.db_path,
                 )
                 token = set_printer(self._note)
+                progress_token = set_progress(self._progress)
                 try:
                     for _ in range(12):
                         self._touch_running()
@@ -702,6 +709,7 @@ class SessionService:
                         raise RuntimeError(f"graph paused at {snapshot.next} without an interrupt")
                     raise RuntimeError("stopped after 12 interrupt resumes")
                 finally:
+                    reset_progress(progress_token)
                     reset_printer(token)
         except Exception as exc:  # noqa: BLE001 — the UI must show any session failure
             self._set_error(str(exc))

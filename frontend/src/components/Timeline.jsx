@@ -6,7 +6,7 @@ import { Mark } from "./Mark.jsx"
 
 const FILTERS = [
   { key: "all", label: "All" },
-  { key: "stage", label: "Stages", kinds: ["wave", "stage"] },
+  { key: "stage", label: "Stages", kinds: ["wave", "stage", "generation", "worker"] },
   { key: "jev", label: "Jev", kinds: ["jev", "plan"] },
   { key: "gate", label: "Gates", kinds: ["gate", "autopilot", "done"] },
   { key: "note", label: "Commands", kinds: ["note"] },
