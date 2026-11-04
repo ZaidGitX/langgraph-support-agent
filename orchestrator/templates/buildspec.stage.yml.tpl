@@ -12,6 +12,11 @@ env:
     APP_NAME: "$APP_NAME"
 $SECRETS_MANAGER_LINES
 
+cache:
+  paths:
+    - "/root/.cache/pip/**/*"
+    - "frontend/node_modules/**/*"
+
 phases:
   install:
     runtime-versions:

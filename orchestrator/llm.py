@@ -44,6 +44,7 @@ from .schemas import (
     RankDecision,
     RunnerDecision,
     StageBrief,
+    WorkerPlan,
 )
 from .state import MAX_CLARIFY_ROUNDS
 
@@ -85,8 +86,9 @@ GENERATE_SYSTEM = (
     "a value. Never reference production. Never use rm -rf on / or $HOME, curl piped to a shell, "
     "sudo, chmod 777, or --force on main. Pin every GitHub action to a tag or SHA. A GitHub "
     "workflow triggers only on workflow_dispatch. Print machine-readable summary lines so "
-    "findings can be extracted. When policy_findings are present, fix every one of them and "
-    "change nothing else. Return full file contents for every artifact."
+    "findings can be extracted. Keep the stage fast: keep any cache block from the skeleton and "
+    "install only what the stage runs. When policy_findings are present, fix every one of them "
+    "and change nothing else. Return full file contents for every artifact."
 )
 
 SUITE_SYSTEM = (
@@ -101,11 +103,31 @@ SUITE_SYSTEM = (
     "scan with the catalog's docker images, package, build the image, release, deploy with the "
     "platform's own CLI. Reference credentials only by the placeholder names given ($NAME, "
     "${NAME}, credentials('NAME'), or a secrets-manager reference by NAME); never write a value. "
+    "Bind a secret only when the stage needs it and only from available_secrets: the "
+    "orchestrator injects exactly those into the platform's store before the first build, and "
+    "a reference to any other name fails the build before it starts. "
     "Never reference production; the tier guard stays. Never use destructive commands, curl piped "
     "to a shell, sudo, world-writable permissions, or --force on main. Print a machine-readable "
-    "summary line at the end of every stage. Fill stage_files with the path that runs each stage. "
+    "summary line at the end of every stage. Keep every file at its suggested path: the path "
+    "names the stage it runs (buildspec-<stage>.yml, or the single pipeline file). "
+    "Keep every stage fast: keep the skeleton's cache block, install only what that stage runs, "
+    "and never rebuild the frontend or the image in a stage that does not need them; the "
+    "orchestrator starts one build per stage, in parallel where the DAG allows. "
     "When policy_findings are present, fix every one of them and change nothing else. Return full "
     "file contents."
+)
+
+WORKER_SYSTEM = (
+    "You are Astra, the orchestrator. For every stage of the approved pipeline assign the "
+    "sub-agent that will write its files, brief it, read its findings, and diagnose its "
+    "failures: pick a model from models_available and a reasoning_effort from "
+    "efforts_available. Spend effort where the work is hard: a stage that writes "
+    "infrastructure, deploys, or scans needs more than one that compiles or echoes a log, and "
+    "a fixed stage whose commands already exist needs the least. The pseudo-stage 'pipeline' "
+    "writes the whole platform suite and deserves the most. The person expects every stage "
+    "file within about five minutes in total, so prefer low or medium effort and reserve high "
+    "for the suite, deploys, and infrastructure. Use every stage name exactly as given, once "
+    "each. One sentence of rationale per stage. Do not propose stages, commands, or secrets."
 )
 
 DOCS_SYSTEM = (
@@ -123,7 +145,9 @@ QUESTION_SYSTEM = (
     "topic is open, use these ids exactly: env_target (local, dev, staging, or uat; never "
     "production), env_platform (local, docker, github, jenkins, aws, gcp, azure, remote, "
     "kubernetes), runner_preference, test_depth, scan_policy, release_policy (this system "
-    "stops at UAT and has no production edge). Do not answer the questions. Do not "
+    "stops at UAT and has no production edge). Skip env_target or env_platform only when a "
+    "prior episode answered it; the orchestrator then reuses that episode's answer. Do not "
+    "answer the questions. Do not "
     "propose a pipeline. Do not invent shell commands. Use short snake_case ids."
 )
 
@@ -158,7 +182,8 @@ def scrub(text: str) -> str:
     return redaction.redact(text)
 
 
-def _client(model_name: str, temperature: float | None = None) -> ChatOpenAI:
+def _client(model_name: str, temperature: float | None = None, reasoning: str | None = None) -> ChatOpenAI:
+    """One ChatOpenAI client. ``reasoning`` overrides ``ORCHESTRATOR_ASTRA_REASONING``; "" sends no effort."""
     api_key = config.get_openai_api_key()
     if not api_key:
         raise RuntimeError(
@@ -169,11 +194,67 @@ def _client(model_name: str, temperature: float | None = None) -> ChatOpenAI:
         "model": model_name,
         "api_key": api_key,
         "use_responses_api": True,
-        "timeout": 120,
+        "timeout": astra_timeout(),
+        # One client retry, not two: with invoke_structured's own second attempt, a failing
+        # call could otherwise hold a stage for six timeouts (half an hour in live run 2).
+        "max_retries": 1,
     }
     if temperature is not None:
         kwargs["temperature"] = temperature
+    effort = astra_reasoning() if reasoning is None else reasoning
+    if effort:
+        # A reasoning model at its default effort spent one to three minutes per generated
+        # stage in live run 2; low effort is the orchestrator's default, the env overrides it.
+        kwargs["reasoning_effort"] = effort
     return ChatOpenAI(**kwargs)
+
+
+REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high")
+
+
+def astra_reasoning() -> str:
+    """Reasoning effort for Astra calls (ORCHESTRATOR_ASTRA_REASONING, default ``low``).
+
+    One of none, minimal, low, medium, high; empty or anything else sends no effort field and
+    the model uses its own default. A model that rejects the field is retried without it.
+    """
+    raw = os.getenv("ORCHESTRATOR_ASTRA_REASONING", "low").strip().lower()
+    return raw if raw in REASONING_EFFORTS else ""
+
+
+def astra_concurrency() -> int:
+    """Astra generation calls that run at once (ORCHESTRATOR_ASTRA_CONCURRENCY, default 4, 1-8)."""
+    raw = os.getenv("ORCHESTRATOR_ASTRA_CONCURRENCY", "4").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 4
+    return min(8, max(1, value))
+
+
+DEFAULT_WORKER_MODELS = "gpt-6.1-terra,gpt-6.1-sol"
+
+
+def astra_worker_models() -> list[str]:
+    """Models the orchestrator may assign to stage workers (ORCHESTRATOR_ASTRA_WORKER_MODELS,
+    comma-separated; default the two 6.1 workers, both about three seconds per brief on
+    2026-11-04). The orchestrator model is always an option as well."""
+    raw = os.getenv("ORCHESTRATOR_ASTRA_WORKER_MODELS", DEFAULT_WORKER_MODELS).strip()
+    return list(dict.fromkeys(item.strip() for item in raw.split(",") if item.strip()))
+
+
+def astra_timeout() -> float:
+    """Seconds one Astra call may take (ORCHESTRATOR_ASTRA_TIMEOUT, default 300, clamped 30–900).
+
+    Generation calls (a CloudFormation stack, a whole platform suite) can run past the old
+    fixed 120 s: the first live AWS run lost its infra_plan stage to two such timeouts.
+    """
+    raw = os.getenv("ORCHESTRATOR_ASTRA_TIMEOUT", "300").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return 300.0
+    return min(900.0, max(30.0, value))
 
 
 def astra_temperature() -> float:
@@ -186,6 +267,22 @@ def astra_temperature() -> float:
     return min(2.0, max(0.0, value))
 
 
+class AstraQuotaError(RuntimeError):
+    """The model account is out of quota or credits: the run stops at once, never retries.
+
+    Live run 2 (2026-11-03) kept generating stage after stage into 429 ``insufficient_quota``
+    answers; the user's rule is to stop at the first such error.
+    """
+
+
+_QUOTA_MARKERS = ("insufficient_quota", "credit_balance_exhausted", "no credits remaining", "exceeded your current quota")
+
+
+def is_quota_error(exc: BaseException | str) -> bool:
+    text = str(exc).lower()
+    return any(marker in text for marker in _QUOTA_MARKERS)
+
+
 def invoke_structured(
     model_name: str,
     schema: type[SchemaT],
@@ -193,12 +290,16 @@ def invoke_structured(
     payload: dict,
     *,
     temperature: float | None = None,
+    reasoning: str | None = None,
 ) -> SchemaT:
     """One Astra structured-output call. Retried once on a bad payload.
 
+    ``reasoning`` is the effort for this call (None: ``ORCHESTRATOR_ASTRA_REASONING``; "": the
+    model default); a stage worker passes the effort the orchestrator assigned it.
+
     Some reasoning models reject ``temperature``; when the error says so the call is retried
     once more without it, so a stochastic proposal degrades to the model default instead of
-    failing the run.
+    failing the run. The same holds for the reasoning-effort field.
     """
     messages = [
         {"role": "system", "content": system},
@@ -208,15 +309,22 @@ def invoke_structured(
     call_errors = (OSError, RuntimeError, ValueError, TypeError, OpenAIError, LangChainException)
     attempts = 2
     use_temperature = temperature
+    use_reasoning: str | None = reasoning
     while attempts > 0:
         attempts -= 1
-        model = _client(model_name, use_temperature).with_structured_output(schema)
+        model = _client(model_name, use_temperature, reasoning=use_reasoning).with_structured_output(schema)
         try:
             raw = model.invoke(messages)
         except call_errors as exc:
+            if is_quota_error(exc):
+                raise AstraQuotaError(f"{model_name}: {scrub(str(exc))[:300]}") from exc
             last_error = exc
-            if use_temperature is not None and "temperature" in str(exc).lower():
+            text = str(exc).lower()
+            if use_temperature is not None and "temperature" in text:
                 use_temperature = None
+                attempts += 1
+            elif use_reasoning != "" and "reasoning" in text:
+                use_reasoning = ""
                 attempts += 1
             continue
         if isinstance(raw, schema):
@@ -667,3 +775,66 @@ class OpenAIAstra:
 
     def advise(self, payload: dict) -> CheckAdviceSet:
         return invoke_structured(config.astra_model(), CheckAdviceSet, ADVISE_SYSTEM, payload)
+
+    # --- Sprint 4: Astra orchestrates, stage workers execute --------------------------------
+
+    def assign_workers(self, payload: dict) -> WorkerPlan:
+        """The orchestrator picks each stage's sub-agent: a model and a reasoning effort."""
+        return invoke_structured(config.astra_model(), WorkerPlan, WORKER_SYSTEM, payload)
+
+    def worker(self, assignment: dict | None = None) -> AstraWorker:
+        """The sub-agent for one stage, bound to the assignment the orchestrator recorded."""
+        assignment = dict(assignment or {})
+        effort = assignment.get("reasoning_effort")
+        return AstraWorker(
+            str(assignment.get("model") or config.astra_model()),
+            astra_reasoning() if effort is None else str(effort),
+            temperature=self.temperature,
+            stage=str(assignment.get("stage") or ""),
+        )
+
+
+_MODEL_MISSING = ("model_not_found", "does not exist", "not exist", "invalid model", "no such model")
+
+
+class AstraWorker:
+    """One stage's sub-agent (Sprint 4): Astra's stage methods bound to the model and
+    reasoning effort the orchestrator assigned. It writes the stage's files, briefs the stage,
+    reads its findings, and diagnoses its failure; it never asks questions or proposes
+    pipelines. A model the account cannot use falls back to the orchestrator model once."""
+
+    def __init__(self, model: str, reasoning_effort: str, *, temperature: float | None = None, stage: str = "") -> None:
+        self.model = model or config.astra_model()
+        self.reasoning_effort = reasoning_effort if reasoning_effort in REASONING_EFFORTS else ""
+        self.temperature = temperature
+        self.stage = stage
+
+    def describe(self) -> dict:
+        return {"model": self.model, "reasoning_effort": self.reasoning_effort, "stage": self.stage}
+
+    def _call(self, schema, system: str, payload: dict, *, temperature: float | None = None):
+        try:
+            return invoke_structured(self.model, schema, system, payload, temperature=temperature, reasoning=self.reasoning_effort)
+        except AstraQuotaError:
+            raise
+        except RuntimeError as exc:
+            text = str(exc).lower()
+            if self.model == config.astra_model() or not any(marker in text for marker in _MODEL_MISSING):
+                raise
+            self.model = config.astra_model()
+            return invoke_structured(self.model, schema, system, payload, temperature=temperature, reasoning=self.reasoning_effort)
+
+    def brief(self, payload: dict) -> StageBrief:
+        return self._call(StageBrief, BRIEF_SYSTEM, payload)
+
+    def diagnose(self, payload: dict) -> Diagnosis:
+        return self._call(Diagnosis, DIAGNOSE_SYSTEM, payload)
+
+    def advise(self, payload: dict) -> CheckAdviceSet:
+        return self._call(CheckAdviceSet, ADVISE_SYSTEM, payload)
+
+    def generate_artifacts(self, payload: dict) -> ArtifactSet:
+        return self._call(ArtifactSet, GENERATE_SYSTEM, payload, temperature=self.temperature)
+
+    def generate_suite(self, payload: dict) -> PipelineSuite:
+        return self._call(PipelineSuite, SUITE_SYSTEM, payload, temperature=self.temperature)

@@ -9,10 +9,16 @@ env:
     TIER: "$TIER"
     PLATFORM: "aws"
     APP_NAME: "$APP_NAME"
-    AWS_REGION: "$REGION"
+  # AWS_REGION, AWS_S3_BUCKET, APP_NAME, and TIER come from the CodeBuild project; never set
+  # AWS_REGION here (an empty value overrides the project's and breaks every aws call).
   # secrets-manager or parameter-store references go here by NAME, for example:
   # secrets-manager:
   #   SNYK_TOKEN: "$APP_NAME/snyk:SNYK_TOKEN"
+
+cache:
+  paths:
+    - "/root/.cache/pip/**/*"
+    - "frontend/node_modules/**/*"
 
 phases:
   install:

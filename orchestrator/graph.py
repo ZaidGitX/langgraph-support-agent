@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send, interrupt
@@ -25,7 +27,17 @@ from .catalog import commands_for
 from .dispatch import execute_stage, execute_stage_v2
 from .findings import apply_astra_advice
 from .guardrails import apply_guardrails
-from .llm import OpenAIAstra, TypeSafeJev, guard_review, scrub
+from .llm import (
+    REASONING_EFFORTS,
+    AstraQuotaError,
+    OpenAIAstra,
+    TypeSafeJev,
+    astra_concurrency,
+    astra_reasoning,
+    astra_worker_models,
+    guard_review,
+    scrub,
+)
 from .providers import registry as providers
 from .schemas import (
     ArtifactReview,
@@ -36,6 +48,7 @@ from .schemas import (
     RunnerDecision,
 )
 from .state import (
+    ALLOWED_TARGETS,
     MAX_ARTIFACT_REVISIONS,
     MAX_ATTEMPTS,
     MAX_CLARIFY_ROUNDS,
@@ -263,6 +276,59 @@ def questions_from_astra(planner, ecosystem: dict, answers: dict | None) -> list
     return questions
 
 
+def recalled_environment(answers: dict, questions: list[dict], recalled: list[dict]) -> dict[str, str]:
+    """``env_target`` / ``env_platform`` from the newest episode when Astra did not ask them.
+
+    Astra skips a question an earlier run already answered; the plan still needs the answer,
+    so it comes from that episode: what the person answered then (``answered``), else what
+    ran (``platform`` / ``tier``). An explicit answer always wins, and a value is used only
+    when it would pass as a typed answer. Live run 2 (2026-11-03) stalled on exactly this:
+    three questions, no platform, and a local plan for an AWS run.
+    """
+    asked = {str(question.get("id") or "") for question in questions or []}
+    wanted = {
+        "env_platform": lambda value: value in registry.PLATFORMS,
+        "env_target": lambda value: value in ALLOWED_TARGETS,
+    }
+    found: dict[str, str] = {}
+    for ident, valid in wanted.items():
+        if ident in asked or str((answers or {}).get(ident) or "").strip():
+            continue
+        for episode in recalled or []:
+            if not isinstance(episode, dict):
+                continue
+            answered = episode.get("answered") if isinstance(episode.get("answered"), dict) else {}
+            ran = episode.get("platform") if ident == "env_platform" else episode.get("tier")
+            for candidate in (answered.get(ident), ran):
+                value = str(candidate or "").strip().lower()
+                if value and valid(value):
+                    found[ident] = value
+                    break
+            if ident in found:
+                break
+    return found
+
+
+def _fall_back_to_host(stages: list[dict], platform_runner: str, generated: dict[str, list[dict]]) -> list[str]:
+    """Move every stage bound to the platform runner onto the local host; returns their names.
+
+    Without a suite there is no provisioned project and no source upload, so a platform build
+    cannot start: a fixed stage runs its fixed commands here, a generated stage runs its own
+    script here (the local provider reads the stored script). ``uat`` never moves.
+    """
+    host = providers.for_runner("local")
+    moved: list[str] = []
+    for stage in stages:
+        if stage.get("name") == "uat" or stage.get("runner") != platform_runner:
+            continue
+        stage["runner"] = "local"
+        stage["tool"] = _stage_tool(stage["name"], "local")
+        if stage.get("kind") == "generated":
+            stage["commands"] = host.commands_for(stage, generated.get(stage["name"]) or [])
+        moved.append(str(stage["name"]))
+    return moved
+
+
 def _stage_tool(name: str, runner: str) -> str:
     if name in TOOL_BINDINGS:
         return TOOL_BINDINGS[name]
@@ -382,6 +448,7 @@ def pipeline_view(pipeline: dict) -> dict:
                 "runner": stage.get("runner") or "local",
                 "provider": stage.get("provider") or "",
                 "environment": dict(stage.get("environment") or {}),
+                "worker": dict(stage.get("worker") or {}),
                 "kind": stage.get("kind") or "fixed",
                 "family": stage.get("family") or registry.family_of(stage["name"]),
             }
@@ -539,6 +606,7 @@ def machine_report(state: dict) -> dict:
         "episodes": list(state.get("episodes") or []),
         "readiness": dict(state.get("readiness") or {}),
         "runner_plan": dict(state.get("runner_plan") or {}),
+        "worker_plan": dict(state.get("worker_plan") or {}),
         "generated_artifacts": {
             stage: [{key: value for key, value in record.items() if key != "findings"} for record in records]
             for stage, records in (state.get("generated_artifacts") or {}).items()
@@ -634,6 +702,7 @@ def approval_payload(state: dict) -> dict:
         "pipeline": pipeline_view(pipeline),
         "candidates": list(state.get("candidates") or []),
         "runner_plan": dict(state.get("runner_plan") or {}),
+        "worker_plan": dict(state.get("worker_plan") or {}),
         "artifacts": artifacts,
         "artifact_review": dict(state.get("artifact_review") or {}),
         "policy": list(state.get("policy") or []),
@@ -784,6 +853,13 @@ def render_report(state: dict, status: str) -> str:
             + (f", provider {stage['provider']}" if stage.get("provider") else "")
             + f"] after [{deps}] via {stage['tool']} ({commands})"
         )
+    lines.extend(["", "Workers (Astra's sub-agents)"])
+    workers = state.get("worker_plan") or {}
+    if not workers:
+        lines.append("  none")
+    for name, worker in workers.items():
+        effort = worker.get("reasoning_effort") or "model default"
+        lines.append(f"  - {name}: {worker.get('model')} at {effort} effort, {worker.get('assigned_by') or 'default'} ({worker.get('rationale') or ''})")
     lines.extend(["", "Generated artifacts", *_artifact_lines(state), "", "Policy findings", *_policy_lines(state)])
     lines.extend(["", "Platform", *_platform_lines(state)])
     lines.extend(["", "Stage evidence"])
@@ -913,7 +989,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         payload = interrupt({"gate": gate, "questions": questions, "round": rounds + 1})
         waited = max(0.0, time.time() - paused)
         answers = payload if isinstance(payload, dict) else {"raw": str(payload)}
-        return {
+        update = {
             "answers": answers,
             "open_questions": [],
             "clarify_rounds": 1,
@@ -921,6 +997,11 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             "hops": 1,
             "held_seconds": waited,
         }
+        if rounds == 0:
+            recalled = recalled_environment(answers, questions, state.get("episodes") or [])
+            update["answers"] = {**recalled, **answers}
+            update["recalled_answers"] = recalled
+        return update
 
     def follow_up(state: PipelineState) -> dict:
         """After the first answers, Jev decides whether one more round would change the plan."""
@@ -1043,6 +1124,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             stage["runner"] = runner_plan[stage["name"]]["runner"]
             stage["tool"] = _stage_tool(stage["name"], stage["runner"])
             stage["commands"] = commands_for(stage["name"], state.get("answers"), commands) if stage["kind"] == "fixed" else []
+        worker_plan = _worker_plan(ordered, state, platform)
+        for stage in ordered:
+            stage["worker"] = dict(worker_plan.get(stage["name"]) or {})
         plan_number = int(state["attempt"].get("plan", 0)) + 1
         pipeline = {
             "id": f"{decision.chosen_id}-{plan_number}",
@@ -1056,6 +1140,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             "dropped_stages": [],
             "dropped_candidates": dropped_candidates,
             "runner_plan": runner_plan,
+            "worker_plan": worker_plan,
             "router_model": (getattr(router, "last_call", None) or {}).get("model") or "injected",
             "router_client": (getattr(router, "last_call", None) or {}).get("client")
             or type(router).__name__,
@@ -1065,6 +1150,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             "candidates": candidate_views(candidates, rank_event.get("choice"), decision.chosen_id),
             "pipeline": pipeline,
             "runner_plan": runner_plan,
+            "worker_plan": worker_plan,
             "gate": {"route": "", "retry": False, "replan": False, "retry_stages": [], "rationale": ""},
             "jev_decisions": events,
             "attempt": {"plan": plan_number},
@@ -1119,8 +1205,151 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 }
         return plan
 
+    def _worker_plan(ordered: list[dict], state: dict, platform: str) -> dict[str, dict]:
+        """Astra, as the orchestrator, assigns every stage its sub-agent: a model from
+        ``ORCHESTRATOR_ASTRA_WORKER_MODELS`` (the orchestrator model is always an option) and a
+        reasoning effort. Code validates the answer; an unknown model or effort, or a failed
+        call, falls back to the orchestrator model at ``ORCHESTRATOR_ASTRA_REASONING``. The
+        pseudo-stage ``pipeline`` is the platform suite's worker when a suite is wanted.
+        """
+        orchestrator_model = config.astra_model()
+        options = list(dict.fromkeys([*astra_worker_models(), orchestrator_model]))
+        default_effort = astra_reasoning()
+        names = [stage["name"] for stage in ordered]
+        if suite.wants_suite(state):
+            names.append(suite.SUITE_STAGE)
+        plan = {
+            name: {"model": orchestrator_model, "reasoning_effort": default_effort, "rationale": "orchestrator default", "assigned_by": "default"}
+            for name in names
+        }
+        if not hasattr(planner, "assign_workers"):
+            return plan
+        stages = [
+            {
+                "name": stage["name"],
+                "kind": stage.get("kind") or "fixed",
+                "family": stage.get("family") or "",
+                "runner": stage.get("runner") or "local",
+                "provider": stage.get("provider") or "",
+                "purpose": stage.get("purpose") or "",
+            }
+            for stage in ordered
+        ]
+        if suite.SUITE_STAGE in plan:
+            stages.append({
+                "name": suite.SUITE_STAGE, "kind": "suite", "family": "custom", "runner": runner_default_for(platform), "provider": "",
+                "purpose": f"the whole {platform} suite: one file per fixed stage plus the platform's project documents",
+            })
+        payload = {
+            "stages": stages,
+            "models_available": options,
+            "efforts_available": list(REASONING_EFFORTS),
+            "orchestrator_model": orchestrator_model,
+            "default_effort": default_effort or "model default",
+            "platform": platform,
+            "answers": state.get("answers") or {},
+        }
+        try:
+            proposal = planner.assign_workers(payload)
+        except AstraQuotaError:
+            raise
+        except (RuntimeError, ValueError, TypeError, OSError) as exc:
+            note = scrub(str(exc))[:160]
+            for worker in plan.values():
+                worker["rationale"] = f"orchestrator default (assignment failed: {note})"
+            return plan
+        for item in proposal.workers:
+            if item.stage not in plan:
+                continue
+            plan[item.stage] = {
+                "model": item.model if item.model in options else orchestrator_model,
+                "reasoning_effort": item.reasoning_effort if item.reasoning_effort in REASONING_EFFORTS else default_effort,
+                "rationale": scrub(item.rationale)[:240],
+                "assigned_by": "astra",
+            }
+        return plan
+
+    def _worker_for(spec: dict):
+        """The sub-agent bound to a stage's assignment; the planner itself when it has no workers."""
+        factory = getattr(planner, "worker", None)
+        if factory is None:
+            return planner
+        return factory(dict(spec.get("worker") or {}))
+
+    review_lock = threading.Lock()
+
+    def _generate_stage(state: dict, stage: dict, run_id: str, root: str) -> dict:
+        """One generated stage: Astra writes its files, the policy checks them, Jev reviews.
+
+        Runs on a worker thread beside the other generated stages and the platform suite
+        (live run 2 spent 40 minutes writing six stages one after another). Everything the
+        node records comes back in the outcome, so the update is assembled in stage order.
+        """
+        name = stage["name"]
+        outcome: dict = {"name": name, "stage": stage, "records": [], "review": None, "rows": [], "events": [], "dropped": "", "kept": False}
+        try:
+            provider = providers.for_runner(stage.get("runner") or "local")
+        except KeyError as exc:
+            outcome["dropped"] = f"{name}: {exc}"
+            return outcome
+        worker = _worker_for(stage)
+        revisions_left = MAX_ARTIFACT_REVISIONS
+        try:
+            context = generator.context_for(state, stage, provider)
+            artifact_set = generator.with_env_manifest(worker.generate_artifacts(context), stage, context["placeholders"])
+        except AstraQuotaError:
+            raise
+        except (RuntimeError, ValueError, TypeError, OSError) as exc:
+            outcome["dropped"] = f"{name}: generation failed: {scrub(str(exc))[:200]}"
+            return outcome
+        result = policy.check_artifact_set(artifact_set, stage)
+        review = _review(name, result, revisions_left, [a.path for a in artifact_set.artifacts], outcome["events"])
+        if review.verdict == "revise" and revisions_left > 0:
+            revisions_left -= 1
+            try:
+                revised = worker.generate_artifacts(
+                    generator.context_for(state, stage, provider, policy_findings=[item.model_dump() for item in result.findings])
+                )
+                artifact_set = generator.with_env_manifest(revised, stage, context["placeholders"])
+            except AstraQuotaError:
+                raise
+            except (RuntimeError, ValueError, TypeError, OSError):
+                pass
+            result = policy.check_artifact_set(artifact_set, stage)
+            review = _review(name, result, revisions_left, [a.path for a in artifact_set.artifacts], outcome["events"])
+        records = generator.write(run_id, stage, artifact_set, root)
+        outcome["records"] = records
+        outcome["rows"] = generator.policy_rows(records, name)
+        outcome["review"] = {"verdict": review.verdict, "rationale": scrub(review.rationale), "revisions": MAX_ARTIFACT_REVISIONS - revisions_left, "ok": result.ok}
+        if review.verdict == "reject" or not result.ok:
+            outcome["dropped"] = f"{name}: artifacts rejected ({review.verdict})"
+            return outcome
+        stage["commands"] = provider.commands_for(stage, records)
+        outcome["kept"] = True
+        return outcome
+
+    def _generate_suite(state: dict, platform_runner: str, events: list[dict]) -> tuple[dict | None, str]:
+        """The platform suite on its own worker thread: (outcome, fallback reason)."""
+        try:
+            suite_provider = providers.for_runner(platform_runner)
+            outcome = suite.generate(
+                state, _worker_for({"worker": (state.get("worker_plan") or {}).get(suite.SUITE_STAGE) or {}}), suite_provider,
+                lambda result, left, paths: _review(suite.SUITE_STAGE, result, left, paths, events),
+                max_revisions=MAX_ARTIFACT_REVISIONS,
+            )
+        except AstraQuotaError:
+            raise
+        except (RuntimeError, ValueError, TypeError, OSError, KeyError) as exc:
+            return None, f"suite generation failed: {scrub(str(exc))[:200]}"
+        return outcome, ""
+
     def generate_artifacts(state: PipelineState) -> dict:
-        """Astra writes the files each generated stage needs; policy and Jev review them."""
+        """Astra writes the files each generated stage needs; policy and Jev review them.
+
+        The generated stages and the platform suite are written concurrently
+        (``ORCHESTRATOR_ASTRA_CONCURRENCY`` workers) and the update is assembled in pipeline
+        order, so the result matches a serial run. A quota error on any worker stops the node.
+        """
         pipeline = dict(state.get("pipeline") or {})
         stages = [dict(stage) for stage in pipeline.get("stages") or []]
         base = {"trace": ["generate_artifacts"], "hops": 1}
@@ -1133,6 +1362,32 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         root = state["repo"]["root"]
         run_id = str(state.get("run_id"))
         can_generate = hasattr(planner, "generate_artifacts")
+        to_generate = [stage for stage in stages if stage.get("kind") == "generated"] if can_generate else []
+        platform = suite.platform_for(state) if suite.wants_suite(state) else ""
+        platform_runner = runner_default_for(platform) if platform else ""
+        run_suite = wants_suite and hasattr(planner, "generate_suite")
+        suite_events: list[dict] = []
+        suite_result: tuple[dict | None, str] = (None, "planner has no generate_suite")
+        outcomes: dict[str, dict] = {}
+        workers = max(1, min(astra_concurrency(), len(to_generate) + (1 if run_suite else 0)))
+        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="astra")
+        try:
+            futures = {pool.submit(_generate_stage, state, stage, run_id, root): stage["name"] for stage in to_generate}
+            suite_future = pool.submit(_generate_suite, state, platform_runner, suite_events) if run_suite else None
+            if suite_future is not None:
+                futures[suite_future] = suite.SUITE_STAGE
+            for future in as_completed(futures):
+                if future is suite_future:
+                    suite_result = future.result()
+                else:
+                    done = future.result()
+                    outcomes[done["name"]] = done
+        except Exception:
+            # A quota error (or any other failure) stops the node now; queued work is dropped
+            # and a call already in flight ends on its own without being waited for.
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
+        pool.shutdown(wait=True)
         generated: dict[str, list[dict]] = {}
         reviews: dict[str, dict] = {}
         rows: list[dict] = []
@@ -1147,78 +1402,52 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             if not can_generate:
                 dropped.append(f"{name}: planner has no generate_artifacts")
                 continue
-            try:
-                provider = providers.for_runner(stage.get("runner") or "local")
-            except KeyError as exc:
-                dropped.append(f"{name}: {exc}")
+            done = outcomes[name]
+            events.extend(done["events"])
+            rows.extend(done["rows"])
+            if done["review"] is not None:
+                reviews[name] = done["review"]
+            if done["records"]:
+                generated[name] = done["records"]
+            if done["dropped"]:
+                dropped.append(done["dropped"])
                 continue
-            revisions_left = MAX_ARTIFACT_REVISIONS
-            try:
-                context = generator.context_for(state, stage, provider)
-                artifact_set = generator.with_env_manifest(planner.generate_artifacts(context), stage, context["placeholders"])
-            except (RuntimeError, ValueError, TypeError, OSError) as exc:
-                dropped.append(f"{name}: generation failed: {scrub(str(exc))[:200]}")
-                continue
-            result = policy.check_artifact_set(artifact_set, stage)
-            review = _review(name, result, revisions_left, [a.path for a in artifact_set.artifacts], events)
-            if review.verdict == "revise" and revisions_left > 0:
-                revisions_left -= 1
-                try:
-                    revised = planner.generate_artifacts(
-                        generator.context_for(state, stage, provider, policy_findings=[item.model_dump() for item in result.findings])
-                    )
-                    artifact_set = generator.with_env_manifest(revised, stage, context["placeholders"])
-                except (RuntimeError, ValueError, TypeError, OSError):
-                    pass
-                result = policy.check_artifact_set(artifact_set, stage)
-                review = _review(name, result, revisions_left, [a.path for a in artifact_set.artifacts], events)
-            records = generator.write(run_id, stage, artifact_set, root)
-            rows.extend(generator.policy_rows(records, name))
-            reviews[name] = {"verdict": review.verdict, "rationale": scrub(review.rationale), "revisions": MAX_ARTIFACT_REVISIONS - revisions_left, "ok": result.ok}
-            if review.verdict == "reject" or not result.ok:
-                dropped.append(f"{name}: artifacts rejected ({review.verdict})")
-                generated[name] = records
-                continue
-            stage["commands"] = provider.commands_for(stage, records)
-            generated[name] = records
-            kept.append(stage)
+            kept.append(done["stage"])
         provision: dict = {}
         injection: dict = {}
         suite_info: dict = {}
         if wants_suite:
-            platform = suite.platform_for(state)
-            platform_runner = runner_default_for(platform)
-            fallback = ""
-            if not hasattr(planner, "generate_suite"):
-                fallback = "planner has no generate_suite"
-            else:
-                try:
-                    suite_provider = providers.for_runner(platform_runner)
-                    outcome = suite.generate(
-                        state, planner, suite_provider,
-                        lambda result, left, paths: _review(suite.SUITE_STAGE, result, left, paths, events),
-                        max_revisions=MAX_ARTIFACT_REVISIONS,
-                    )
-                    generated[suite.SUITE_STAGE] = outcome["records"]
-                    reviews[suite.SUITE_STAGE] = outcome["review"]
-                    rows.extend(outcome["policy_rows"])
-                    if outcome["ok"]:
-                        suite_info = {"platform": platform, "runner": platform_runner, "status": "ok", "stage_files": outcome["stage_files"]}
-                        suite_answers = {**(state.get("answers") or {}), "run_id": run_id}
-                        provision = suite_provider.provision(outcome["records"], root, mode="plan", answers=suite_answers).as_dict()
+            outcome, fallback = suite_result
+            if outcome is not None:
+                events.extend(suite_events)
+                generated[suite.SUITE_STAGE] = outcome["records"]
+                reviews[suite.SUITE_STAGE] = outcome["review"]
+                rows.extend(outcome["policy_rows"])
+                if outcome["ok"]:
+                    suite_info = {"platform": platform, "runner": platform_runner, "status": "ok", "stage_files": outcome["stage_files"]}
+                    suite_answers = {**(state.get("answers") or {}), "run_id": run_id}
+                    try:
+                        suite_provider = providers.for_runner(platform_runner)
+                        provision = suite_provider.provision(
+                            outcome["records"], root, mode="plan", answers=suite_answers, bundle=suite.provision_bundle(generated)
+                        ).as_dict()
                         names = sorted({name for record in outcome["records"] for name in record.get("secrets_referenced") or []})
                         injection = suite_provider.inject_secrets(names, mode="plan", answers=suite_answers, cwd=root).as_dict()
-                    else:
-                        fallback = f"suite rejected ({outcome['review']['verdict']})"
-                except (RuntimeError, ValueError, TypeError, OSError, KeyError) as exc:
-                    fallback = f"suite generation failed: {scrub(str(exc))[:200]}"
+                    except (RuntimeError, ValueError, TypeError, OSError, KeyError) as exc:
+                        fallback = f"suite generation failed: {scrub(str(exc))[:200]}"
+                        suite_info = {}
+                else:
+                    fallback = f"suite rejected ({outcome['review']['verdict']})"
             if fallback:
-                # The platform cannot run without its suite: the fixed stages fall back to the host.
                 suite_info = {"platform": platform, "runner": platform_runner, "status": fallback, "stage_files": {}}
-                for stage in kept:
-                    if stage.get("kind", "fixed") == "fixed" and stage.get("runner") == platform_runner:
-                        stage["runner"] = "local"
-                        stage["tool"] = _stage_tool(stage["name"], "local")
+        if suite.wants_suite(state) and (not suite_info or suite_info.get("status") != "ok"):
+            # No usable suite means no provisioned project and no source upload: every stage
+            # bound to the platform runner (fixed or generated) runs on the host instead, and
+            # the approval screen says so.
+            moved = _fall_back_to_host(kept, platform_runner, generated)
+            if moved:
+                status = str(suite_info.get("status") or "") if suite_info else "no suite was generated for the platform"
+                suite_info = {"platform": platform, "runner": platform_runner, "status": f"{status}; on the host instead: {', '.join(moved)}", "stage_files": {}}
         if suite_info:
             pipeline["suite"] = suite_info
         if dropped:
@@ -1254,8 +1483,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
     def _review(name: str, result, revisions_left: int, paths: list[str], events: list[dict]) -> ArtifactReview:
         payload = {"stage": name, "policy": result.model_dump(), "revisions_left": revisions_left, "artifact_paths": paths}
         if hasattr(router, "artifact_review"):
-            review = router.artifact_review(payload)
-            events.append(jev_event(router, "artifact_review", "ArtifactReview", review))
+            with review_lock:  # the router stamps last_call for jev_event: one review at a time
+                review = router.artifact_review(payload)
+                events.append(jev_event(router, "artifact_review", "ArtifactReview", review))
         else:
             review = ArtifactReview(verdict="accept" if result.ok else "revise", rationale="router has no artifact_review edge")
         return guard_review(review, result.ok, revisions_left)
@@ -1336,10 +1566,12 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         status = providers.status_from_readiness(state.get("readiness"), runner) or provider.detect()
         if status.mode == "apply":
             status = provider.detect()  # confirm live before anything leaves this host
-        records = list((state.get("generated_artifacts") or {}).get(suite.SUITE_STAGE) or [])
+        generated_all = dict(state.get("generated_artifacts") or {})
+        records = list(generated_all.get(suite.SUITE_STAGE) or [])
+        bundle = suite.provision_bundle(generated_all)
         answers = {**(state.get("answers") or {}), "run_id": str(state.get("run_id"))}
         root = state["repo"]["root"]
-        provision = provider.provision(records, root, mode=status.mode, answers=answers).as_dict()
+        provision = provider.provision(records, root, mode=status.mode, answers=answers, bundle=bundle).as_dict()
         names = sorted({name for record in records for name in record.get("secrets_referenced") or []})
         injection = provider.inject_secrets(names, mode=status.mode, answers=answers, cwd=root).as_dict()
         provision["evidence"] = scrub(str(provision.get("evidence") or ""))
@@ -1351,11 +1583,19 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 "rationale": "guardrail: platform provisioning failed",
             }
             return {"stop": True, "update": update}
+        if injection.get("status") == "fail":
+            # Every platform build would fail resolving the missing secret; stop before the first.
+            update["gate"] = {
+                "route": "escalate", "retry": False, "replan": False, "retry_stages": [],
+                "rationale": "guardrail: secret injection failed (" + str(injection.get("evidence") or "")[:160] + ")",
+            }
+            return {"stop": True, "update": update}
         return {"update": update}
 
     def make_runner(stage_name: str):
         def node(state: dict) -> dict:
-            brief = planner.brief(
+            worker = _worker_for(state.get("spec") or {})
+            brief = worker.brief(
                 {
                     "stage": stage_name,
                     "purpose": state.get("purpose") or "",
@@ -1381,7 +1621,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                     state["repo"]["root"],
                     state.get("answers") or {},
                 )
-            checks = apply_astra_advice(list(ran.get("checks") or []), getattr(planner, "advise", None))
+            checks = apply_astra_advice(list(ran.get("checks") or []), getattr(worker, "advise", None))
             for check in checks:
                 check["findings"] = scrub(str(check.get("findings") or ""))
                 check["next_step"] = scrub(str(check.get("next_step") or ""))
@@ -1439,7 +1679,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         stage_name = str(state.get("dispatched_stage") or "stage")
         spec = dict(state.get("spec") or {"name": stage_name, "runner": "local", "kind": "generated"})
         spec["run_id"] = state.get("run_id") or spec.get("run_id")
-        brief = planner.brief(
+        worker = _worker_for(spec)
+        brief = worker.brief(
             {
                 "stage": stage_name,
                 "purpose": state.get("purpose") or spec.get("purpose") or "",
@@ -1454,7 +1695,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             state.get("readiness") or {},
             state.get("artifacts") or [],
         )
-        checks = apply_astra_advice(list(ran.get("checks") or []), getattr(planner, "advise", None))
+        checks = apply_astra_advice(list(ran.get("checks") or []), getattr(worker, "advise", None))
         for check in checks:
             check["findings"] = scrub(str(check.get("findings") or ""))
             check["next_step"] = scrub(str(check.get("next_step") or ""))
@@ -1528,7 +1769,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             "stop_at": "",
         }
         if decision.route in {"remediate", "escalate"} and failed_stages(state):
-            diagnosis = planner.diagnose(payload)
+            failed = failed_stages(state)
+            spec = next((stage for stage in (state.get("pipeline") or {}).get("stages") or [] if stage.get("name") == failed[0]), {})
+            diagnosis = _worker_for(spec).diagnose(payload)
             update["diagnosis"] = scrub(diagnosis.summary)
         return update
 
@@ -1573,6 +1816,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             target = generator.docs_path(state["repo"]["root"], str(state.get("run_id")), pipeline.get("environment"))
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(scrub(doc.content), encoding="utf-8")
+        except AstraQuotaError:
+            raise
         except (RuntimeError, ValueError, TypeError, OSError):
             return
 

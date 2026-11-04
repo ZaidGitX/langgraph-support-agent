@@ -10,16 +10,19 @@ back to the human gate exactly as before.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from . import registry
+from . import credentials, registry
 from .state import ALLOWED_TARGETS, FORBIDDEN_TARGETS
 
 PROFILE_FILE = "orchestrator.yaml"
+# Platforms whose runners take the fixed stages on a push (ORCHESTRATOR_DISPATCH=platform).
+CLOUD_PLATFORMS = ("jenkins", "aws", "gcp", "azure")
 
 
 class ProfileError(ValueError):
@@ -60,6 +63,10 @@ class RunProfile(BaseModel):
     answers: AnswerSpec = Field(default_factory=AnswerSpec)
     autopilot: AutopilotSpec = Field(default_factory=AutopilotSpec)
     remotes: RemoteSpec = Field(default_factory=RemoteSpec)
+    config: dict[str, str] = Field(
+        default_factory=dict,
+        description="registry names of kind config a push-triggered run needs (AWS_REGION, ...); never a secret",
+    )
     path: str = Field(default="", exclude=True)
 
     @field_validator("platform")
@@ -68,6 +75,23 @@ class RunProfile(BaseModel):
         cleaned = (value or "local").strip().lower()
         if cleaned not in registry.PLATFORMS:
             raise ValueError(f"platform must be one of {', '.join(registry.PLATFORMS)}")
+        return cleaned
+
+    @field_validator("config")
+    @classmethod
+    def _config(cls, value: dict[str, str]) -> dict[str, str]:
+        cleaned: dict[str, str] = {}
+        for name, raw in (value or {}).items():
+            key = str(name).strip()
+            if key not in credentials.all_names():
+                raise ValueError(f"config.{key or '(empty)'} is not a name in the credential registry")
+            kind = credentials.kind_of(key)
+            if kind != "config":
+                raise ValueError(f"config.{key} is a {kind} name; the profile carries config only, never a credential")
+            text = "" if raw is None else str(raw).strip()
+            if not text:
+                raise ValueError(f"config.{key} needs a value")
+            cleaned[key] = text
         return cleaned
 
     @field_validator("tier")
@@ -104,6 +128,39 @@ def load(root: str | Path) -> RunProfile | None:
         raise ProfileError(f"{PROFILE_FILE} is invalid: {exc}") from exc
     profile.path = str(path)
     return profile
+
+
+def dispatch_for(platform: str) -> str:
+    """ORCHESTRATOR_DISPATCH for a push-triggered run: the platform's own runners for a cloud or
+    Jenkins platform, GitHub Actions otherwise (local keeps the fixed workflows, as before)."""
+    return "platform" if platform in CLOUD_PLATFORMS else "github"
+
+
+def workflow_env(profile: RunProfile) -> dict[str, str]:
+    """What the push workflow exports before it starts the app, so the committed profile and not
+    the workflow file decides where a push goes. ``scripts/profile_env.py`` prints the same lines
+    with the standard library only (the runner has neither PyYAML nor pydantic)."""
+    env = {
+        "ORCHESTRATOR_PROFILE_PLATFORM": profile.platform,
+        "ORCHESTRATOR_PROFILE_TIER": profile.tier,
+        "ORCHESTRATOR_DISPATCH": dispatch_for(profile.platform),
+        "ORCHESTRATOR_CLOUD_APPLY": "1" if profile.platform in CLOUD_PLATFORMS else "0",
+    }
+    env.update(profile.config)
+    return env
+
+
+def apply_config(profile: RunProfile, env: dict[str, str] | None = None) -> list[str]:
+    """Export the profile's config names where the environment leaves them unset or empty
+    (Compose passes every placeholder, so an unset host value arrives as ""). A value from
+    .env or the host wins. Returns the names that were set."""
+    target = env if env is not None else os.environ
+    applied: list[str] = []
+    for name, value in profile.config.items():
+        if not str(target.get(name, "") or "").strip():
+            target[name] = value
+            applied.append(name)
+    return applied
 
 
 def answer_for(profile: RunProfile, question: dict) -> str | None:

@@ -10,6 +10,10 @@ const TOGGLE_LABELS = {
   ORCHESTRATOR_EMBEDDINGS: "embeddings",
   ORCHESTRATOR_MCP: "mcp",
   ORCHESTRATOR_ASTRA_TEMPERATURE: "astra temperature",
+  ORCHESTRATOR_ASTRA_TIMEOUT: "astra timeout",
+  ORCHESTRATOR_ASTRA_REASONING: "astra reasoning",
+  ORCHESTRATOR_ASTRA_CONCURRENCY: "astra concurrency",
+  ORCHESTRATOR_ASTRA_WORKER_MODELS: "astra worker models",
   cloud_apply: "cloud apply effective",
 }
 

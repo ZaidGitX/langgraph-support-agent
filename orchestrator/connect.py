@@ -10,20 +10,28 @@ verification code pasted back; ``provide_input`` writes it to the process.
 ``verify`` runs the group's whoami command (or HTTP check) and caches ok / not ok with a
 timestamp. ``credentials.group_status`` reads that cache, never the network. Output is
 redacted before it is kept and only a short tail is ever returned.
+
+``sync_secrets`` (phase 12) copies the values present here (vault, .env, environment) into a
+platform's own secret store so a push-triggered run finds them: GitHub repository secrets
+through ``gh secret set NAME --body-file -``, the value on stdin and never on an argv.
+``python -m orchestrator.connect sync-github`` does the same from a shell; both report names only.
 """
 
 from __future__ import annotations
 
+import argparse
 import base64
 import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
 import urllib.request
 import uuid
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 from app import config
@@ -340,3 +348,144 @@ def reset() -> None:
                 flow.process.kill()
         _FLOWS.clear()
         _VERIFIED.clear()
+
+
+# --- Sprint 4 phase 12: vault -> platform secret store --------------------------------------
+
+SYNC_TARGETS = ("github",)
+SYNC_TIMEOUT_SECONDS = 60
+_GITHUB_REMOTE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$")
+
+SyncRunner = Callable[[list[str], str], tuple[bool, str]]
+
+
+def github_repository(env: Mapping[str, str] | None = None, cwd: str | None = None) -> str:
+    """``owner/name`` from GITHUB_REPOSITORY, or (for the live environment only) from the origin
+    remote, ssh or https; "" when unknown."""
+    source = env if env is not None else os.environ
+    configured = str(source.get("GITHUB_REPOSITORY", "") or "").strip()
+    if configured or env is not None:
+        return configured
+    try:
+        completed = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=cwd or str(config.PROJECT_DIR),
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    match = _GITHUB_REMOTE.search(completed.stdout.strip()) if completed.returncode == 0 else None
+    return f"{match.group(1)}/{match.group(2)}" if match else ""
+
+
+def sync_names(groups: list[str] | None = None, names: list[str] | None = None) -> list[str]:
+    """Registry names marked ``github_secret``, limited to ``groups`` or ``names`` when given."""
+    wanted = set(credentials.github_secret_names())
+    if groups:
+        allowed: set[str] = set()
+        for key in groups:
+            allowed.update(credentials.placeholders_for(key))
+        wanted &= allowed
+    if names:
+        wanted &= {str(name).strip() for name in names}
+    return sorted(wanted)
+
+
+def _run_sync(argv: list[str], value: str) -> tuple[bool, str]:
+    try:
+        completed = subprocess.run(
+            argv, input=value, capture_output=True, text=True, timeout=SYNC_TIMEOUT_SECONDS, check=False, env=_subprocess_env()
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, type(exc).__name__
+    if completed.returncode == 0:
+        return True, ""
+    tail = (completed.stderr or completed.stdout or "").strip().splitlines()
+    return False, redaction.redact(tail[-1] if tail else f"exit {completed.returncode}")[:160]
+
+
+def sync_secrets(
+    target: str = "github",
+    *,
+    groups: list[str] | None = None,
+    names: list[str] | None = None,
+    env: Mapping[str, str] | None = None,
+    runner: SyncRunner | None = None,
+) -> dict:
+    """Copy the values present here into the platform's secret store; the result names names only.
+
+    GitHub: one ``gh secret set NAME --body-file - --repo owner/name`` per present name, the value
+    on stdin (never on the argv, never in the result), with the gh CLI's own login or GITHUB_TOKEN.
+    Names without a value here are listed as ``skipped``; a failed command names the name and a
+    redacted one-line reason under ``failed``.
+    """
+    if target not in SYNC_TARGETS:
+        raise ConnectError(f"secrets can be synced to {', '.join(SYNC_TARGETS)} only")
+    if runner is None and shutil.which("gh") is None:
+        raise ConnectError("the gh CLI is not installed on the orchestrator host")
+    repository = github_repository(env)
+    if not repository:
+        raise ConnectError("no GitHub repository: set GITHUB_REPOSITORY or add an origin remote on github.com")
+    if env is None:
+        config.load_env_files()
+        try:
+            from . import vault
+
+            vault.export_env()
+        except Exception as exc:  # noqa: BLE001 - an unreadable vault only means fewer values
+            print(f"orchestrator vault is unreadable: {type(exc).__name__}", flush=True)
+    source = env if env is not None else os.environ
+    chosen = sync_names(groups, names)
+    present = [name for name in chosen if credentials.is_present(name, source if env is not None else None)]
+    skipped = [name for name in chosen if name not in present]
+    run = runner or _run_sync
+    synced: list[str] = []
+    failed: list[str] = []
+    for name in present:
+        argv = ["gh", "secret", "set", name, "--body-file", "-", "--repo", repository]
+        ok, detail = run(argv, str(source.get(name, "")))
+        if ok:
+            synced.append(name)
+        else:
+            failed.append(f"{name}: {detail}" if detail else name)
+    return {
+        "target": target,
+        "repository": repository,
+        "synced": synced,
+        "skipped": skipped,
+        "failed": failed,
+        "at": _iso(time.time()),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m orchestrator.connect",
+        description="Platform connections from a shell. Values never appear in the output.",
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+    sync = commands.add_parser(
+        "sync-github",
+        help="copy the present vault/.env values whose names are GitHub secrets into the repository's Actions secrets",
+    )
+    sync.add_argument("--group", action="append", dest="groups", help="limit to a registry group (repeatable), e.g. aws")
+    sync.add_argument("--name", action="append", dest="names", help="limit to a registry name (repeatable)")
+    args = parser.parse_args(argv)
+    try:
+        result = sync_secrets("github", groups=args.groups, names=args.names)
+    except ConnectError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    print(f"GitHub repository {result['repository']}: synced {', '.join(result['synced']) or 'nothing'}")
+    if result["skipped"]:
+        print("no value here for " + ", ".join(result["skipped"]))
+    if result["failed"]:
+        print("failed: " + "; ".join(result["failed"]), file=sys.stderr)
+    return 1 if result["failed"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

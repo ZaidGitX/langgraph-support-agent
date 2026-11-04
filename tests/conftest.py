@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from orchestrator import credentials
@@ -26,3 +28,17 @@ def _orchestrator_stays_manual(monkeypatch, tmp_path_factory):
     for name in credentials.all_names():
         if name not in APP_NAMES:
             monkeypatch.delenv(name, raising=False)
+    # A developer's .env may hold cloud names (phase 12 sets AWS_* for the live proof). The
+    # app re-reads .env inside readiness, so keep that load to the app names during a test.
+    from app import config
+
+    original = config._load_env_file
+
+    def app_names_only(path):
+        before = set(os.environ)
+        original(path)
+        for name in credentials.all_names():
+            if name not in APP_NAMES and name not in before:
+                os.environ.pop(name, None)
+
+    monkeypatch.setattr(config, "_load_env_file", app_names_only)

@@ -21,7 +21,41 @@ def invoke_structured(model_name, schema, system, payload, *, temperature=None):
 `OpenAIAstra.__init__(self, temperature: float | None = None)` reads
 `ORCHESTRATOR_ASTRA_TEMPERATURE` (default `0.7`) when the argument is `None`. Only `propose`
 and `generate_artifacts` pass the temperature; questions, briefs, advice, diagnosis, and docs
-stay at the model default. The fake doubles ignore temperature.
+stay at the model default. The fake doubles ignore temperature. `ORCHESTRATOR_ASTRA_TIMEOUT`
+(default 300 s, clamped 30–900) bounds one call; the old fixed 120 s lost a CloudFormation
+artifact to two timeouts in live run 1. Every Astra output model must pass OpenAI strict mode:
+no `dict[...]` field, every property required (`tests/test_astra_schemas.py`). The client
+retries once (`max_retries=1`); `invoke_structured` makes its own second attempt. A 429 with
+`insufficient_quota` / `credit_balance_exhausted` raises `AstraQuotaError` at once and passes
+through every node's broad `except`, so the session ends in `error` instead of generating on
+(live run 2 lost 40 minutes to that; `tests/test_quota.py`). `_client` sends
+`reasoning_effort` from `ORCHESTRATOR_ASTRA_REASONING` (default `low`; none, minimal, low,
+medium, high; empty sends nothing) because a reasoning model at its default effort spent one
+to three minutes per generated stage in live run 2; a model that rejects the field is retried
+without it, like `temperature`. `graph.generate_artifacts` writes the generated stages and the
+platform suite on `ORCHESTRATOR_ASTRA_CONCURRENCY` worker threads (default 4, 1–8) and
+assembles the update in pipeline order; Jev reviews stay serialized behind a lock because the
+router stamps `last_call` for `jev_event` (`tests/test_generation_speed.py`).
+
+## Workers (Sprint 4, 2026-11-04): Astra orchestrates, sub-agents execute
+
+`OpenAIAstra.assign_workers(payload) -> WorkerPlan` (prompt `WORKER_SYSTEM`) runs once per plan
+in `plan_pipeline`, after the runner plan: for every stage, and the pseudo-stage `pipeline` when
+a suite is wanted, Astra picks a model from `models_available` (`ORCHESTRATOR_ASTRA_WORKER_MODELS`,
+default `gpt-6.1-terra,gpt-6.1-sol`, plus the orchestrator model) and a `reasoning_effort`
+(none, minimal, low, medium, high). Code validates the answer: an unknown model becomes the
+orchestrator model, an unknown effort `ORCHESTRATOR_ASTRA_REASONING`, an unknown stage is
+ignored, and a failed call leaves every stage on the defaults with the reason in its rationale.
+The result is `pipeline.worker_plan`, `state.worker_plan`, and `stage["worker"]` on every stage
+(so it travels with the `Send`). `OpenAIAstra.worker(assignment) -> AstraWorker` is the stage's
+sub-agent: `brief`, `advise`, `diagnose`, `generate_artifacts`, `generate_suite` bound to that
+model and effort, with one fallback to the orchestrator model when the account cannot use the
+assigned one. The graph's `_worker_for(spec)` returns it (the planner itself for doubles
+without `worker`); the generation workers, the stage nodes, and the quality gate's diagnosis
+use it. The orchestrator keeps the questions, follow-ups, proposals, assignments, and the
+deploy document. The approval payload, the session view, the machine report (`worker_plan`),
+the report's "Workers" section, and the Platform panel show the assignments
+(`tests/test_workers.py`).
 
 ## Methods
 

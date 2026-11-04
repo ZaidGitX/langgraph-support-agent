@@ -140,6 +140,7 @@ function ConnectionCard({ group, open, onOpen, onChanged, compact }) {
             {open ? "Close" : "Connect"}
           </button>
           {group.verify ? <VerifyButton group={group} onChanged={onChanged} /> : null}
+          {group.key === "github" ? <SyncButton group={group} onChanged={onChanged} /> : null}
         </div>
       ) : null}
       {open ? <ConnectForm group={group} onChanged={onChanged} /> : null}
@@ -172,6 +173,45 @@ function VerifyButton({ group, onChanged }) {
       }}
     >
       {busy ? "Checking…" : "Verify"}
+    </button>
+  )
+}
+
+// Copies every present vault/.env value whose name is a GitHub secret into the repository's
+// Actions secrets, so a push-triggered run finds the platform credentials. Names only come back.
+function SyncButton({ group, onChanged }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      type="button"
+      className="tab"
+      disabled={busy}
+      title="Copy the values set here into this repository's Actions secrets (names only are shown)"
+      onClick={async () => {
+        setBusy(true)
+        try {
+          const response = await apiFetch(`/api/orchestrator/connections/${group.key}/sync`, { method: "POST", body: JSON.stringify({}) })
+          if (!response.ok) {
+            onChanged(await errorDetail(response))
+            return
+          }
+          const sync = (await response.json()).sync || {}
+          const parts = [`${sync.repository}: synced ${sync.synced && sync.synced.length ? sync.synced.join(", ") : "nothing"}`]
+          if (sync.skipped && sync.skipped.length) {
+            parts.push(`no value here for ${sync.skipped.join(", ")}`)
+          }
+          if (sync.failed && sync.failed.length) {
+            parts.push(`failed ${sync.failed.join("; ")}`)
+          }
+          onChanged(parts.join("; "))
+        } catch {
+          onChanged("The sync call could not be sent.")
+        } finally {
+          setBusy(false)
+        }
+      }}
+    >
+      {busy ? "Syncing…" : "Sync secrets to GitHub"}
     </button>
   )
 }

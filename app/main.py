@@ -28,7 +28,12 @@ async def lifespan(app: FastAPI):
             print(f"Orchestrator vault: {len(exported)} name(s) loaded", flush=True)
     except vault.VaultError as exc:
         print(f"Orchestrator vault is unreadable: {exc}", flush=True)
-    service = SessionService()
+    # A push-triggered run works on the pushed checkout (docker-compose.ci.yml mounts it and
+    # sets ORCHESTRATOR_REPO_ROOT), not on the image's copy of the app.
+    repo_root = os.getenv("ORCHESTRATOR_REPO_ROOT", "").strip() or None
+    service = SessionService(repo_root=repo_root)
+    if repo_root:
+        print(f"Orchestrator runs on {repo_root}", flush=True)
     app.state.sessions = service
     if os.getenv("ORCHESTRATOR_AUTOSTART") == "1":
         service.start(trigger={"source": "autostart"})

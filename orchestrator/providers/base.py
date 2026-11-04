@@ -215,7 +215,15 @@ class BaseProvider:
         else:
             present, missing = [], []
         cli_ok = bool(cli_path) if self.cli else True
-        ready = cli_ok and not missing
+        # A CLI that proved it is signed in (device-code login, `aws login`, a named profile) is
+        # ready even when the static key names are unset; see credentials.group_status.
+        verified = False
+        if self.credential_group:
+            from .. import connect
+
+            checked = connect.verified(self.credential_group) or {}
+            verified = bool(checked.get("ok"))
+        ready = cli_ok and (not missing or verified)
         return ProviderStatus(
             runner=self.runner,
             cli=cli_ok,
@@ -264,19 +272,25 @@ class BaseProvider:
         """Commands that create the platform objects a suite needs. Placeholders by name."""
         return []
 
-    def prepare_provision(self, records: list[dict], cwd: str, answers: dict) -> str:
-        """Hook run before an apply (for example zip the checkout for S3). Returns a note."""
+    def prepare_provision(self, records: list[dict], cwd: str, answers: dict, bundle: list[dict] | None = None) -> str:
+        """Hook run before an apply (for example zip the checkout for S3). Returns a note.
+
+        ``bundle`` is every generated record of the run (suite first); a provider that uploads
+        the source packs it so platform builds find the generated stages' scripts.
+        """
         return ""
 
-    def provision(self, records: list[dict], cwd: str, *, mode: str, answers: dict) -> ProvisionResult:
+    def provision(self, records: list[dict], cwd: str, *, mode: str, answers: dict, bundle: list[dict] | None = None) -> ProvisionResult:
         argvs = self.provision_commands(records, cwd, answers or {})
         status = self.detect()
         if not argvs:
             return ProvisionResult(self.runner, "provision", "skipped", mode, evidence="nothing to provision for this runner")
         if mode != "apply" or status.mode != "apply":
             note = "planned: " + ("missing " + ", ".join(status.missing) if status.missing else "cloud apply is off")
+            if bundle:
+                note += f"; {len(bundle)} generated file(s) travel with the source"
             return ProvisionResult(self.runner, "provision", "planned", "plan", argvs, missing=list(status.missing), evidence=note)
-        note = self.prepare_provision(records, cwd, answers or {})
+        note = self.prepare_provision(records, cwd, answers or {}, bundle)
         commands = [
             {"argv": expand_env(argv), "timeout": 600, "label": f"{self.runner}:provision:{position + 1}"}
             for position, argv in enumerate(argvs)

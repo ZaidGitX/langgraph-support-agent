@@ -226,6 +226,24 @@ class RunnerDecision(BaseModel):
     rationale: str
 
 
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high"]
+
+
+class WorkerAssignment(BaseModel):
+    """One stage's sub-agent (Sprint 4): the model and reasoning effort Astra, as the
+    orchestrator, gives the worker that writes, briefs, advises on, and diagnoses that stage."""
+
+    stage: str
+    model: str
+    reasoning_effort: ReasoningEffort
+    rationale: str
+
+
+class WorkerPlan(BaseModel):
+    workers: list[WorkerAssignment] = Field(min_length=1, max_length=40)
+    rationale: str = ""
+
+
 class ArtifactSet(BaseModel):
     stage: str
     artifacts: list[GeneratedArtifact] = Field(min_length=1, max_length=6)
@@ -239,15 +257,15 @@ class PipelineSuite(BaseModel):
     pipeline file with a stage per fixed stage (Jenkins, Cloud Build, Azure Pipelines) or one
     buildspec per stage (CodeBuild), plus scripts, a provisioning document, and a deploy
     stack where the platform needs them. Secrets only by placeholder name.
+
+    The file that runs each stage is derived from the written paths (``suite.stage_file``), not
+    reported by the model: a free-form mapping is not allowed in OpenAI strict structured
+    output (the first live AWS run failed on exactly that, 2026-11-03).
     """
 
     platform: str
     runner: str
     artifacts: list[GeneratedArtifact] = Field(min_length=1, max_length=14)
-    stage_files: dict[str, str] = Field(
-        default_factory=dict,
-        description="Stage name to the artifact path that runs it (buildspec-<stage>.yml, or the pipeline file).",
-    )
     notes: str = ""
 
 

@@ -147,6 +147,47 @@ through `Dashboard` (`initialSession` prop). Items that need real Astra and Jev 
 - [ ] Variants A, B, and C with real keys (OpenAI, TypeSafe, and for C a valid `gh` token):
       not rehearsed here; they spend the user's API usage and are the user's call.
 
+## Sprint 4 acceptance checklist (phases 8–12)
+
+- [x] Connections: a device-code login flow and a vault write never put a value in a response,
+      a log, or readiness (`tests/test_vault.py`, `tests/test_connections_api.py`).
+- [x] `ORCHESTRATOR_UI_TOKEN` guards every mutating route; the push workflow passes the
+      repository secret through.
+- [x] The image carries aws, az, gcloud, kubectl, gh (built and checked on 2026-11-03).
+- [x] `ORCHESTRATOR_DISPATCH=platform`: the fixed stages run through the generated suite on
+      aws and jenkins in plan mode (`tests/test_suite.py`, rehearsal scenarios
+      `aws_platform`, `jenkins_platform`); local and github dispatch are unchanged.
+- [x] Provisioning and injection are planned on the approval screen and applied after
+      approval, before the first wave; a value never sits on an argv.
+- [x] `orchestrator.yaml` answers the questions and approves; an unmatched question, a low
+      confidence, or a policy error waits for a person; UAT is never automatic
+      (`tests/test_autopilot.py`, rehearsal `autopilot`).
+- [x] A signed push from any host clones the commit into a workspace and starts or queues a
+      run; unsigned pushes are refused; the poller starts a run for a moved branch only
+      (`tests/test_webhooks.py`).
+- [x] The dashboard shows stages as running while they run, every event in the timeline, and
+      the SSE feed with polling fallback (`tests/test_live.py`, SSR smoke of captured views).
+- [ ] AWS live run with the user's account: bootstrap, connect, apply, tear down; results
+      recorded in the runbook. Carded first. (Run 1 on 2026-11-03 reached the approval gate and
+      was rejected: suite strict-schema error, infra_plan timeout, generated stages bound to a
+      project nothing provisioned. All three fixed. The first attempt at run 2 stopped at the
+      questions gate: Astra recalled run 1 and skipped env_platform/env_target, which only
+      this run's answers fed; fixed by episode `answered` recall, `recalled_answers`, and the
+      answer endpoint accepting the two ids. Run 2 proper (19:22–20:05 CST) wrote six stage
+      sets, then the OpenAI account ran out of credits: the suite and the seventh stage failed
+      with insufficient_quota, every stage fell back to the host, the run was rejected, no AWS
+      call. Hardened: AstraQuotaError stops a run at once; client retries capped at one. Run 3
+      (2026-11-04, 08:49–09:10 CST) ran from server start-up: questions in 10 s, plan 70 s
+      after the answers, Astra assigned the workers (terra minimal for fixed stages, sol
+      medium/high for generated ones, gpt-6-astra high for the suite), generation 10 min on
+      four threads; rejected once for a suite that turned privilegedMode off and two empty
+      AWS_REGION lines; the re-plan regenerated in 3.4 min and was approved; the provider
+      bootstrapped the account itself and uploaded the source, then `create-project` refused a
+      268-character description. No build started. Hardened: project document forced
+      privileged and cut to 255, empty region lines dropped, skeleton without `$REGION`,
+      five-minute budget in the worker prompt (`tests/test_hardening.py`). The next attempt
+      needs a new card.)
+
 ## Pitfalls seen in this repo
 
 - The Responses API path rejects `temperature` for some models: `invoke_structured` retries

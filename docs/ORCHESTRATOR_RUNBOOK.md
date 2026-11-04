@@ -99,7 +99,7 @@ Results list only the approved stages. Reloading on any phase shows the same scr
 
 The idle screen and the Connections button open one card per platform. Each card shows the CLI, the verified state, and which names are set and from where. Two ways to connect:
 
-- **Device-code login.** For GitHub (`gh auth login --web`), Azure (`az login --use-device-code`), AWS IAM Identity Center (`aws sso login --use-device-code --profile …`, needs `AWS_PROFILE`), and Google Cloud (`gcloud auth login --no-launch-browser`, paste the verification code back). The CLI runs on the orchestrator host; the page shows the URL and the one-time code; the vendor CLI keeps the resulting credentials in its own store. The Docker image carries all four CLIs (about 3 GB; `docker build --build-arg WITH_CLOUD_CLIS=0 .` gives the slim image, where every cloud runner stays in plan mode).
+- **Device-code login.** For GitHub (`gh auth login --web`), Azure (`az login --use-device-code`), AWS (`aws login --remote --profile …`, needs `AWS_PROFILE`: open the URL, sign in as an IAM user or the root user, paste the authorization code back; Identity Center users run `aws sso login --profile …` in a terminal), and Google Cloud (`gcloud auth login --no-launch-browser`, paste the verification code back). The CLI runs on the orchestrator host; the page shows the URL and the one-time code; the vendor CLI keeps the resulting credentials in its own store. The Docker image carries all four CLIs (about 3 GB; `docker build --build-arg WITH_CLOUD_CLIS=0 .` gives the slim image, where every cloud runner stays in plan mode).
 - **Vault form.** For token-style platforms (Jenkins, SSH, Kubernetes, scanner services, static AWS or GCP keys). Values are encrypted on the host (`var/vault/secrets.enc`, key `ORCHESTRATOR_VAULT_KEY` or `var/vault/.key`), exported to the running service at once, and never displayed again. Forget removes one.
 
 Verify runs the platform's whoami command and the card turns `apply` when it passes, even when the static key names are unset. Nothing in a response, a log, a report, or a prompt ever carries a value.
@@ -127,11 +127,95 @@ Set `ORCHESTRATOR_AUTOPILOT=0` to ignore the profile for a run you want to walk 
 
 The dashboard shows what triggered the run, how many gates autopilot answered, every autopilot decision under Results, and how many pushes are waiting.
 
+**A push goes where the profile says (live run 4).** `platform` and `tier` in `orchestrator.yaml` are not only answers: the push workflow's first step runs `scripts/profile_env.py` (standard library only) and exports `ORCHESTRATOR_DISPATCH=platform` and `ORCHESTRATOR_CLOUD_APPLY=1` for `jenkins`, `aws`, `gcp`, or `azure` (`github` and `0` for `local`), plus the profile's `config:` block (registry names of kind `config` only, such as `AWS_REGION`; a secret in that block is skipped). The session exports the same config names where the host leaves them empty, so `docker compose up` on a laptop behaves like the runner. The workflow layers `docker-compose.ci.yml` so the orchestrator works on the pushed checkout (mounted at `/workspace`, `ORCHESTRATOR_REPO_ROOT`) and not on the image's copy of the app. Credentials never come from a file: Connections → github → **Sync secrets to GitHub** (or `python -m orchestrator.connect sync-github`) copies every value present on the host whose name is marked `github_secret` in the registry into the repository's Actions secrets, the value on stdin and names only in the response; the workflow passes those secrets through to Compose. `ORCHESTRATOR_UI_TOKEN` is one of them: the tunnel URL is public, so keep one in the vault and the dashboard asks for it once per tab. The job allows 120 minutes and the session 90.
+
 Three ways a push reaches the orchestrator:
 
-1. **GitHub Actions** (`orchestrator.yml`), unchanged.
+1. **GitHub Actions** (`orchestrator.yml`): checkout, profile step, Compose, tunnel, wait.
 2. **Webhook.** Point the host at `POST <orchestrator>/api/orchestrator/hooks/push` with the `ORCHESTRATOR_WEBHOOK_SECRET` value as the HMAC secret (GitHub, Gitea, Bitbucket) or the token (GitLab). The orchestrator clones the pushed commit into `var/workspaces/<slug>` (private HTTPS remotes need `GIT_REMOTE_USER` and `GIT_REMOTE_TOKEN` in the vault; SSH remotes `SSH_KEY_PATH`) and starts the run there. A push that arrives while a run is active waits in the queue. `remotes.branches` in the profile filters branches. For a bare remote on any host, install `scripts/git-post-receive.sample`.
 3. **Polling.** Set `ORCHESTRATOR_WATCH_REMOTE` (and `ORCHESTRATOR_WATCH_INTERVAL`) when the host cannot reach the orchestrator; the service runs `git ls-remote` on the interval and starts a run when a watched branch moves.
+
+## AWS live run (Sprint 4, phase 12)
+
+The platform proof with a real account. Every apply is a decision; nothing below runs on its own.
+
+1. **Connect.** In the dashboard, Connections → aws: the console login (`aws login --remote`, paste the authorization code back) with `AWS_PROFILE` set, or the static key names in the vault. Verify shows `apply`. Set the config names `AWS_REGION`, `AWS_S3_BUCKET`, `AWS_ECR_REPOSITORY`, `AWS_CODEBUILD_PROJECT`.
+2. **Nothing to bootstrap by hand.** On the first apply the orchestrator itself, with the vault credentials, reads the account id, derives any unset name (`langgraph-orchestrator-<account>` for the bucket, the app name for the ECR repository, `langgraph-support-app-orchestrator` for the project), creates the bucket (public access blocked), the repository, and the scoped CodeBuild service role (`<project>-codebuild-role`: its logs, the bucket, the repository, `langgraph-support-app/*` secrets, and the CloudFormation, ECS, EC2, log-group, and task-role calls a Fargate deploy of the generated stack needs, all scoped to names prefixed with the app name), then creates or updates the project. A role you configure in `AWS_CODEBUILD_ROLE_ARN` under another name is left alone. `scripts/aws_bootstrap.sh` remains as a manual fallback that prints the same policy.
+3. **Run.** `ORCHESTRATOR_DISPATCH=platform ORCHESTRATOR_CLOUD_APPLY=1`, platform `aws`, tier `dev`. After Jev's choice Astra, as the orchestrator, assigns every stage (and the suite) a sub-agent: a model from `ORCHESTRATOR_ASTRA_WORKER_MODELS` (default `gpt-6.1-terra,gpt-6.1-sol`, the orchestrator model is always an option) and a reasoning effort; the Platform panel and the report list the assignments, and each stage's worker writes its files, briefs it, reads its findings, and diagnoses its failure at that model and effort. After approval the orchestrator uploads the source zip (the checkout plus every generated file of the run, suite first) to `s3://<bucket>/orchestrator/<run>/source.zip`, creates the CodeBuild project from the generated document, then starts one CodeBuild build per stage bound to CodeBuild, fixed or generated, with its generated buildspec and polls it. When the suite cannot be generated, every stage bound to the platform runs on the host instead and the approval screen says so. One Astra call may take `ORCHESTRATOR_ASTRA_TIMEOUT` seconds (default 300). A stage file binds a secret only when the stage needs it and the name has a value on the orchestrator host (never the AWS keys themselves: inside CodeBuild the service role is the identity); before the first build the orchestrator creates or updates `langgraph-support-app/NAME` in Secrets Manager for exactly the names the files bind, and a failed injection stops the run. `deploy` only creates a CloudFormation change set (`--no-execute-changeset`); executing it is a person's call. UAT waits in the dashboard. Speed (after live run 2): Astra writes the generated stages and the suite concurrently (`ORCHESTRATOR_ASTRA_CONCURRENCY`, default 4) at reasoning effort `ORCHESTRATOR_ASTRA_REASONING` (default `low`; a model that rejects the field is retried without it), every CodeBuild build caches pip and npm in the bucket (`orchestrator/cache`) and is stopped by the orchestrator after 20 minutes (`timeoutInMinutes` 20 in the project), and `ORCHESTRATOR_AUTOSTART=1` starts the checkout and the questions as soon as the server is up, so the dashboard shows the run from its first node.
+4. **Tear down.** `scripts/aws_teardown.sh` prints what a run created (the project, its log group, the uploads); `--apply` removes them, `--all` also the bootstrap resources.
+
+Cost: CodeBuild `BUILD_GENERAL1_SMALL` minutes for each stage build (a few cents per run), S3 and CloudWatch Logs at cents, no ECS unless a deploy stage creates the stack (then roughly five to ten cents an hour until `scripts/aws_teardown.sh --apply` removes it).
+
+### Live run 1 (2026-11-03): rejected at the approval gate, nothing applied
+
+Bootstrap applied once in the user's account (us-east-1): the source bucket, the ECR repository,
+and the CodeBuild service role. The run (`ORCHESTRATOR_DISPATCH=platform ORCHESTRATOR_CLOUD_APPLY=1
+ORCHESTRATOR_AUTOPILOT=0`, answers dev / aws) reached the approval gate in about 25 minutes:
+Astra's five questions, Jev `proceed` (no follow-up), the stochastic candidate ranked at 0.75,
+and five generated stage sets (frontend_build, build_image, container_scan, sbom, tag_release)
+written and accepted with the policy clean. Three defects stopped it there, so the pipeline was
+rejected and no AWS call was made (spend 0):
+
+1. The suite failed before any apply: OpenAI strict structured output refused `PipelineSuite`
+   because `stage_files` was a free-form mapping. The fixed `build` and `test` stages fell back
+   to the host as designed, and nothing would have provisioned the CodeBuild project.
+2. `infra_plan` was dropped after two 120 s client timeouts on its CloudFormation artifact.
+3. The generated stages stayed bound to `aws_codebuild` and would have called `start-build` on a
+   project that did not exist; the source upload would not have carried their scripts.
+
+Fixed before run 2: `PipelineSuite` no longer carries the mapping (the file per stage is derived
+from the written paths; `tests/test_astra_schemas.py` checks every Astra model against strict
+mode); `ORCHESTRATOR_ASTRA_TIMEOUT` (default 300 s) bounds a call; the source zip packs every
+generated file of the run (`suite.provision_bundle`); a stage bound to the platform falls back to
+the host together with the fixed stages whenever the suite is absent; the AWS connection uses
+`aws login --remote` (the console flow) instead of `aws sso login`.
+
+The first attempt at run 2 stopped at the questions gate before any plan: Astra recalled run 1
+and asked three questions without `env_platform` or `env_target`, the orchestrator reads only
+the current run's answers, so the plan would have routed to the local host, and the answer
+endpoint refused the extra ids. Fixed before the next attempt: an episode keeps what the
+person answered for the environment (`answered`), `clarify_with_user` reuses the newest
+episode's platform and tier when Astra skipped those questions (shown as a `recall` note in
+the timeline), `POST /session/answer` accepts `env_target` and `env_platform` even when not
+asked (validated), and the question prompt says when the two may be skipped.
+
+### Live run 2 (2026-11-03, 19:22–20:05 CST): stopped on exhausted OpenAI credits, nothing applied
+
+Verify passed (the IAM user, mode `apply`). Astra recalled run 1 and asked three questions;
+the platform and tier were posted alongside them. Jev ranked `registry_free_aws_dev_image_delivery`
+(0.80): seven generated stages on CodeBuild plus the fixed build and test. Astra wrote six stage
+sets (23 files, every review `accept`, policy clean) in 40 minutes, the last one after a
+30-minute stretch of client retries. Then the OpenAI account ran out of credits: the seventh
+stage (`post_deploy_smoke`) and the platform suite both failed with `insufficient_quota`, the
+host fallback moved every stage to the local runner and said so on the approval screen, and
+the run was rejected at the gate as the out-of-credits rule requires. No AWS call was made.
+Hardened afterwards: a quota error stops the run at once instead of generating on, and the
+OpenAI client retries once, not twice, so a failing call cannot hold a stage for half an hour.
+Run 3 needs credits and a new card.
+
+### Live run 3 (2026-11-04, 08:49–09:10 CST, run 66bb3af8): provisioning failed on a 268-character project description, no build started
+
+Started from server start-up (`ORCHESTRATOR_AUTOSTART=1`): questions 10 s after the first node,
+answers posted 46 s later (platform and tier with them), Jev `proceed` without a follow-up,
+plan `aws_dev_scanned_release` chosen 70 s after the answers (nine generated stages, three
+fixed stages on CodeBuild, UAT local). Astra, as the orchestrator, assigned the workers:
+`gpt-6.1-terra` at minimal effort for the fixed stages, `gpt-6.1-sol` at medium or high for
+the generated ones, `gpt-6-astra` at high for the suite. Generation ran on four threads and
+took 10 minutes (the high-effort workers); every review `accept`, policy clean, suite `ok`.
+Rejected at the gate for two file defects: the suite had turned `privilegedMode` off (the
+image stages run docker) and two buildspecs set `AWS_REGION` to an empty string (the
+generated-stage skeleton carried `$REGION`, which has no value at that point). The re-plan
+kept the route (`aws_codebuild_preserved_route`, one more stage), regenerated in 3.4 minutes,
+and was approved at 09:09. Provisioning then bootstrapped the account itself (bucket,
+repository, and role already there; role policy set), uploaded `source.zip` (1.3 MiB, 256
+checkout files plus 16 generated), confirmed the repository, and failed on
+`create-project`: "Max description length is 255" (the template sentence added that morning
+plus Astra's own sentence). The run escalated; no build started; AWS spend: one upload and
+one `put-role-policy`. Fixed the same hour: the project document is hardened in code
+(`privilegedMode` forced on, the description cut to 255), the generated-stage skeleton no
+longer sets `AWS_REGION` (the project supplies it) and an empty one is dropped in code, the
+worker prompt carries the five-minute budget, and `tests/test_hardening.py` pins all of it.
+The next attempt needs a new card.
 
 ## Rehearsal (offline, before the live run)
 

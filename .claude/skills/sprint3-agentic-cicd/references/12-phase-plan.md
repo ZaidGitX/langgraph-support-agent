@@ -154,6 +154,16 @@ Commit: `Sprint 4 phase 11: live dashboard with streamed events`.
 
 ## Phase 12 — AWS live proof, rehearsal, docs
 
+- `scripts/aws_bootstrap.sh` (plan by default, `--apply`: bucket, ECR repository, CodeBuild
+  service role with a minimal policy; prints `AWS_CODEBUILD_ROLE_ARN`) and
+  `scripts/aws_teardown.sh` (`--apply`, `--all`). The orchestrator never creates IAM.
+- `scripts/rehearse_demo.py` scenarios `aws_platform` and `jenkins_platform` (plan mode).
+- Runbook "AWS live run": connect, bootstrap, run with `ORCHESTRATOR_DISPATCH=platform
+  ORCHESTRATOR_CLOUD_APPLY=1`, tear down; the live result is appended there.
+- The live run itself is carded (what applies, expected cost, caps, teardown) and runs only on
+  the user's yes; `deploy` creates a change set only.
+Commit: `Sprint 4 phase 12: AWS live proof, rehearsal, docs`.
+
 ## Resuming after a break
 
 1. `git log --oneline | head`, `git status --short`.

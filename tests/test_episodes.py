@@ -151,3 +151,25 @@ def test_fake_run_records_an_episode_and_the_next_run_recalls_it(tmp_path):
     assert first["run_id"] in second["report"]
     assert "all 4 stages passed" in second["report"]
     assert [item["run_id"] for item in episodes.recall(root)] == [second["run_id"], first["run_id"]]
+
+
+def test_episode_keeps_the_answered_environment_and_old_rows_migrate(tmp_path):
+    import sqlite3
+
+    root = str(tmp_path)
+    db = str(tmp_path / "episodes.sqlite")
+    old_sql = episodes.TABLE_SQL.replace(",\n  answered_json TEXT", "")
+    assert old_sql != episodes.TABLE_SQL
+    with sqlite3.connect(db) as connection:
+        connection.execute(old_sql)
+        connection.execute(
+            "INSERT INTO episodes VALUES (" + ",".join("?" * 18) + ")",
+            ("run-old", root, "main", "abc", 1.0, 2.0, "passed", "local", "dev", "x", "deterministic", "[]", "[]", "[]", "[]", "[]", 0, "lesson"),
+        )
+    state = _state(root, "run-new")
+    state["answers"] = {"env_target": "dev", "env_platform": "aws", "test_depth": "unit"}
+    episodes.record(state, "escalated", db_path=db)
+    recalled = episodes.recall(root, db_path=db)
+    assert [item["run_id"] for item in recalled] == ["run-new", "run-old"]
+    assert recalled[0]["answered"] == {"env_target": "dev", "env_platform": "aws"}
+    assert recalled[1]["answered"] == {}

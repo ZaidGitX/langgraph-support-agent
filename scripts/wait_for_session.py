@@ -57,8 +57,8 @@ def wait_for(
             return 0
         sleep(10)
     print(
-        "Session timed out after 60 minutes waiting for ecosystem answers and the results screen. "
-        "No canned answers were submitted.",
+        f"Session timed out after {int(timeout_seconds // 60)} minutes waiting for ecosystem answers "
+        "and the results screen. No canned answers were submitted.",
         flush=True,
     )
     return 1

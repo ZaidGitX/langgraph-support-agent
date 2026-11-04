@@ -20,7 +20,7 @@ Per group, two optional blocks. Names only; `$NAME` is expanded at run time.
 | Group | Login | Verify |
 | --- | --- | --- |
 | github | `gh auth login --hostname github.com --git-protocol https --web` | `gh auth status` |
-| aws | `aws sso login --use-device-code --profile $AWS_PROFILE` (requires `AWS_PROFILE`) | `aws sts get-caller-identity` |
+| aws | `aws login --remote --profile $AWS_PROFILE` (requires `AWS_PROFILE`; `input`: the authorization code from the browser pasted back; the console flow for an IAM user or root, Identity Center users run `aws sso login` in a terminal) | `aws sts get-caller-identity` |
 | azure | `az login --use-device-code` | `az account show` |
 | gcp | `gcloud auth login --no-launch-browser` (`input`: verification code pasted back) | `gcloud auth list --filter=status:ACTIVE` |
 | jenkins | none (vault form) | HTTP `GET $JENKINS_URL/api/json` with basic auth |
@@ -57,6 +57,14 @@ New names: `ORCHESTRATOR_VAULT_KEY`, `ORCHESTRATOR_UI_TOKEN`, `ORCHESTRATOR_WEBH
   `authenticated`, `checked_at`, and `mode: apply` when the CLI is present and verified even
   if the static key names are missing. Nothing in readiness or the checkout node calls the
   network.
+- `sync_secrets("github", groups=, names=, env=, runner=)` (phase 12, live run 4): copies the
+  values present on the host (vault, `.env`, environment) whose names are `github_secret` in
+  the registry into the repository's Actions secrets, one `gh secret set NAME --body-file -
+  --repo owner/name` per name with the value on stdin (never on an argv). The repository comes
+  from `GITHUB_REPOSITORY` or, for the live environment, the origin remote. The result names
+  names only: `synced`, `skipped` (no value here), `failed` (name plus a redacted one-line
+  reason). `python -m orchestrator.connect sync-github [--group aws]` is the shell form.
+  `ORCHESTRATOR_UI_TOKEN` is `github_secret: true` so a vault token reaches the push workflow.
 
 ## API (`app/orchestrator_api.py`)
 
@@ -67,6 +75,7 @@ New names: `ORCHESTRATOR_VAULT_KEY`, `ORCHESTRATOR_UI_TOKEN`, `ORCHESTRATOR_WEBH
 | `DELETE /connections/{group}/secrets/{name}` | forgets the vault copy |
 | `POST /connections/{group}/login` → `GET …/login/{flow_id}` → `POST …/login/{flow_id}/input` / `…/cancel` | the flow as `as_dict()` |
 | `POST /connections/{group}/verify` | `{verified, connection}` |
+| `POST /connections/github/sync` `{groups?, names?}` | `{sync: {repository, synced, skipped, failed, at}, connection}`; 409 for another group. The Connections card shows "Sync secrets to GitHub". |
 
 `require_token`: when `ORCHESTRATOR_UI_TOKEN` is set, every route on the `mutating` router
 (session start, answer, viewed, public-url, all connection writes) needs

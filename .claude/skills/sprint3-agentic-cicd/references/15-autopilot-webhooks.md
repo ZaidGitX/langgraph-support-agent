@@ -12,6 +12,21 @@ require_review_accept}`, `remotes {branches, webhook_secret_name, poll_interval_
 `load(root)` returns `None` without a file and raises `ProfileError` on an invalid one (the
 session then runs with autopilot off and shows the error).
 
+Phase 12 (2026-11-04, live run 4): the profile also decides where a push goes. `config`
+(`dict[str, str]`) carries registry names of kind `config` only (`AWS_REGION: us-east-1`); a
+secret kind or an unknown name is a `ProfileError`. `dispatch_for(platform)` is `platform`
+for `CLOUD_PLATFORMS = (jenkins, aws, gcp, azure)` and `github` otherwise; `workflow_env(profile)`
+is what the push workflow exports before `docker compose up` (`ORCHESTRATOR_PROFILE_PLATFORM`,
+`ORCHESTRATOR_PROFILE_TIER`, `ORCHESTRATOR_DISPATCH`, `ORCHESTRATOR_CLOUD_APPLY`, the config
+names); `scripts/profile_env.py` prints the same lines with the standard library (the runner
+has no PyYAML or pydantic; `tests/test_profile_env.py` keeps the two in step and a forbidden
+tier exits the step). `apply_config(profile, env)` sets a config name only where the
+environment is unset or empty (Compose passes every placeholder as `""`). The committed
+profile says `platform: aws`, `tier: dev`, with the ECS answers (create the cluster and the
+service from the generated stack when absent). The workflow layers `docker-compose.ci.yml`
+(the pushed checkout at `/workspace`, `ORCHESTRATOR_REPO_ROOT`; `app/main.py` hands it to
+`SessionService`) and makes `var/` writable for the image's `appuser`.
+
 `answer_for(profile, question)`: `by_id` → `env_platform`/`env_target` defaults from the
 profile → first `by_topic` keyword found in the id or prompt → `None`.
 `approval(profile, view)` → `(ok, reason)`: approve on, no artifact policy error, every
@@ -26,7 +41,8 @@ forbidden target among the stages.
   (`_start_next` from the run thread). `view.trigger` records `source`
   (`manual|autostart|webhook|poll`), `repo`, `ref`, `sha`, `received_at`.
 - `_load_profile()` at every start; `view.autopilot` = `{enabled, profile, platform, tier,
-  approve, answer_questions, min_confidence, events[]}`.
+  approve, answer_questions, min_confidence, config[], events[]}`. The profile's config names
+  are exported (`apply_config`) even when `ORCHESTRATOR_AUTOPILOT=0` disables the answers.
 - `_autopilot(payload)` runs after every interrupt is published: question gates → answers
   through `_resume_for` (same validation as the HTTP route) or a `human` event naming the
   unmatched ids; `pipeline_approval` → `{"decision": "approved", "by": "autopilot"}` when

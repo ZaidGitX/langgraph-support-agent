@@ -10,9 +10,17 @@ permissions:
 jobs:
   session:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read the run profile
+        # orchestrator.yaml decides where this push goes: ORCHESTRATOR_DISPATCH, cloud apply,
+        # and the config names a platform needs (AWS_REGION, ...). Secrets stay repository
+        # secrets. The container's user writes var/ (generated files, retrieval cache, source zip).
+        run: |
+          python3 scripts/profile_env.py | tee -a "$GITHUB_ENV"
+          mkdir -p var && chmod a+rwx var
 
       - name: Start the Compose application
         env:
@@ -49,12 +57,14 @@ jobs:
           GITHUB_REF: ${{ github.ref }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_SHA: ${{ github.sha }}
-          ORCHESTRATOR_DISPATCH: github
+          # ORCHESTRATOR_DISPATCH and ORCHESTRATOR_CLOUD_APPLY come from the profile step above.
           ORCHESTRATOR_AUTOSTART: "1"
-          # The tunnel URL is public. Set this repository secret and the dashboard asks for the
+          # The tunnel URL is public. Set this repository secret (the Connections panel's
+          # "Sync secrets to GitHub" copies the vault's value) and the dashboard asks for the
           # same value once per tab before it accepts any change. Unset = open, as before.
           ORCHESTRATOR_UI_TOKEN: ${{ secrets.ORCHESTRATOR_UI_TOKEN }}
-        run: docker compose up -d --build --wait
+        # docker-compose.ci.yml mounts the pushed checkout: the run works on the pushed tree.
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build --wait
 
       - name: Install cloudflared
         run: |
@@ -63,7 +73,9 @@ jobs:
 
       - name: Open the tunnel and wait for the UI session
         env:
-          SESSION_TIMEOUT_SECONDS: "3600"
+          # A platform run (provisioning, one CodeBuild build per stage in waves, deploy, UAT)
+          # needs more than the hour a host-only run took.
+          SESSION_TIMEOUT_SECONDS: "5400"
           APP_LOCAL_URL: http://127.0.0.1:8000
           ORCHESTRATOR_UI_TOKEN: ${{ secrets.ORCHESTRATOR_UI_TOKEN }}
         run: |
@@ -107,4 +119,4 @@ jobs:
 
       - name: Stop the application
         if: always()
-        run: docker compose down
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down

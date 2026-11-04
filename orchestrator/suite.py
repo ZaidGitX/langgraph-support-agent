@@ -11,11 +11,14 @@ person sees it before approval. Files are written under ``var/generated/<run>/pi
 
 from __future__ import annotations
 
+import json
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
 from . import credentials, generator, policy, scanners, templates
+from .llm import AstraQuotaError
 from .schemas import ArtifactReview, PipelineSuite, PolicyResult
 from .state import STAGE_NAMES, platform_of, target_of
 
@@ -167,12 +170,58 @@ def _azure_block(stage: dict, previous: str) -> str:
     )
 
 
+def injectable_secrets(names: list[str], platform: str) -> list[str]:
+    """The secret names a suite may reference: ones the orchestrator will inject before a build.
+
+    A reference the platform cannot resolve fails the build at its start (CodeBuild resolves
+    every ``secrets-manager`` entry first), so a stage file may name only a secret that has a
+    value on the orchestrator host (vault or environment) and is not the platform's own CLI
+    identity (inside the platform the service role or the agent is the identity, and static
+    keys would override it).
+    """
+    own = set(credentials.names_for(platform)) if platform in credentials.groups() else set()
+    return [
+        name
+        for name in dict.fromkeys(names)
+        if credentials.kind_of(name) == "secret" and name not in own and credentials.is_present(name)
+    ]
+
+
+_REFERENCE_FORMS = (
+    re.compile(re.escape(templates.APP_NAME) + r"/([A-Z][A-Z0-9_]*)"),  # CodeBuild secrets-manager, Secrets Manager ids
+    re.compile(r"credentials\(['\"]([A-Z][A-Z0-9_]*)['\"]\)"),  # Jenkins
+    re.compile(r"secrets/([A-Z][A-Z0-9_]*)/versions"),  # Cloud Build availableSecrets
+    re.compile(r"\$\(([A-Z][A-Z0-9_]*)\)"),  # Azure Pipelines variable groups
+)
+
+
+def referenced_secrets(items: list) -> list[str]:
+    """Secret names a set of suite files binds by reference (artifacts or stored records).
+
+    Only an explicit platform binding counts (``APP/NAME``, ``credentials('NAME')``,
+    ``secrets/NAME/versions``, ``$(NAME)``); an env manifest's ``NAME=`` line does not. This
+    is what secret injection copies into the platform's store: exactly what the files use.
+    """
+    found: set[str] = set()
+    for item in items:
+        content = str(item.get("content") if isinstance(item, dict) else getattr(item, "content", "") or "")
+        for pattern in _REFERENCE_FORMS:
+            found.update(name for name in pattern.findall(content) if credentials.kind_of(name) == "secret")
+    return sorted(found)
+
+
+def _names_for_stage(stage_name: str, placeholders: list[str]) -> list[str]:
+    """The placeholders minus the scanner names of tools this stage does not run."""
+    mine = {name for tool in SCANNER_TOOLS.get(stage_name, ()) for name in scanners.env_names(tool)}
+    others = {name for tools in SCANNER_TOOLS.values() for tool in tools for name in scanners.env_names(tool)} - mine
+    return [name for name in placeholders if name not in others]
+
+
 def _secrets_manager_lines(names: list[str]) -> str:
-    secret_names = [name for name in names if credentials.kind_of(name) == "secret"]
-    if not secret_names:
+    if not names:
         return "  # secrets-manager references go here by NAME when a stage needs one"
     lines = ["  secrets-manager:"]
-    lines.extend(f"    {name}: \"{templates.APP_NAME}/{name}\"" for name in secret_names)
+    lines.extend(f"    {name}: \"{templates.APP_NAME}/{name}\"" for name in names)
     return "\n".join(lines)
 
 
@@ -204,7 +253,7 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
                 extra={
                     "STAGE_COMMANDS": "\n".join(f"      - {line}" for line in command_hints(name)),
                     "WORKFLOW_FILE": WORKFLOW_FOR_STAGE.get(name, f"{name}.yml"),
-                    "SECRETS_MANAGER_LINES": _secrets_manager_lines(placeholders),
+                    "SECRETS_MANAGER_LINES": _secrets_manager_lines(injectable_secrets(_names_for_stage(stage["name"], placeholders), platform)),
                 },
                 template=templates.SUITE_TEMPLATES["buildspec"],
             )
@@ -298,6 +347,7 @@ def context_for(state: dict, provider, *, policy_findings: list[dict] | None = N
         "workflows": workflow_texts(root, stages),
         "skeletons": skeletons,
         "suggested_paths": sorted(skeletons),
+        "available_secrets": injectable_secrets(names, platform),
         "placeholders": names,
         "scanners": {
             tool: {"docker_image": (scanners.entry(tool) or {}).get("docker_image", ""), "env": (scanners.entry(tool) or {}).get("env", [])}
@@ -311,8 +361,32 @@ def context_for(state: dict, provider, *, policy_findings: list[dict] | None = N
     }
 
 
+_PRIVILEGED_OFF = re.compile(r'"privilegedMode"\s*:\s*false')
+CODEBUILD_DESCRIPTION_MAX = 255  # CreateProject refuses a longer description (live run 3)
+
+
+def _harden(item):
+    """The suite's files through the shared fixes, plus the CodeBuild project document:
+    ``privilegedMode`` stays true because the image stages run docker inside CodeBuild (live
+    run 3 was rejected at the gate for a suite that turned it off), and the description is
+    cut to CodeBuild's limit (the same run's provisioning failed on 268 characters)."""
+    item = generator.harden(item)
+    if not item.path.endswith("codebuild-project.json"):
+        return item
+    content = _PRIVILEGED_OFF.sub('"privilegedMode": true', item.content)
+    try:
+        document = json.loads(content)
+    except json.JSONDecodeError:
+        document = None
+    if isinstance(document, dict) and len(str(document.get("description") or "")) > CODEBUILD_DESCRIPTION_MAX:
+        document["description"] = str(document["description"])[: CODEBUILD_DESCRIPTION_MAX - 3].rstrip() + "..."
+        content = json.dumps(document, indent=2) + "\n"
+    return item if content == item.content else item.model_copy(update={"content": content})
+
+
 def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str]) -> PipelineSuite:
-    """Append the env manifest (names only) unless Astra already wrote one."""
+    """Append the env manifest (names only) unless Astra already wrote one; harden every file."""
+    suite_obj.artifacts = [_harden(item) for item in suite_obj.artifacts]
     if not any(item.kind == "env_example" for item in suite_obj.artifacts):
         suite_obj.artifacts.append(generator.env_manifest({"name": SUITE_STAGE, "environment": environment}, placeholders))
     return suite_obj
@@ -327,8 +401,13 @@ def check(suite: PipelineSuite) -> PolicyResult:
 
 
 def as_artifact_set(suite: PipelineSuite) -> SimpleNamespace:
-    """A ``generator.write``-compatible object (duck-typed: ``.artifacts`` and ``.stage``)."""
-    return SimpleNamespace(stage=SUITE_STAGE, artifacts=list(suite.artifacts), notes=suite.notes)
+    """A ``generator.write``-compatible object (duck-typed: ``.artifacts`` and ``.stage``).
+
+    Each artifact's ``secrets_referenced`` is what its own text binds, not what the model or
+    the manifest listed: injection then copies exactly the names the stage files use.
+    """
+    artifacts = [artifact.model_copy(update={"secrets_referenced": referenced_secrets([artifact])}) for artifact in suite.artifacts]
+    return SimpleNamespace(stage=SUITE_STAGE, artifacts=artifacts, notes=suite.notes)
 
 
 def stage_file(records: list[dict], stage_name: str, platform: str) -> str:
@@ -342,6 +421,27 @@ def stage_file(records: list[dict], stage_name: str, platform: str) -> str:
         if str(record.get("path") or "") == wanted:
             return wanted
     return ""
+
+
+def provision_bundle(generated: dict[str, list[dict]]) -> list[dict]:
+    """Every generated record of the run, suite first, one per path.
+
+    This is what travels with the source upload (``provider.provision(..., bundle=...)``) so a
+    platform build finds the scripts a generated stage references (``ci/<stage>.sh``). The
+    first live AWS run (2026-11-03) packed only the suite, which would have left every
+    generated stage's build without its script.
+    """
+    names = [SUITE_STAGE, *sorted(name for name in generated if name != SUITE_STAGE)]
+    seen: set[str] = set()
+    bundle: list[dict] = []
+    for name in names:
+        for record in generated.get(name) or []:
+            path = str(record.get("path") or "")
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            bundle.append(dict(record))
+    return bundle
 
 
 def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) -> dict:
@@ -365,6 +465,8 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
         try:
             revised = planner.generate_suite(context_for(state, provider, policy_findings=[item.model_dump() for item in result.findings]))
             suite = with_manifest(revised, context["environment"], context["placeholders"])
+        except AstraQuotaError:
+            raise
         except (RuntimeError, ValueError, TypeError, OSError):
             pass
         result = check(suite)

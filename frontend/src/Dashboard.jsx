@@ -446,7 +446,7 @@ export default function Dashboard({ initialSession = null }) {
                 <StageList stages={liveStages} evidence={[]} runnerPlan={runnerPlan} />
               </section>
               <ArtifactViewer artifacts={sessionArtifacts} review={artifactReview} />
-              <PlatformPlan suite={session?.suite} provision={session?.provision} injection={session?.injection} />
+              <PlatformPlan suite={session?.suite} provision={session?.provision} injection={session?.injection} workers={session?.worker_plan} />
               <section className="panel">
                 <h2>Policy</h2>
                 <PolicySummary policy={session?.policy} />
@@ -536,7 +536,7 @@ export default function Dashboard({ initialSession = null }) {
               <p className="empty">Jev has not chosen a pipeline yet.</p>
             )}
           </section>
-          <PlatformPlan suite={session?.suite || report?.suite} provision={session?.provision || report?.provision} injection={session?.injection || report?.injection} />
+          <PlatformPlan suite={session?.suite || report?.suite} provision={session?.provision || report?.provision} injection={session?.injection || report?.injection} workers={session?.worker_plan || report?.worker_plan} />
           {session?.follow_up?.rationale ? (
             <section className="panel">
               <h2>Follow-up decision</h2>

@@ -42,9 +42,11 @@ CREATE TABLE IF NOT EXISTS episodes (
   jev_json TEXT,
   artifacts_json TEXT,
   policy_errors INTEGER,
-  lesson TEXT
+  lesson TEXT,
+  answered_json TEXT
 )
 """
+ANSWERED_IDS = ("env_target", "env_platform")
 FINDING_CHARS = 200
 
 
@@ -61,6 +63,10 @@ def _connect(db_path: str) -> sqlite3.Connection:
     parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(db_path, timeout=5)
     connection.execute(TABLE_SQL)
+    # Rows written before answered_json existed (Sprint 4, live run 2) gain the column empty.
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(episodes)")}
+    if "answered_json" not in columns:
+        connection.execute("ALTER TABLE episodes ADD COLUMN answered_json TEXT DEFAULT ''")
     return connection
 
 
@@ -205,6 +211,9 @@ def row_for(state: dict, status: str) -> dict:
         "artifacts_json": json.dumps(artifacts),
         "policy_errors": int(policy_errors),
         "lesson": lesson_for(state, status),
+        # What the person answered for the environment, apart from what ran: a later run
+        # whose questions skip these ids (Astra recalls this episode) reuses them.
+        "answered_json": json.dumps({ident: str(answers[ident]) for ident in ANSWERED_IDS if answers.get(ident)}),
     }
 
 
@@ -250,6 +259,7 @@ def _summary(row: sqlite3.Row) -> dict:
         "planned": loads("planned_json", []),
         "policy_errors": int(row["policy_errors"] or 0),
         "lesson": row["lesson"] or "",
+        "answered": loads("answered_json", {}),
     }
 
 

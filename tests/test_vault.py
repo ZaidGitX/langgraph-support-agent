@@ -120,6 +120,36 @@ def test_login_flow_accepts_pasted_input_and_reports_failure(monkeypatch):
         connect.provide_input(flow["id"], "again")
 
 
+def test_aws_login_is_the_console_flow_that_pastes_a_code_back():
+    spec = connect.login_spec("aws")
+    assert spec["argv"][:3] == ["aws", "login", "--remote"] and "$AWS_PROFILE" in spec["argv"]
+    assert spec["input"] == "authorization code" and not spec["code_pattern"]
+    assert spec["requires"] == ["AWS_PROFILE"]
+
+
+def test_console_login_flow_shows_the_url_then_waits_for_the_pasted_code(monkeypatch):
+    spec = {"argv": [sys.executable, str(FAKE_LOGIN), "--console"], "url_pattern": r"https://\S+", "code_pattern": "", "input": "authorization code", "requires": []}
+    monkeypatch.setattr(connect, "login_spec", lambda group: spec if group == "aws" else None)
+    monkeypatch.setattr(connect, "verify_spec", lambda group: {"argv": [sys.executable, "-c", "print('ok')"]} if group == "aws" else None)
+    flow = connect.start_login("aws")
+    deadline = time.time() + 10
+    while not flow["needs_input"] and flow["status"] not in {"done", "failed"} and time.time() < deadline:
+        time.sleep(0.05)
+        flow = connect.flow_status(flow["id"])
+    assert flow["status"] == "waiting" and flow["needs_input"] is True
+    assert flow["url"].startswith("https://signin.example.test/v1/authorize") and flow["code"] == ""
+    flow = connect.provide_input(flow["id"], "pasted-authorization-code")
+    deadline = time.time() + 10
+    while flow["status"] not in {"done", "failed", "expired"} and time.time() < deadline:
+        time.sleep(0.05)
+        flow = connect.flow_status(flow["id"])
+    assert flow["status"] == "done" and "received 25 characters" in flow["message"]
+    deadline = time.time() + 5
+    while connect.verified("aws") is None and time.time() < deadline:
+        time.sleep(0.05)
+    assert connect.verified("aws")["ok"] is True
+
+
 def test_can_login_explains_why_not(monkeypatch):
     ok, reason = connect.can_login("jenkins")
     assert ok is False and "vault form" in reason

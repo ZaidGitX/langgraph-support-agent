@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -109,9 +110,23 @@ def env_manifest(stage: dict, placeholders: list[str]) -> GeneratedArtifact:
     )
 
 
+_EMPTY_REGION = re.compile(r"^[ \t]*AWS_REGION:[ \t]*(\"\"|'')?[ \t]*$\n?", re.MULTILINE)
+
+
+def harden(artifact: GeneratedArtifact) -> GeneratedArtifact:
+    """Code-level fixes to a model-written file that would break a platform build.
+
+    A buildspec that sets ``AWS_REGION`` to nothing overrides the CodeBuild project's region
+    and breaks every aws call (two files in live run 3); the project supplies the region.
+    """
+    if artifact.kind == "buildspec" and _EMPTY_REGION.search(artifact.content):
+        return artifact.model_copy(update={"content": _EMPTY_REGION.sub("", artifact.content)})
+    return artifact
+
+
 def with_env_manifest(artifact_set: ArtifactSet, stage: dict, placeholders: list[str]) -> ArtifactSet:
     """Replace any model-written env manifest with the code-written one (names only)."""
-    kept = [artifact for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
+    kept = [harden(artifact) for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
     kept.append(env_manifest(stage, placeholders))
     return ArtifactSet(stage=artifact_set.stage, artifacts=kept[:6], notes=artifact_set.notes)
 

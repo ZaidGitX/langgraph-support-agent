@@ -44,10 +44,33 @@ ANSWERS = {
 API = "/api/orchestrator"
 
 
+def _keep_env_file_to_app_names() -> None:
+    """Keep the cloud names in ``.env`` out of the rehearsal, as ``tests/conftest.py`` does.
+
+    The app loads ``.env`` at startup; on a host that is signed in to a cloud (the first live
+    AWS run left ``AWS_PROFILE`` and the AWS config names there) the ``cloud_plan`` scenario
+    would otherwise find nothing missing and the planned-stage check would be meaningless.
+    """
+    from app import config
+    from orchestrator import credentials
+
+    original = config._load_env_file
+
+    def app_names_only(path):
+        before = set(os.environ)
+        original(path)
+        for name in credentials.all_names():
+            if name not in APP_NAMES and name not in before:
+                os.environ.pop(name, None)
+
+    config._load_env_file = app_names_only
+
+
 def _plant_fake_values() -> dict[str, str]:
     """Unset every cloud name (as conftest does), then plant two recognisable fake values."""
     from orchestrator import credentials
 
+    _keep_env_file_to_app_names()
     for name in credentials.all_names():
         if name not in APP_NAMES:
             os.environ.pop(name, None)
@@ -80,13 +103,33 @@ def _dump(path: Path, payload) -> None:
     path.write_text(json.dumps(payload, indent=1, default=str) + "\n", encoding="utf-8")
 
 
-def run_scenario(name: str, astra, out: Path, db_path: str, *, autopilot: bool = False) -> dict:
+class PlatformAstra:
+    """Mixin: the ecosystem questions include the platform question the suite needs."""
+
+    @staticmethod
+    def with_platform(base_class):
+        from orchestrator.schemas import EcosystemQuestion, QuestionSet
+
+        class _Astra(base_class):
+            def write_questions(self, payload):
+                base = super().write_questions(payload)
+                base.questions.append(EcosystemQuestion(id="env_platform", prompt="Which platform runs the pipeline?", reason="platform dispatch"))
+                return QuestionSet(questions=base.questions)
+
+        return _Astra
+
+
+def run_scenario(name: str, astra, out: Path, db_path: str, *, autopilot: bool = False, platform: str = "") -> dict:
     """Drive one session over HTTP exactly as the dashboard does. Returns what was observed.
 
     With ``autopilot`` the committed orchestrator.yaml answers the questions and approves the
-    pipeline; the rehearsal then only signs off UAT, as a person would.
+    pipeline; the rehearsal then only signs off UAT, as a person would. With ``platform`` the
+    fixed stages run on that platform (plan mode: no credentials are set here).
     """
     os.environ["ORCHESTRATOR_AUTOPILOT"] = "1" if autopilot else "0"
+    os.environ["ORCHESTRATOR_DISPATCH"] = "platform" if platform else "local"
+    if platform:
+        ANSWERS["env_platform"] = platform
     from fastapi.testclient import TestClient
 
     from app.main import app
@@ -167,7 +210,7 @@ def _production_lines(text: str) -> list[str]:
             continue
         # The documented exemptions: guard sentences and the two report lines that say production
         # is not a tier and that Aurora is the deferred (not connected) binding.
-        if re.search(r"refus|never|no production|not a target|not a tier|forbid|deferred production binding", line, re.IGNORECASE):
+        if re.search(r"refus|never|no production|not a target|not a tier|not a choice|forbid|deferred production binding|no path past uat|production\|prod\)", line, re.IGNORECASE):
             continue
         lines.append(line.strip())
     return lines
@@ -228,7 +271,9 @@ def check(results: dict[str, dict], planted: dict[str, str]) -> list[tuple[str, 
         (
             "a cloud stage records planned with the missing names and the gate passes",
             deploy.get("status") == "planned"
-            and {"AWS_REGION", "AWS_ACCESS_KEY_ID"} <= missing
+            # The committed profile supplies AWS_REGION; the credentials stay missing offline.
+            and "AWS_ACCESS_KEY_ID" in missing
+            and all(name.startswith("AWS_") for name in missing)
             and (cloud_report.get("quality_gate") or {}).get("route") == "pass"
             and cloud_report.get("status") == "passed"
             and cloud_report.get("aws_called") is False
@@ -288,6 +333,24 @@ def check(results: dict[str, dict], planted: dict[str, str]) -> list[tuple[str, 
         )
     )
 
+    for platform, expected_file, first_argv in (("aws", "ci/buildspec-build.yml", ["aws", "codebuild", "start-build"]), ("jenkins", "ci/pipeline.Jenkinsfile", ["curl"])):
+        item = results[f"{platform}_platform"]
+        approval = item["views"]["approval"]
+        report = item["views"]["results"]["report"]
+        build = next((row for row in report.get("stage_evidence") or [] if row["stage"] == "build"), {})
+        would = (build.get("plan") or {}).get("would_run") or [[]]
+        rows.append(
+            (
+                f"{platform}: the fixed stages run through the generated suite in plan mode",
+                (approval.get("suite") or {}).get("platform") == platform
+                and (approval.get("suite") or {}).get("stage_files", {}).get("build") == expected_file
+                and (approval.get("provision") or {}).get("status") == "planned"
+                and build.get("status") == "planned" and would[0][: len(first_argv)] == first_argv
+                and "pipeline" in (approval.get("artifacts") or {}),
+                f"suite={(approval.get('suite') or {}).get('platform')} build={build.get('status')} runner={build.get('runner')} provision={(approval.get('provision') or {}).get('status')} injection={(approval.get('injection') or {}).get('status')}",
+            )
+        )
+
     rows.append(
         (
             "a follow-up round ran once on the real checkout",
@@ -306,14 +369,31 @@ def main(argv: list[str] | None = None) -> int:
     out = Path(args.out).resolve() if args.out else ROOT / "var" / "rehearsal" / stamp
     out.mkdir(parents=True, exist_ok=True)
     planted = _plant_fake_values()
+    # The rehearsal gets an empty vault of its own: a developer's var/vault (names stored from
+    # the Connections panel) would otherwise be exported into the app at startup and turn the
+    # planned cloud stage into an applied one.
+    os.environ["ORCHESTRATOR_VAULT_PATH"] = str(out / "vault")
+    for name in ("ORCHESTRATOR_VAULT_KEY", "ORCHESTRATOR_UI_TOKEN"):
+        os.environ.pop(name, None)
 
     from tests.test_orchestrator import GeneratedAstra, PlannedCloudAstra
 
     db_path = str(out / "session.sqlite")
     results: dict[str, dict] = {}
-    for name, astra, autopilot in (("local", GeneratedAstra(), False), ("cloud_plan", PlannedCloudAstra(), False), ("recall", GeneratedAstra(), False), ("autopilot", GeneratedAstra(), True)):
+    from tests.test_orchestrator import FakeAstra
+
+    platform_astra = PlatformAstra.with_platform(FakeAstra)
+    scenarios = (
+        ("local", GeneratedAstra(), False, ""),
+        ("cloud_plan", PlannedCloudAstra(), False, ""),
+        ("recall", GeneratedAstra(), False, ""),
+        ("autopilot", GeneratedAstra(), True, ""),
+        ("aws_platform", platform_astra(), False, "aws"),
+        ("jenkins_platform", platform_astra(), False, "jenkins"),
+    )
+    for name, astra, autopilot, platform in scenarios:
         print(f"==> {name}", flush=True)
-        results[name] = run_scenario(name, astra, out, db_path, autopilot=autopilot)
+        results[name] = run_scenario(name, astra, out, db_path, autopilot=autopilot, platform=platform)
         print(f"    run {results[name]['run_id']} phases={results[name]['phases']} in {results[name]['seconds']}s", flush=True)
 
     rows = check(results, planted)

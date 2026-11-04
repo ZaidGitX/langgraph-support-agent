@@ -47,7 +47,12 @@ Adds, beside the Sprint 2 profile:
 
 ### `clarify_with_user`
 Unchanged, plus returns `{"clarify_rounds": 1}`. Gate id is `ecosystem_qa` on round 1 and
-`follow_up_qa` on later rounds (the node reads `state["clarify_rounds"]`).
+`follow_up_qa` on later rounds (the node reads `state["clarify_rounds"]`). On round 1 it
+merges `recalled_environment(answers, questions, state["episodes"])` under the answers
+(`env_target` / `env_platform` from the newest episode when Astra did not ask them; an
+explicit answer wins) and returns `recalled_answers` for the timeline. The session's
+`_resume_for` accepts those two ids as optional extras, validated against the allowed
+targets and platforms; any other unasked id is still refused.
 
 ### `follow_up` (new)
 ```python
@@ -83,6 +88,10 @@ Jev choice (a Jev `ask_more` at the cap proceeds).
 - `pipeline` dict adds `mode`, `environment`, `runner_plan`, `dropped_stages`.
 - Fixed stages: `commands_for` as today. Generated stages: `commands = []`.
 - If Jev picks an id that does not exist → escalate as today.
+- `_worker_plan(ordered, state, platform)` (2026-11-04): after the runner plan Astra, as the
+  orchestrator, assigns every stage its sub-agent (model + reasoning effort); the dict lands in
+  `pipeline["worker_plan"]`, `state["worker_plan"]`, and `stage["worker"]`, and `_worker_for(spec)`
+  hands each node its worker (`03-astra-prompts-and-generation.md`, "Workers").
 
 ### `generate_artifacts` (new)
 Runs once per plan (skips when the pipeline has no generated stage).
@@ -105,6 +114,15 @@ for stage in pipeline["stages"]:
 A dropped stage is removed from `pipeline["stages"]` and its dependants re-point to its
 dependencies (reuse `normalize_stages`). If dropping leaves only `uat`, the gate escalates
 with reason `"no runnable stage after artifact review"`.
+
+Since 2026-11-04 the loop above is one worker function per generated stage
+(`_generate_stage`) plus one for the platform suite (`_generate_suite`), run on a
+`ThreadPoolExecutor` of `ORCHESTRATOR_ASTRA_CONCURRENCY` workers; the node collects the
+outcomes and builds `generated_artifacts`, `artifact_review`, `policy`, and `jev_decisions`
+in pipeline order, so the state is the same as a serial run (live run 2 spent 40 minutes
+writing six stages one after another). A quota error on any worker re-raises at once and the
+queued work is cancelled. Provisioning and injection are planned after every worker is done,
+because the bundle needs every record.
 
 ### `approve_pipeline`
 Interrupt payload:

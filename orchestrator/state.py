@@ -69,6 +69,7 @@ class PipelineState(TypedDict):
     ecosystem: dict
     open_questions: list[Question]
     answers: Annotated[dict, merge_dict]
+    recalled_answers: dict
     pipeline: dict
     stage_results: Annotated[list[dict], operator.add]
     env_state: Annotated[dict, merge_dict]
@@ -91,6 +92,7 @@ class PipelineState(TypedDict):
     episodes: list[dict]
     readiness: dict
     runner_plan: Annotated[dict, merge_dict]
+    worker_plan: Annotated[dict, merge_dict]
     generated_artifacts: Annotated[dict, merge_dict]
     policy: Annotated[list[dict], operator.add]
     clarify_rounds: Annotated[int, operator.add]
@@ -113,6 +115,7 @@ def initial_state(root: str, run_id: str | None = None) -> PipelineState:
         "ecosystem": {},
         "open_questions": [],
         "answers": {},
+        "recalled_answers": {},
         "pipeline": {},
         "stage_results": [],
         "env_state": {
@@ -148,6 +151,7 @@ def initial_state(root: str, run_id: str | None = None) -> PipelineState:
         "episodes": [],
         "readiness": {},
         "runner_plan": {},
+        "worker_plan": {},
         "generated_artifacts": {},
         "policy": [],
         "clarify_rounds": 0,

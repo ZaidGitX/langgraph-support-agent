@@ -15,11 +15,11 @@ from urllib.parse import urlparse
 
 from app import config
 
-from . import generator
+from . import generator, registry
 from . import profile as run_profile
 from .llm import scrub
 from .runner import reset_printer, set_printer
-from .state import STAGE_NAMES, initial_state
+from .state import ALLOWED_TARGETS, STAGE_NAMES, initial_state
 
 MAX_EVENTS = 500
 
@@ -48,6 +48,7 @@ def _empty_view() -> dict:
         "artifact_review": {},
         "policy": [],
         "runner_plan": {},
+        "worker_plan": {},
         "clarify_round": 0,
         "follow_up": {},
         "retrieval_evidence": [],
@@ -304,6 +305,9 @@ class SessionService:
         for item in update.get("jev_decisions") or []:
             if isinstance(item, dict):
                 self._emit("jev", str(item.get("kind") or ""), f"{item.get('schema') or ''} via {item.get('client') or ''}", decision=item.get("decision"))
+        if node == "clarify_with_user" and update.get("recalled_answers"):
+            recalled = update["recalled_answers"]
+            self._emit("note", "recall", "reused from the last episode: " + ", ".join(f"{key}={value}" for key, value in sorted(recalled.items())), recalled=dict(recalled))
         if node == "plan_pipeline":
             chosen = (update.get("pipeline") or {}).get("id") or ""
             self._emit("plan", chosen, f"Jev ranked {chosen}" if chosen else "no pipeline")
@@ -348,6 +352,7 @@ class SessionService:
                     "artifact_review": dict(values.get("artifact_review") or {}),
                     "policy": list(values.get("policy") or []),
                     "runner_plan": dict(values.get("runner_plan") or {}),
+                    "worker_plan": dict(values.get("worker_plan") or {}),
                     "clarify_round": int(values.get("clarify_rounds") or 0),
                     "follow_up": dict(values.get("follow_up_decision") or {}),
                     "retrieval_evidence": list((values.get("ecosystem") or {}).get("evidence") or []),
@@ -364,24 +369,36 @@ class SessionService:
             self._cv.notify_all()
 
     def _load_profile(self) -> dict:
-        """Read orchestrator.yaml from the run's checkout; an invalid file disables autopilot."""
+        """Read orchestrator.yaml from the run's checkout; an invalid file disables autopilot.
+
+        The profile's ``config`` names (AWS_REGION, ...) are exported before the run starts
+        even when ORCHESTRATOR_AUTOPILOT is off: they say where a push goes, not who answers.
+        """
         self.profile = None
-        if os.getenv("ORCHESTRATOR_AUTOPILOT", "1").strip().lower() in {"0", "false", "off", "no"}:
-            return {"enabled": False, "profile": "", "disabled_by": "ORCHESTRATOR_AUTOPILOT", "events": []}
+        disabled = os.getenv("ORCHESTRATOR_AUTOPILOT", "1").strip().lower() in {"0", "false", "off", "no"}
         try:
-            self.profile = run_profile.load(self._run_root)
+            loaded = run_profile.load(self._run_root)
         except run_profile.ProfileError as exc:
             return {"enabled": False, "profile": str(run_profile.path_for(self._run_root)), "error": scrub(str(exc)), "events": []}
-        if self.profile is None:
+        if loaded is None:
+            if disabled:
+                return {"enabled": False, "profile": "", "disabled_by": "ORCHESTRATOR_AUTOPILOT", "events": []}
             return {"enabled": False, "profile": "", "events": []}
+        applied = run_profile.apply_config(loaded)
+        if applied:
+            print(f"orchestrator profile: config {', '.join(applied)} from {run_profile.PROFILE_FILE}", flush=True)
+        if disabled:
+            return {"enabled": False, "profile": loaded.path, "disabled_by": "ORCHESTRATOR_AUTOPILOT", "config": sorted(loaded.config), "events": []}
+        self.profile = loaded
         return {
-            "enabled": self.profile.enabled,
-            "profile": self.profile.path,
-            "platform": self.profile.platform,
-            "tier": self.profile.tier,
-            "approve": self.profile.autopilot.approve,
-            "answer_questions": self.profile.autopilot.answer_questions,
-            "min_confidence": self.profile.autopilot.min_confidence,
+            "enabled": loaded.enabled,
+            "profile": loaded.path,
+            "platform": loaded.platform,
+            "tier": loaded.tier,
+            "approve": loaded.autopilot.approve,
+            "answer_questions": loaded.autopilot.answer_questions,
+            "min_confidence": loaded.autopilot.min_confidence,
+            "config": sorted(loaded.config),
             "events": [],
         }
 
@@ -477,7 +494,15 @@ class SessionService:
                     raise ValueError(f"missing answer for {ident}")
                 cleaned[ident] = value.strip()
             extra = set(answers) - set(expected_ids)
-            if extra:
+            # The environment ids may be given even when Astra did not ask them (it recalled an
+            # earlier run): an explicit answer beats the recalled one and is validated here.
+            allowed_extra = {"env_target": ALLOWED_TARGETS, "env_platform": registry.PLATFORMS}
+            for ident in sorted(extra & set(allowed_extra)):
+                value = str(answers.get(ident) or "").strip().lower()
+                if value not in allowed_extra[ident]:
+                    raise ValueError(f"{ident} must be one of " + ", ".join(allowed_extra[ident]))
+                cleaned[ident] = value
+            if extra - set(allowed_extra):
                 raise ValueError("unexpected answer ids")
             return cleaned
         decision = body.get("decision")
@@ -557,6 +582,7 @@ class SessionService:
                     "artifact_review": dict(payload.get("artifact_review") or values.get("artifact_review") or {}),
                     "policy": list(payload.get("policy") or values.get("policy") or []),
                     "runner_plan": dict(payload.get("runner_plan") or values.get("runner_plan") or {}),
+                    "worker_plan": dict(payload.get("worker_plan") or values.get("worker_plan") or {}),
                     "clarify_round": int(payload.get("round") or values.get("clarify_rounds") or 0),
                     "follow_up": dict(values.get("follow_up_decision") or {}),
                     "retrieval_evidence": list(payload.get("retrieval_evidence") or (values.get("ecosystem") or {}).get("evidence") or []),
@@ -607,6 +633,7 @@ class SessionService:
                     "artifact_review": dict(values.get("artifact_review") or {}),
                     "policy": list(values.get("policy") or []),
                     "runner_plan": dict(values.get("runner_plan") or {}),
+                    "worker_plan": dict(values.get("worker_plan") or {}),
                     "clarify_round": int(values.get("clarify_rounds") or 0),
                     "follow_up": dict(values.get("follow_up_decision") or {}),
                     "retrieval_evidence": list((values.get("ecosystem") or {}).get("evidence") or []),

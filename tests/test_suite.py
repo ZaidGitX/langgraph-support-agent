@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from orchestrator.providers.azure import AzureProvider
 from orchestrator.providers.gcp import GcpProvider
 from orchestrator.providers.github_actions import GithubActionsProvider
 from orchestrator.providers.jenkins import JenkinsProvider
+from orchestrator.schemas import CandidatePipeline, PlanProposal, StageSpec
 from orchestrator.state import initial_state
 from tests.test_orchestrator import FakeAstra, FakeJev, _echo
 
@@ -39,6 +41,42 @@ def _run(tmp_path, platform: str, monkeypatch, astra=None) -> dict:
     monkeypatch.setenv("ORCHESTRATOR_DISPATCH", "platform")
     graph = build_graph(MemorySaver(), jev=FakeJev(), astra=astra or FakeAstra(), commands=_echo())
     return drive(graph, initial_state(str(tmp_path)), _answers_for(platform), echo=False)
+
+
+class PlatformStageAstra(FakeAstra):
+    """A stochastic candidate whose generated sbom stage is bound to the platform runner."""
+
+    def propose(self, payload: dict) -> PlanProposal:
+        stochastic = CandidatePipeline(
+            id="platform-route",
+            summary="build, test, sbom on CodeBuild, uat",
+            mode="stochastic",
+            stages=[
+                StageSpec(name="build", purpose="compile"),
+                StageSpec(name="test", depends_on=["build"], purpose="unit tests"),
+                StageSpec(name="sbom", depends_on=["build"], purpose="software bill of materials", runner="aws_codebuild", provider="syft"),
+                StageSpec(name="uat", depends_on=["test", "sbom"], purpose="sign-off"),
+            ],
+        )
+        plain = CandidatePipeline(
+            id="plain",
+            summary="build, test, uat",
+            stages=[
+                StageSpec(name="build", purpose="compile"),
+                StageSpec(name="test", depends_on=["build"], purpose="unit tests"),
+                StageSpec(name="uat", depends_on=["test"], purpose="sign-off"),
+            ],
+        )
+        return PlanProposal(candidates=[stochastic, plain])
+
+
+class BadSuitePlatformStageAstra(PlatformStageAstra):
+    """The same candidate, with a suite the policy rejects (a target past UAT, built at runtime)."""
+
+    def generate_suite(self, payload: dict):
+        built = super().generate_suite(payload)
+        built.artifacts[0].content += f"\npython -m orchestrator.local_ops deploy --target {FORBIDDEN_TARGET}\n"
+        return built
 
 
 def _policy_clean(path: str, text: str) -> bool:
@@ -174,3 +212,163 @@ def test_provision_is_skipped_without_a_document_and_planned_with_one(tmp_path):
     assert planned.status == "planned" and planned.commands[-1][:3] == ["aws", "codebuild", "create-project"]
     assert "r1/source.zip" in planned.commands[0][-3]
     assert not (tmp_path / "var").exists()  # plan mode zips nothing
+
+
+def test_provision_bundle_packs_every_generated_file_once_suite_first():
+    generated = {
+        "sbom": [{"path": "ci/sbom.sh", "kind": "shell"}, {"path": ".env.dev.example", "kind": "env_example", "note": "stage copy"}],
+        "pipeline": [{"path": "ci/buildspec-build.yml", "kind": "buildspec"}, {"path": ".env.dev.example", "kind": "env_example", "note": "suite copy"}],
+        "build_image": [{"path": "ci/build_image.sh", "kind": "shell"}, {"path": "", "kind": "shell"}],
+    }
+    bundle = suite.provision_bundle(generated)
+    assert [item["path"] for item in bundle] == ["ci/buildspec-build.yml", ".env.dev.example", "ci/build_image.sh", "ci/sbom.sh"]
+    assert next(item for item in bundle if item["path"] == ".env.dev.example")["note"] == "suite copy"
+
+
+def test_prepare_provision_packs_the_bundle_into_source_zip(tmp_path):
+    checkout = tmp_path / "checkout"
+    (checkout / "app").mkdir(parents=True)
+    (checkout / "app" / "main.py").write_text("print('hi')\n", encoding="utf-8")
+    (checkout / "node_modules").mkdir()
+    (checkout / "node_modules" / "x.js").write_text("", encoding="utf-8")
+    stored = tmp_path / "stored"
+    stored.mkdir()
+    (stored / "buildspec-build.yml").write_text("version: 0.2\n", encoding="utf-8")
+    (stored / "sbom.sh").write_text("#!/usr/bin/env bash\necho sbom\n", encoding="utf-8")
+    (stored / "project.json").write_text('{"name": "demo"}', encoding="utf-8")
+    suite_records = [
+        {"path": "ci/buildspec-build.yml", "kind": "buildspec", "stored_at": str(stored / "buildspec-build.yml")},
+        {"path": "deploy/codebuild-project.json", "kind": "codebuild_project", "stored_at": str(stored / "project.json")},
+    ]
+    stage_record = {"path": "ci/sbom.sh", "kind": "shell", "stored_at": str(stored / "sbom.sh")}
+    note = AwsProvider().prepare_provision(suite_records, str(checkout), {"run_id": "r1"}, bundle=[*suite_records, stage_record, dict(stage_record)])
+    with zipfile.ZipFile(checkout / "var" / "generated" / "r1" / "pipeline" / "source.zip") as archive:
+        names = set(archive.namelist())
+    assert {"app/main.py", "ci/buildspec-build.yml", "deploy/codebuild-project.json", "ci/sbom.sh"} <= names
+    assert not any(name.startswith("node_modules") for name in names)
+    assert "3 generated file(s)" in note
+    assert (stored / "project.rendered.json").is_file()
+
+
+def test_generated_platform_stage_runs_on_the_platform_with_the_suite(tmp_path, monkeypatch):
+    values = _run(tmp_path, "aws", monkeypatch, astra=PlatformStageAstra())
+    assert values["status"] == "passed"
+    runners = {stage["name"]: stage["runner"] for stage in values["pipeline"]["stages"]}
+    assert runners["sbom"] == "aws_codebuild" and runners["build"] == "aws_codebuild" and runners["uat"] == "local"
+    assert values["pipeline"]["suite"]["status"] == "ok"
+    sbom = next(row for row in values["stage_results"] if row["stage"] == "sbom")
+    assert sbom["status"] == "planned" and sbom["kind"] == "generated" and sbom["runner"] == "aws_codebuild"
+    assert values["provision"]["status"] == "planned"
+    assert "generated file(s) travel with the source" in values["provision"]["evidence"]
+    paths = [item["path"] for item in suite.provision_bundle(values["generated_artifacts"])]
+    assert "ci/sbom.sh" in paths and paths[0] in {record["path"] for record in values["generated_artifacts"]["pipeline"]}
+
+
+def test_generated_platform_stage_falls_back_with_the_fixed_stages_when_the_suite_fails(tmp_path, monkeypatch):
+    values = _run(tmp_path, "aws", monkeypatch, astra=BadSuitePlatformStageAstra())
+    status = values["pipeline"]["suite"]["status"]
+    assert status.startswith("suite rejected") and "on the host instead:" in status and "sbom" in status
+    assert all(stage["runner"] == "local" for stage in values["pipeline"]["stages"])
+    sbom = next(row for row in values["stage_results"] if row["stage"] == "sbom")
+    assert sbom["status"] == "pass" and sbom["runner"] == "local" and "generated-ok" in sbom["evidence"]
+    assert values["status"] == "passed"
+    assert not (values.get("provision") or {}).get("commands")
+
+
+def test_buildspec_binds_only_injectable_secrets_that_have_values(monkeypatch):
+    names = [*AwsProvider().placeholders(), "SNYK_TOKEN"]
+    stages = [{"name": "build"}, {"name": "scanners"}]
+    environment = {"tier": "dev", "platform": "aws"}
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+    rendered = suite.render_skeletons("aws", stages, environment, run_id="r1", placeholders=names)
+    assert all("secrets-manager:" not in text for path, text in rendered.items() if path.startswith("ci/buildspec-"))
+    assert suite.injectable_secrets(names, "aws") == []
+    monkeypatch.setenv("SNYK_TOKEN", "fake-" + "snyk-value")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "fake-" + "key-id")
+    rendered = suite.render_skeletons("aws", stages, environment, run_id="r1", placeholders=names)
+    scanners_spec = rendered["ci/buildspec-scanners.yml"]
+    assert f'SNYK_TOKEN: "{templates.APP_NAME}/SNYK_TOKEN"' in scanners_spec
+    assert "secrets-manager:" not in rendered["ci/buildspec-build.yml"]  # build runs no scanner
+    assert f"{templates.APP_NAME}/AWS_ACCESS_KEY_ID" not in scanners_spec  # the platform's own identity is never bound
+    assert suite.injectable_secrets(names, "aws") == ["SNYK_TOKEN"]
+
+
+def test_referenced_secrets_reads_each_platform_binding_form():
+    items = [
+        {"content": f'    SNYK_TOKEN: "{templates.APP_NAME}/SNYK_TOKEN"\n'},
+        {"content": "    HAWK_API_KEY = credentials('HAWK_API_KEY')\n"},
+        {"content": "  - versionName: projects/p/secrets/SONAR_TOKEN/versions/latest\n"},
+        {"content": "  value: $(GITLEAKS_LICENSE)\n"},
+        {"content": "AWS_REGION=\nSNYK_TOKEN=\n"},
+        {"content": f"{templates.APP_NAME}/AWS_REGION"},
+    ]
+    assert suite.referenced_secrets(items) == ["GITLEAKS_LICENSE", "HAWK_API_KEY", "SNYK_TOKEN", "SONAR_TOKEN"]
+
+
+def test_suite_injection_covers_exactly_the_secrets_the_stage_files_bind(tmp_path, monkeypatch):
+    values = _run(tmp_path, "aws", monkeypatch)
+    records = values["generated_artifacts"]["pipeline"]
+    assert records and all(record["secrets_referenced"] == [] for record in records)
+    assert values["injection"]["status"] == "skipped" and values["injection"]["names"] == []
+
+
+def test_aws_injection_creates_a_missing_secret_then_updates_it(tmp_path, monkeypatch):
+    calls: list[tuple[list[str], str | None]] = []
+
+    class Done:
+        def __init__(self, code: int) -> None:
+            self.returncode = code
+            self.stdout = "{}"
+            self.stderr = ""
+
+    def fake_run(argv, **kwargs):
+        calls.append((list(argv), kwargs.get("input")))
+        if argv[:3] == ["aws", "secretsmanager", "describe-secret"]:
+            seen = sum(1 for item, _ in calls if item[:3] == ["aws", "secretsmanager", "describe-secret"])
+            return Done(255 if seen == 1 else 0)
+        return Done(0)
+
+    monkeypatch.setattr("orchestrator.providers.aws.subprocess.run", fake_run)
+    monkeypatch.setattr("orchestrator.providers.base.subprocess.run", fake_run)
+    monkeypatch.setenv("AWS_REGION", "us-east-1")
+    secret_value = "fake-" + "snyk-value"
+    monkeypatch.setenv("SNYK_TOKEN", secret_value)
+    aws = AwsProvider()
+    put = aws.inject_commands(["SNYK_TOKEN"], {})[0]
+    assert aws.run_injection("SNYK_TOKEN", put, str(tmp_path)) is True
+    assert aws.run_injection("SNYK_TOKEN", put, str(tmp_path)) is True
+    executed = [argv for argv, _ in calls if argv[:2] == ["aws", "secretsmanager"] and argv[2] != "describe-secret"]
+    assert executed[0][2] == "create-secret" and executed[0][executed[0].index("--name") + 1] == f"{templates.APP_NAME}/SNYK_TOKEN"
+    assert executed[1][2] == "put-secret-value"
+    assert all("file:///dev/stdin" in argv and "us-east-1" in argv for argv in executed)
+    assert all(value == secret_value for argv, value in calls if argv[2] != "describe-secret")
+    assert all(secret_value not in " ".join(argv) for argv, _ in calls)
+
+
+def test_platform_setup_stops_the_run_when_injection_fails(tmp_path, monkeypatch):
+    from orchestrator.providers import registry as provider_registry
+    from orchestrator.providers.base import ProviderStatus, ProvisionResult
+
+    class StubAws(AwsProvider):
+        def detect(self):
+            return ProviderStatus(runner=self.runner, cli=True, cli_path="/usr/bin/aws", present=["AWS_REGION"], missing=[], mode="apply")
+
+        def provision(self, records, cwd, *, mode, answers, bundle=None):
+            return ProvisionResult(self.runner, "provision", "pass" if mode == "apply" else "planned", mode, evidence="stub")
+
+        def inject_secrets(self, names, *, mode, answers, cwd="."):
+            status = "fail" if mode == "apply" else "planned"
+            return ProvisionResult(self.runner, "inject", status, mode, names=["SNYK_TOKEN"], missing=["SNYK_TOKEN"], evidence="no value for SNYK_TOKEN")
+
+        def execute(self, stage, records, cwd, *, mode, answers):
+            raise AssertionError("no stage may start after a failed injection")
+
+    # The stored readiness would say plan (no names on this host); the stub is the live answer.
+    monkeypatch.setitem(provider_registry.PROVIDERS, "aws_codebuild", StubAws())
+    monkeypatch.setattr(provider_registry, "status_from_readiness", lambda readiness, runner: None)
+    monkeypatch.setattr("orchestrator.providers.status_from_readiness", lambda readiness, runner: None, raising=False)
+    values = _run(tmp_path, "aws", monkeypatch)
+    assert values["status"] == "escalated"
+    assert "secret injection failed" in str((values.get("gate") or {}).get("rationale") or "")
+    assert values["injection"]["status"] == "fail" and values["provision"]["status"] == "pass"

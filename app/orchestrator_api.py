@@ -321,6 +321,27 @@ def cancel_connection_login(key: str, flow_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+class SyncBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    groups: list[str] | None = None
+    names: list[str] | None = None
+
+
+@mutating.post("/connections/{key}/sync")
+def sync_connection_secrets(key: str, body: SyncBody | None = None) -> dict:
+    """Copy the values present here (vault, .env, environment) into this platform's own secret
+    store, so a push-triggered run finds them. GitHub repository secrets for now. Names only."""
+    _group_or_404(key)
+    if key != "github":
+        raise HTTPException(status_code=409, detail="secrets can be synced to github only")
+    try:
+        result = connect.sync_secrets("github", groups=body.groups if body else None, names=body.names if body else None)
+    except connect.ConnectError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"sync": result, "connection": next(item for item in connections_view()["groups"] if item["key"] == key)}
+
+
 @mutating.post("/connections/{key}/verify")
 def verify_connection(key: str) -> dict:
     _group_or_404(key)

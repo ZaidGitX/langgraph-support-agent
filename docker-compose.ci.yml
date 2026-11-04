@@ -1,0 +1,12 @@
+# Push-triggered runs (.github/workflows/orchestrator.yml) layer this file over
+# docker-compose.yml so the orchestrator works on the pushed checkout, not on the image's
+# copy of the app: the platform suite, the source upload, retrieval, and the profile all read
+# the tree that was pushed. The workflow makes ./var writable for the container's user.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --build --wait
+services:
+  orchestrator:
+    environment:
+      ORCHESTRATOR_REPO_ROOT: /workspace
+    volumes:
+      - ${GITHUB_WORKSPACE:-.}:/workspace

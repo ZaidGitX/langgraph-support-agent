@@ -69,14 +69,18 @@ CREATE TABLE IF NOT EXISTS episodes (
   run_id TEXT PRIMARY KEY, repo_root TEXT, branch TEXT, sha TEXT,
   started_at REAL, finished_at REAL, status TEXT, platform TEXT, tier TEXT,
   chosen_id TEXT, mode TEXT, stages_json TEXT, failures_json TEXT, planned_json TEXT,
-  jev_json TEXT, artifacts_json TEXT, policy_errors INTEGER, lesson TEXT)
+  jev_json TEXT, artifacts_json TEXT, policy_errors INTEGER, lesson TEXT, answered_json TEXT)
 ```
+`answered_json` (Sprint 4, after live run 2) keeps what the person answered for `env_target`
+and `env_platform`, apart from `platform`/`tier` (what ran); `_connect` adds the column to an
+older database.
 
 ```python
 def record(state: dict, status: str, db_path: str | None = None) -> dict   # returns the stored row as a dict
 def recall(repo_root: str, limit: int = 3, db_path: str | None = None) -> list[dict]
     # newest first: [{run_id, finished_at, status, platform, tier, chosen: {id, mode, stages},
-    #                 failures: [{stage, tool, finding}], planned: [stage], lesson}]
+    #                 failures: [{stage, tool, finding}], planned: [stage], lesson,
+    #                 answered: {env_target, env_platform}}]
 def lesson_for(state: dict, status: str) -> str
     # one sentence composed in code, e.g. "container_scan was planned only: AWS_ACCESS_KEY_ID missing"
     # or "test failed on attempt 1 and passed on attempt 2" or "all stages passed on local"
@@ -88,6 +92,11 @@ HEAD` / `git rev-parse HEAD` (subprocess, 5 s timeout, empty string on failure).
 Where episodes are used:
 - `discover_ecosystem` → `ecosystem["episodes"]` → Astra questions (do not re-ask what a
   prior run settled when the same branch answered it; the person still sees the questions).
+  When Astra skips `env_target` or `env_platform`, `clarify_with_user` fills them from the
+  newest episode (`graph.recalled_environment`: `answered` first, then what ran; validated
+  like a typed answer; an explicit answer wins) and records them in `state["recalled_answers"]`,
+  which the session shows as a `recall` note. `POST /session/answer` accepts those two ids even
+  when not asked. Live run 2 (2026-11-03) stalled without this: three questions, a local plan.
 - `plan_pipeline` → Astra proposals ("prior episodes tell you what ran and failed").
 - `report` → `episodes.record(...)`; `machine_report["episodes"]`.
 - UI Episodes panel; `GET /api/orchestrator/episodes`.

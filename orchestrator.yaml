@@ -1,35 +1,47 @@
 # Orchestrator run profile (Sprint 4). Committed with the code, read at the start of every run.
 # It lets a push start and finish a run without a person at the question and approval gates.
-# UAT sign-off is never automatic. Values here are answers and thresholds, never credentials.
+# UAT sign-off is never automatic. Values here are answers, thresholds, and non-secret config,
+# never credentials: secrets stay in the vault and in the platform's own secret store.
 version: 1
 
-# Where a push-triggered run should go. local keeps every stage on the orchestrator host;
-# jenkins, aws, gcp, or azure run the fixed stages on that platform (ORCHESTRATOR_DISPATCH=platform).
-platform: local
+# Where a push-triggered run goes. local keeps every stage on the orchestrator host (the push
+# workflow then dispatches the fixed GitHub workflows); jenkins, aws, gcp, or azure run every
+# fixed stage on that platform: the push workflow exports ORCHESTRATOR_DISPATCH=platform and
+# ORCHESTRATOR_CLOUD_APPLY=1 from this file (scripts/profile_env.py), and the session answers
+# env_platform and env_target from these two lines.
+platform: aws
 tier: dev
+
+# Non-secret names the platform needs (registry names of kind config only). The session
+# exports them where the host leaves them empty; a value from .env or the environment wins.
+config:
+  AWS_REGION: us-east-1
 
 answers:
   # Exact question ids Astra tends to use. Unmatched questions fall back to the dashboard.
   by_id:
-    env_platform: local
+    env_platform: aws
     env_target: dev
+    runner_preference: aws_codebuild for every stage that can run there; uat stays with a person
     test_depth: unit and integration
-    release_policy: manual release after UAT sign-off
+    release_policy: deploy the dev tier on ECS Fargate from the generated CloudFormation stack, creating the cluster and the service when they do not exist yet; manual release after UAT sign-off
     scan_policy: fail the run on high or critical findings
   # Keywords matched against the question id and prompt when no id matches.
   by_topic:
-    platform: local
+    platform: aws
     target: dev
     tier: dev
-    runner: local
+    runner: aws_codebuild
+    region: us-east-1
     test: unit and integration
     scan: fail the run on high or critical findings
     severity: high
-    release: manual release after UAT sign-off
-    deploy: dev only; there is no production target
-    container: build the image with the repository Dockerfile
+    release: deploy the dev tier on ECS Fargate from the generated stack, creating the cluster and the service when absent; manual release after UAT sign-off
+    deploy: dev only, on ECS Fargate from the generated stack, creating the cluster and the service when absent; there is no production target
+    container: build the image with the repository Dockerfile and push it to the ECR repository
+    registry: the ECR repository in the account
     database: no database migration in this run
-    secret: credentials by name only, from the orchestrator vault
+    secret: credentials by name only, from the orchestrator vault and AWS Secrets Manager
 
 autopilot:
   answer_questions: true

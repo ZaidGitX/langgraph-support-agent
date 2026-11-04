@@ -55,9 +55,10 @@ function Block({ title, item, emptyText }) {
   )
 }
 
-export default function PlatformPlan({ suite, provision, injection }) {
+export default function PlatformPlan({ suite, provision, injection, workers }) {
   const hasSuite = suite && suite.platform
-  if (!hasSuite && !provision?.status && !injection?.status) {
+  const workerRows = Object.entries(workers || {})
+  if (!hasSuite && !provision?.status && !injection?.status && !workerRows.length) {
     return null
   }
   const files = Object.entries(suite?.stage_files || {})
@@ -79,6 +80,26 @@ export default function PlatformPlan({ suite, provision, injection }) {
             </li>
           ))}
         </ul>
+      ) : null}
+      {workerRows.length ? (
+        <div className="platform-block">
+          <h4>Workers</h4>
+          <p className="card-note">
+            Astra, as the orchestrator, assigned each stage its sub-agent: the model and the reasoning effort it works at.
+          </p>
+          <ul className="finding-list">
+            {workerRows.map(([stage, worker]) => (
+              <li className="finding" key={stage}>
+                <span className="finding-rule">{stage}</span>
+                <code>{worker.model}</code>
+                <span className="chip" title={worker.assigned_by === "astra" ? "assigned by Astra" : "orchestrator default"}>
+                  {worker.reasoning_effort || "model default"}
+                </span>
+                {worker.rationale ? <span className="card-note"> {worker.rationale}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       <Block title="Provisioning" item={provision} emptyText="Nothing to provision for this runner." />
       <Block title="Secret injection" item={injection} emptyText="No secret names to inject." />
