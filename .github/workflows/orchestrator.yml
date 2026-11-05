@@ -17,10 +17,11 @@ jobs:
       - name: Read the run profile
         # orchestrator.yaml decides where this push goes: ORCHESTRATOR_DISPATCH, cloud apply,
         # and the config names a platform needs (AWS_REGION, ...). Secrets stay repository
-        # secrets. The container's user writes var/ (generated files, retrieval cache, source zip).
+        # secrets. The container's user writes var/ (generated files, retrieval cache, source zip)
+        # and, when a stage runs on the host, __pycache__ and build output in the checkout.
         run: |
           python3 scripts/profile_env.py | tee -a "$GITHUB_ENV"
-          mkdir -p var && chmod a+rwx var
+          mkdir -p var && chmod -R a+rwX .
 
       - name: Start the Compose application
         env:

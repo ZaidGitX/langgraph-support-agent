@@ -245,6 +245,12 @@ Started by the push of c2608db. Questions answered at 12 s, Jev's plan at 95 s, 
 
 Fixes that followed: a value that is itself a credential name, optionally behind a path, is a reference and not a literal in both policy copies; the suite qualifies a bare id in a buildspec's `secrets-manager` block with the app prefix so injection and the build agree; a file a worker writes outside the allowed prefixes is moved (`scripts/…` and loose scripts to `ci/`, a workflow to `.github/workflows/gen-<stage>.yml`, a Dockerfile or Compose file to `docker/`) and its purpose says so; the approval payload carries only the stages still in the plan (and the suite when it is in use), with the rest under `dropped_artifacts`; a Jev reject that comes with policy findings gets the stage's one revision first.
 
+### Live run 6 (2026-11-05, 01:46–02:03 UTC, workflow run 41950786100, run c25e0978): every file passed policy, Jev rejected two clean sets, the plan ran on the host and escalated
+
+Started by the push of 6b5195a. Questions at 11 s, Jev's plan at 81 s, eight generated stages written and accepted in 21–66 s each (the relocated paths held), the suite in 638 s at high effort with every file policy-clean. Then Jev rejected the suite (0.91) and `deploy_dev` (0.94) after their one revision: the review criteria read "revisions are exhausted" as a reason to reject even with a clean policy result. With the suite rejected every platform stage fell back to the host, autopilot approved the host plan (policy clean, reviews of the kept stages accepted, confidence 1.00), `build` failed on `compileall` (the mounted checkout was not writable for `__pycache__`), `post_deploy_smoke` failed because a Python script was run with bash, the gate escalated at 02:03:03, and the job was cancelled. Nothing was applied on AWS.
+
+Fixes that followed: Jev's reject criterion now reads "still reports an error and no revision is left", and `guard_review` accepts a clean policy result whatever the verdict (every reject criterion is a policy finding); a cloud profile does not approve a plan whose suite is not in use: autopilot rejects it once with the reason as feedback so Astra plans again, and a second miss goes to a person; the push workflow makes the whole checkout writable for the container's user; a `.py` stage script runs with `python3` on the host.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

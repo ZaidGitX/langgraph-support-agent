@@ -95,5 +95,5 @@ def test_a_policy_finding_gets_its_revision_before_a_reject_stands():
     rejected = ArtifactReview(verdict="reject", rationale="Jev: reject")
     assert guard_review(rejected, False, 1).verdict == "revise"
     assert guard_review(rejected, False, 0).verdict == "reject"
-    assert guard_review(rejected, True, 1).verdict == "reject"
+    assert guard_review(rejected, True, 1).verdict == "accept"  # live run 6: a clean result is never rejected
     assert guard_review(ArtifactReview(verdict="accept", rationale="ok"), True, 0).verdict == "accept"

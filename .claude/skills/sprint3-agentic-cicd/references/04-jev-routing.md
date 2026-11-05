@@ -59,6 +59,14 @@ fixed stages with a workflow → `github_actions` when `ORCHESTRATOR_DISPATCH=gi
 
 ## New: `artifact_review(payload) -> ArtifactReview`
 
+Live run 6 (2026-11-05): the `reject` criterion used to end with "or revisions are exhausted",
+and Jev rejected a policy-clean suite and a policy-clean deploy stage after their one revision
+(0.91 and 0.94). The criterion now reads "still reports an error and no revision is left; a
+clean policy result is never rejected", and `guard_review` accepts a clean result whatever the
+verdict (every reject criterion is a policy finding), turns a reject that comes with findings
+and a revision left into `revise` (live run 5), and still turns an accept with findings into
+`revise` or `reject`.
+
 ```python
 "verdict": Choice(
     instructions="Review the policy result for the generated artifacts of one stage.",

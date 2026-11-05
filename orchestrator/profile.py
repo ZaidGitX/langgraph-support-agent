@@ -233,6 +233,15 @@ def approval(profile: RunProfile, view: dict) -> tuple[bool, str]:
     stages = [stage.get("name") for stage in (view.get("pipeline") or {}).get("stages") or []]
     if any(name in FORBIDDEN_TARGETS for name in stages):
         return False, "a stage names a forbidden target"
+    suite_info = view.get("suite") or {}
+    if profile.platform in CLOUD_PLATFORMS and suite_info:
+        # The run wanted the platform suite (platform dispatch) and it is not in use: the plan
+        # would run on the host instead, which is not what the profile asked (live run 6
+        # approved and ran such a plan). The session rejects it once with the reason as
+        # feedback, so Astra plans again. A local-dispatch run never wants a suite and is fine.
+        suite_status = str(suite_info.get("status") or "no suite was generated")
+        if suite_status != "ok":
+            return False, f"suite: the {profile.platform} suite is not in use ({suite_status})"
     return True, "policy clean, reviews accepted, confidence " + ("not reported" if confidence is None else f"{confidence:.2f}")
 
 

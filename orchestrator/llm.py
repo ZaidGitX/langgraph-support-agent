@@ -716,8 +716,9 @@ class TypeSafeJev:
                             "missing permissions, missing set -euo pipefail) and a revision is still available."
                         ),
                         "reject": (
-                            "Policy reported a production reference, a destructive command, a path "
-                            "outside the allowed directories, or revisions are exhausted."
+                            "Policy reported a production reference, a destructive command, or a path "
+                            "outside the allowed directories, or it still reports an error and no "
+                            "revision is left. A clean policy result is never rejected."
                         ),
                     },
                 )
@@ -752,6 +753,11 @@ def guard_review(review: ArtifactReview, ok: bool, revisions_left: int) -> Artif
         # platform suite, live run 5) gets its one revision before a reject stands.
         verdict = "revise"
         rationale += " | guardrail: policy findings get their revision before a reject"
+    if verdict == "reject" and ok:
+        # Every reject criterion is a policy finding; with none there is nothing to reject.
+        # Live run 6 lost a clean suite and a clean deploy stage to "revisions are exhausted".
+        verdict = "accept"
+        rationale += " | guardrail: a clean policy result is accepted"
     if verdict == "revise" and revisions_left <= 0:
         verdict = "reject"
         rationale += " | guardrail: revisions exhausted"

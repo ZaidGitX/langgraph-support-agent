@@ -32,7 +32,12 @@ profile → first `by_topic` keyword found in the id or prompt → `None`.
 `approval(profile, view)` → `(ok, reason)`: approve on, no artifact policy error, every
 `artifact_review` verdict `accept`, `rank_confidence(jev_decisions) >= min_confidence` (an
 unreported confidence counts as code-guarded, which only the injected doubles produce), no
-forbidden target among the stages.
+forbidden target among the stages, and, for a platform in `CLOUD_PLATFORMS` when the run
+wanted a suite (`view.suite` non-empty, i.e. platform dispatch), `view.suite.status == "ok"`
+(reason `suite: …` otherwise; a local-dispatch run never wants one). The session turns that `suite:` reason into one
+automatic rejection with the reason as feedback (`_auto_rejected` per run), so the run plans
+again instead of running a host fallback that nobody asked for (live run 6); the second miss
+waits for a person.
 
 ## Session (`orchestrator/session.py`)
 

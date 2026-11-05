@@ -174,6 +174,7 @@ class SessionService:
             self.view["trigger"] = dict(self.trigger)
             self.view["queue"] = [dict(item["trigger"]) for item in self._queue]
             self.view["autopilot"] = self._load_profile()
+            self._auto_rejected = False
             self._running = set()
             self._run_started = time.time()
             self.view["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(self._run_started))
@@ -441,6 +442,25 @@ class SessionService:
             return resume
         if gate == "pipeline_approval":
             ok, reason = run_profile.approval(loaded, view)
+            if not ok and reason.startswith("suite:") and not getattr(self, "_auto_rejected", False):
+                # The platform suite is not in use: reject once with the reason, so the run plans
+                # again instead of running on the host (live run 6); a second miss is a person's call.
+                feedback = (
+                    f"{reason}. Every fixed stage must run on the {loaded.platform} platform through the suite: "
+                    "write the suite's files under the suggested paths with by-reference secrets only, "
+                    "and keep every generated file under ci/, deploy/, docker/, or docs/deploy/."
+                )
+                try:
+                    resume = self._resume_for(phase, {"gate": gate, "decision": "rejected", "feedback": feedback})
+                except ValueError as exc:
+                    self._autopilot_event(gate, "human", scrub(str(exc)))
+                    return None
+                self._auto_rejected = True
+                self._autopilot_event(gate, "rejected", reason)
+                with self._cv:
+                    self.view["phase"] = "running"
+                    self.view["status"] = "running"
+                return {**resume, "by": "autopilot"}
             if not ok or _has_policy_errors(view.get("artifacts") or {}):
                 self._autopilot_event(gate, "human", reason if not ok else "an artifact has a policy error")
                 return None

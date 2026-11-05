@@ -25,7 +25,10 @@ class LocalProvider(BaseProvider):
     def commands_for(self, stage: dict, records: list[dict]) -> list[dict]:
         script = stored_script(records)
         if script:
-            return [{"argv": ["bash", script], "timeout": self.timeout, "label": str(stage.get("name") or "stage")}]
+            # The interpreter follows the file: a worker may write its stage script in Python
+            # (live run 6 ran a .py file with bash and failed at line 2).
+            interpreter = ["python3"] if script.lower().endswith(".py") else ["bash"]
+            return [{"argv": [*interpreter, script], "timeout": self.timeout, "label": str(stage.get("name") or "stage")}]
         return [dict(command) for command in stage.get("commands") or []]
 
     def would_run(self, stage: dict, records: list[dict], cwd: str, answers: dict) -> list[list[str]]:
