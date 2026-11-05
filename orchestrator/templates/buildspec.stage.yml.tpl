@@ -32,8 +32,5 @@ $STAGE_COMMANDS
     commands:
       - echo "stage $STAGE finished for run $$RUN_ID"
 
-artifacts:
-  files:
-    - var/**/*
-    - dist/**/*
-  discard-paths: no
+# No artifacts block: the project has no artifacts destination (NO_ARTIFACTS); an artifacts
+# section fails the build at UPLOAD_ARTIFACTS after every phase passed (live run 8).

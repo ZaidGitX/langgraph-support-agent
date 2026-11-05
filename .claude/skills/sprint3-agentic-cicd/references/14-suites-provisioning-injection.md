@@ -110,6 +110,17 @@ provisioning failed on 268); a buildspec line that sets `AWS_REGION` to nothing 
 `secrets-manager` block that is a registry secret name is qualified to `<app>/NAME`
 (`suite._qualify_secret_ids`), so `referenced_secrets`, injection, and the build agree;
 `with_manifest` also runs `generator.relocate` on every suite file. `tests/test_run5_hardening.py`.
+Live run 8 (2026-11-05, the first CodeBuild builds): neither buildspec skeleton carries an
+`artifacts:` block any more and `generator.harden` drops one a model writes (the project is
+`NO_ARTIFACTS`; the test stage passed every phase and failed at UPLOAD_ARTIFACTS);
+`AwsProvider.would_run` looks for the stage's buildspec before any provider-specific host
+command, so a generated `aws_cfn`/`aws_ecs`/`ecr` stage with a buildspec runs inside CodeBuild
+(infra_plan's CloudFormation command had run on the orchestrator host); `_codebuild` appends
+the last 60 CloudWatch lines of a failed build (`_log_tail`, `LOG_TAIL_LINES`) to the
+evidence; `deploy_defaults(tier)` exports `AWS_CFN_STACK`, `AWS_ECS_CLUSTER`, `AWS_ECS_SERVICE`
+= `<app>-<tier>` when unset (ensure_platform takes the tier from `env_target`), and the project
+template hands every build `AWS_ACCOUNT_ID`, `AWS_S3_BUCKET`, `AWS_ECR_REPOSITORY`, and those
+three names. `tests/test_run8_hardening.py`.
 
 Secrets, decided after live run 1: a stage file may bind only `suite.injectable_secrets`
 (secret kind, a value present on the orchestrator host, never the platform's own identity

@@ -257,6 +257,22 @@ Started by the push of cca8340. Questions at 10 s, Jev's plan at 73 s, seven gen
 
 Fix that followed: `credentials.drop_empty_env()` removes registry variables whose value is empty; the app runs it at startup before the vault export and the AWS provider runs it before its first call. Unset means unset.
 
+### Live run 8 (2026-11-05, 09:27–09:45 UTC, workflow run 42002552007, run ca71556b): the first builds on CodeBuild
+
+Started by the push of c0c5c66. Questions at 11 s, Jev's plan at 76 s, eight generated stages and the suite (5 files, 327 s) accepted, autopilot approved at 09:38:44 (confidence 0.98). Provisioning applied for the first time: the bootstrap confirmed the bucket, the repository, and the role (policy set), uploaded `source.zip` (the checkout plus 22 generated files), and created the CodeBuild project `langgraph-support-app-orchestrator`; injection created `langgraph-support-app/SNYK_TOKEN` in Secrets Manager. Then the waves ran on CodeBuild:
+
+| Stage | Result |
+| --- | --- |
+| `build` | SUCCEEDED in 70 s (every phase) |
+| `frontend_build` | SUCCEEDED |
+| `test` | every phase SUCCEEDED, then UPLOAD_ARTIFACTS FAILED: the buildspec skeleton carried an `artifacts:` block and the project has no artifacts destination |
+| `scanners` | BUILD FAILED; the evidence held only the phase list, no log |
+| `infra_plan` | never reached CodeBuild: the provider ran its `aws cloudformation deploy` from the orchestrator host, where `deploy/stack.yaml` does not exist |
+
+The gate retried the three failed stages once (cap 2), escalated at 09:44:41, and the job was cancelled at the results screen. AWS spend: five CodeBuild builds of about a minute each, one upload, one secret.
+
+Fixes that followed: both buildspec skeletons lost their `artifacts:` block and `generator.harden` drops one a model writes; a stage that has a buildspec always runs inside CodeBuild (`would_run` looks for the buildspec before the provider-specific host command); a failed build's evidence carries the last 60 lines of its CloudWatch log (`_log_tail`), for the person and for Astra's diagnosis; `deploy_defaults(tier)` exports `AWS_CFN_STACK`, `AWS_ECS_CLUSTER`, and `AWS_ECS_SERVICE` as `<app>-<tier>` when unset, and the project document now hands every build the account, bucket, repository, stack, cluster, and service names.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

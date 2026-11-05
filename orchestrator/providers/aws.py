@@ -28,6 +28,7 @@ APP_IMAGE = "langgraph-support-app"
 POLL_SECONDS = 10
 ROLE_SUFFIX = "-codebuild-role"
 PROJECT_RETRIES = 6  # a role created seconds ago takes a moment before CodeBuild may assume it
+LOG_TAIL_LINES = 60  # CloudWatch lines fetched for a failed build's evidence (live run 8)
 
 
 def trust_policy() -> dict:
@@ -80,6 +81,16 @@ class AwsProvider(BaseProvider):
         run_id = run_id_of(stage, answers)
         region = ["--region", "$AWS_REGION"]
         image = f"$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:{run_id}"
+        buildspec = artifact_for_stage(records, str(stage.get("name") or ""), "buildspec", cwd=cwd) or artifact_of_kind(records, "buildspec", cwd=cwd)
+        if buildspec:
+            # A stage with a buildspec runs inside CodeBuild whatever its provider: live run 8
+            # ran infra_plan's CloudFormation command on the orchestrator host, where the
+            # generated template path did not exist.
+            return [[
+                "aws", "codebuild", "start-build", "--project-name", "$AWS_CODEBUILD_PROJECT", *region,
+                "--buildspec-override", f"file://{buildspec}",
+                "--environment-variables-override", f"name=RUN_ID,value={run_id},type=PLAINTEXT",
+            ]]
         if provider == "aws_ecs":
             return [["aws", "ecs", "update-service", "--cluster", "$AWS_ECS_CLUSTER", "--service", "$AWS_ECS_SERVICE", "--force-new-deployment", *region]]
         if provider == "aws_cfn":
@@ -93,10 +104,7 @@ class AwsProvider(BaseProvider):
                 ["bash", "-c", "aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"],
                 ["docker", "push", image],
             ]
-        buildspec = artifact_for_stage(records, str(stage.get("name") or ""), "buildspec", cwd=cwd) or artifact_of_kind(records, "buildspec", cwd=cwd)
         command = ["aws", "codebuild", "start-build", "--project-name", "$AWS_CODEBUILD_PROJECT", *region]
-        if buildspec:
-            command.extend(["--buildspec-override", f"file://{buildspec}"])
         command.extend(["--environment-variables-override", f"name=RUN_ID,value={run_id},type=PLAINTEXT"])
         return [command]
 
@@ -129,7 +137,20 @@ class AwsProvider(BaseProvider):
             ["aws", "codebuild", "create-project", "--cli-input-json", f"file://{rendered}", *region],
         ]
 
-    def ensure_platform(self, cwd: str, run_id: str) -> dict:
+    @staticmethod
+    def deploy_defaults(tier: str = "dev") -> dict[str, str]:
+        """The deploy names a run uses when the registry leaves them unset: one CloudFormation
+        stack, ECS cluster, and ECS service per app and tier (``<app>-<tier>``), the names the
+        generated stack and ``scripts/aws_teardown.sh`` agree on. Exported so the project's
+        environment and every buildspec see them (live run 8 had none of them set)."""
+        name = f"{APP}-{str(tier or 'dev').strip().lower()}"
+        defaults = {"AWS_CFN_STACK": name, "AWS_ECS_CLUSTER": name, "AWS_ECS_SERVICE": name}
+        for key, value in defaults.items():
+            if not os.environ.get(key, "").strip():
+                os.environ[key] = value
+        return defaults
+
+    def ensure_platform(self, cwd: str, run_id: str, tier: str = "dev") -> dict:
         """Create what the platform run needs and is missing, with the vault credentials: the
         account id and default names, the source bucket, the ECR repository, and the scoped
         CodeBuild service role (Sprint 4, after live run 2: the person runs no script).
@@ -144,6 +165,7 @@ class AwsProvider(BaseProvider):
         # An empty AWS_PROFILE or AWS_SESSION_TOKEN from a Compose placeholder makes every aws
         # call fail ("The config profile () could not be found", live run 7): unset means unset.
         registry_env.drop_empty_env()
+        self.deploy_defaults(tier)
         region = os.environ.get("AWS_REGION", "").strip()
         if not region:
             return {"status": "fail", "evidence": "AWS_REGION is not set", "created": [], "role_created": False}
@@ -227,7 +249,7 @@ class AwsProvider(BaseProvider):
                 result.evidence += "; the source bucket, the image repository, and the service role are created when absent"
             return result
         run_id = str((answers or {}).get("run_id") or "local")
-        ensured = self.ensure_platform(cwd, run_id)
+        ensured = self.ensure_platform(cwd, run_id, tier=str((answers or {}).get("env_target") or "dev"))
         if ensured.get("status") != "pass":
             return ProvisionResult(self.runner, "provision", "fail", "apply", argvs, evidence=str(ensured.get("evidence") or ""))
         note = self.prepare_provision(records, cwd, answers or {}, bundle)
@@ -322,6 +344,21 @@ class AwsProvider(BaseProvider):
             argv = ["aws", "secretsmanager", "create-secret", "--name", secret_id, "--secret-string", "file:///dev/stdin", *region]
         return super().run_injection(name, argv, cwd)
 
+    def _log_tail(self, logs: dict, region: str, cwd: str, limit: int = LOG_TAIL_LINES) -> str:
+        """The last lines of a build's CloudWatch log stream, or "" when there is none."""
+        group = str(logs.get("groupName") or "")
+        stream = str(logs.get("streamName") or "")
+        if not group or not stream:
+            return ""
+        query = ["aws", "logs", "get-log-events", "--log-group-name", group, "--log-stream-name", stream, "--limit", str(limit), "--no-start-from-head"]
+        if region:
+            query.extend(["--region", region])
+        code, payload, _error = self._aws_json(query, cwd, timeout=60)
+        if code != 0 or not payload:
+            return ""
+        lines = [str(event.get("message") or "").rstrip() for event in payload.get("events") or []]
+        return "\n".join(line for line in lines if line)[-3000:]
+
     def _aws_json(self, argv: list[str], cwd: str, timeout: int = 120) -> tuple[int, dict | None, str]:
         try:
             completed = subprocess.run([*argv, "--output", "json"], cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False)
@@ -345,6 +382,7 @@ class AwsProvider(BaseProvider):
         deadline = time.time() + self.timeout
         status = "IN_PROGRESS"
         phases: list[str] = []
+        logs: dict = {}
         region = argv[argv.index("--region") + 1] if "--region" in argv else ""
         while time.time() < deadline and status == "IN_PROGRESS":
             time.sleep(POLL_SECONDS)
@@ -356,6 +394,7 @@ class AwsProvider(BaseProvider):
             if builds:
                 status = str(builds[0].get("buildStatus") or "IN_PROGRESS")
                 phases = [f"{phase.get('phaseType')}={phase.get('phaseStatus')}" for phase in builds[0].get("phases") or [] if phase.get("phaseStatus")]
+                logs = dict(builds[0].get("logs") or {})
         if status == "IN_PROGRESS":
             # Past the cap: stop the build so it cannot bill on, and fail the stage with the reason.
             stop = ["aws", "codebuild", "stop-build", "--id", build_id]
@@ -365,6 +404,12 @@ class AwsProvider(BaseProvider):
             status = f"STOPPED by the orchestrator after {int(self.timeout)}s"
         passed = status == "SUCCEEDED"
         evidence = redact(f"codebuild {build_id} status {status}\nphases: {', '.join(phases)}", limit=4000)
+        if not passed:
+            # The phases alone say nothing about why (live run 8: "BUILD=FAILED"); the build's
+            # CloudWatch log tail does, for the person and for Astra's diagnosis.
+            tail = self._log_tail(logs, region, cwd)
+            if tail:
+                evidence = redact(f"{evidence}\nlog tail:\n{tail}", limit=6000)
         return StageRun(
             status="pass" if passed else "fail",
             exit_code=0 if passed else 1,

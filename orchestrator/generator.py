@@ -111,17 +111,26 @@ def env_manifest(stage: dict, placeholders: list[str]) -> GeneratedArtifact:
 
 
 _EMPTY_REGION = re.compile(r"^[ \t]*AWS_REGION:[ \t]*(\"\"|'')?[ \t]*$\n?", re.MULTILINE)
+# A top-level ``artifacts:`` section and everything indented under it.
+_ARTIFACTS_BLOCK = re.compile(r"^artifacts:[ \t]*(?:#[^\n]*)?\n(?:(?:[ \t]+[^\n]*|[ \t]*)\n?)*", re.MULTILINE)
 
 
 def harden(artifact: GeneratedArtifact) -> GeneratedArtifact:
     """Code-level fixes to a model-written file that would break a platform build.
 
     A buildspec that sets ``AWS_REGION`` to nothing overrides the CodeBuild project's region
-    and breaks every aws call (two files in live run 3); the project supplies the region.
+    and breaks every aws call (two files in live run 3); the project supplies the region. A
+    buildspec with an ``artifacts:`` section fails at UPLOAD_ARTIFACTS because the project has
+    no artifacts destination (live run 8: the test stage passed every phase and then failed).
     """
-    if artifact.kind == "buildspec" and _EMPTY_REGION.search(artifact.content):
-        return artifact.model_copy(update={"content": _EMPTY_REGION.sub("", artifact.content)})
-    return artifact
+    if artifact.kind != "buildspec":
+        return artifact
+    content = artifact.content
+    if _EMPTY_REGION.search(content):
+        content = _EMPTY_REGION.sub("", content)
+    if _ARTIFACTS_BLOCK.search(content):
+        content = _ARTIFACTS_BLOCK.sub("", content).rstrip("\n") + "\n"
+    return artifact if content == artifact.content else artifact.model_copy(update={"content": content})
 
 
 _SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".ps1", ".js", ".ts", ".rb")

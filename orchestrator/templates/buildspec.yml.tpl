@@ -34,8 +34,6 @@ phases:
       # Write the commands for "$PURPOSE" here. Print a one-line summary at the end.
       - echo "stage $STAGE placeholder"
 
-artifacts:
-  files:
-    - var/**/*
-    - dist/**/*
-  discard-paths: no
+# No artifacts block: the orchestrator's project has no artifacts destination (NO_ARTIFACTS),
+# and an artifacts section fails the build at UPLOAD_ARTIFACTS after every phase passed
+# (live run 8). Evidence goes to CloudWatch Logs; a file a later stage needs goes to S3 by hand.
