@@ -690,6 +690,15 @@ def _readiness_brief(readiness: dict) -> dict:
     }
 
 
+def _bound_secret_names(records: list[dict]) -> list[str]:
+    """Every secret name the run's files bind by reference (the suite's buildspecs, a generated
+    stage's files, the ECS task's Secrets), from their content and from what each record says."""
+    names = set(suite.referenced_secrets(records))
+    for record in records:
+        names.update(str(name) for name in (record.get("secrets_referenced") or []))
+    return sorted(name for name in names if credentials.kind_of(name) == "secret")
+
+
 def approval_payload(state: dict) -> dict:
     """What the person sees before approving: the pipeline, every candidate, the runner plan,
     every generated artifact with its policy verdict, and the retrieval evidence."""
@@ -1495,7 +1504,9 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                         provision = suite_provider.provision(
                             outcome["records"], root, mode="plan", answers=suite_answers, bundle=suite.provision_bundle(generated)
                         ).as_dict()
-                        names = sorted({name for record in outcome["records"] for name in record.get("secrets_referenced") or []})
+                        # Every file of the run may bind a secret by name (the suite's buildspecs, a
+                        # generated stage's files, the ECS task's Secrets): inject exactly those.
+                        names = _bound_secret_names(suite.provision_bundle(generated))
                         injection = suite_provider.inject_secrets(names, mode="plan", answers=suite_answers, cwd=root).as_dict()
                     except (RuntimeError, ValueError, TypeError, OSError, KeyError) as exc:
                         fallback = f"suite generation failed: {scrub(str(exc))[:200]}"
@@ -1636,7 +1647,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         answers = {**(state.get("answers") or {}), "run_id": str(state.get("run_id"))}
         root = state["repo"]["root"]
         provision = provider.provision(records, root, mode=status.mode, answers=answers, bundle=bundle).as_dict()
-        names = sorted({name for record in records for name in record.get("secrets_referenced") or []})
+        names = _bound_secret_names(bundle)
         injection = provider.inject_secrets(names, mode=status.mode, answers=answers, cwd=root).as_dict()
         provision["evidence"] = scrub(str(provision.get("evidence") or ""))
         injection["evidence"] = scrub(str(injection.get("evidence") or ""))

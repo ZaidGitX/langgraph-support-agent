@@ -167,10 +167,89 @@ def relocate(artifact: GeneratedArtifact, stage_name: str) -> GeneratedArtifact:
     return artifact.model_copy(update={"path": target, "purpose": purpose[:400]})
 
 
+# Generated-stage floors on AWS CodeBuild (live run 8: the deploy stage came back as the
+# untouched skeleton). A stage of these families gets the orchestrator's contract script when
+# its buildspec is missing, still a placeholder, or does not do the family's job.
+_FLOOR_BY_FAMILY = {"deploy": "deploy", "verify": "smoke", "container": "container"}
+_FLOOR_MARKERS = {"deploy": ("cloudformation", "ecs"), "smoke": ("curl", "http", "urlopen", "requests"), "container": ("docker build", "docker buildx")}
+_PLACEHOLDER_MARK = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
+
+
+def floor_for(stage: dict) -> str | None:
+    """The contract script key a generated stage falls back to, or None."""
+    family = str(stage.get("family") or "")
+    name = str(stage.get("name") or "").lower()
+    if family in _FLOOR_BY_FAMILY:
+        return _FLOOR_BY_FAMILY[family]
+    if "deploy" in name:
+        return "deploy"
+    if "smoke" in name:
+        return "smoke"
+    if "build_image" in name or "push_image" in name or name.endswith("_image"):
+        return "container"
+    return None
+
+
+def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[GeneratedArtifact]:
+    """On aws_codebuild, make sure a deploy, verify, or image stage's buildspec does its job:
+    the contract script is called when the model left the placeholder or wrote none."""
+    if str(stage.get("runner") or "") != "aws_codebuild":
+        return artifacts
+    key = floor_for(stage)
+    if not key:
+        return artifacts
+    command = f"bash {templates.contract_path(key)}"
+    markers = _FLOOR_MARKERS[key]
+    specs = [item for item in artifacts if item.kind == "buildspec"]
+    others = [item for item in artifacts if item.kind != "buildspec"]
+    if not specs:
+        environment = dict(stage.get("environment") or {})
+        skeleton = templates.render_template("buildspec", stage, environment, runner="aws_codebuild", run_id="", placeholders=[])
+        skeleton = re.sub(r'^(\s*)- echo "stage [^"]* placeholder"[ \t]*$', lambda m: f"{m.group(1)}- {command}", skeleton, flags=re.MULTILINE)
+        specs = [GeneratedArtifact(path=templates.artifact_path("buildspec", str(stage.get("name")), environment), kind="buildspec",
+                                   purpose=f"orchestrator floor: {command}", content=skeleton, secrets_referenced=[])]
+    fixed: list[GeneratedArtifact] = []
+    for spec in specs:
+        content = spec.content
+        lowered = content.lower()
+        placeholder = bool(_PLACEHOLDER_MARK.search(content))
+        does_job = any(marker in lowered for marker in markers) or command in content
+        if placeholder or not does_job:
+            lines = [line for line in content.splitlines() if not _PLACEHOLDER_MARK.search(line)]
+            content = "\n".join(lines).rstrip("\n") + "\n"
+            if command not in content:
+                content = _append_build_command(content, command)
+            spec = spec.model_copy(update={"content": content, "purpose": f"{spec.purpose} (orchestrator floor: {command})".strip()})
+        fixed.append(spec)
+    return others + fixed
+
+
+def _append_build_command(content: str, command: str) -> str:
+    import yaml
+
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        document = None
+    if not isinstance(document, dict):
+        return content.rstrip("\n") + f"\nphases:\n  build:\n    commands:\n      - {command}\n"
+    phases = document.get("phases") if isinstance(document.get("phases"), dict) else {}
+    build = phases.get("build") if isinstance(phases.get("build"), dict) else {}
+    commands = [item for item in (build.get("commands") or []) if isinstance(item, str) and "placeholder" not in item] if isinstance(build.get("commands"), list) else []
+    commands.append(command)
+    build["commands"] = commands
+    phases["build"] = build
+    document["phases"] = phases
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+
+
 def with_env_manifest(artifact_set: ArtifactSet, stage: dict, placeholders: list[str]) -> ArtifactSet:
     """Replace any model-written env manifest with the code-written one (names only);
-    relocate a file written outside the allowed prefixes; harden every file."""
+    relocate a file written outside the allowed prefixes; harden every file; on aws_codebuild
+    give a deploy, verify, or image stage the orchestrator's floor when the model's file
+    would do nothing."""
     kept = [harden(relocate(artifact, str(stage.get("name") or ""))) for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
+    kept = platform_floor(kept, stage)
     kept.append(env_manifest(stage, placeholders))
     return ArtifactSet(stage=artifact_set.stage, artifacts=kept[:6], notes=artifact_set.notes)
 

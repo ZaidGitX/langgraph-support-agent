@@ -304,9 +304,28 @@ def check_artifact(artifact: GeneratedArtifact) -> PolicyResult:
     return _merge(check_text(artifact.content, kind=artifact.kind, path=artifact.path), check_path(artifact.path))
 
 
+# A skeleton the model returned unchanged: the stage would print a line and do nothing (live
+# run 8's deploy stage). The marker is the skeleton's no-op command; the "--- ASTRA:" comments
+# may stay in a finished file. Checked on model output, never on the skeletons themselves.
+_PLACEHOLDER = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
+
+
+def placeholder_findings(artifact: GeneratedArtifact) -> list[PolicyFinding]:
+    match = _PLACEHOLDER.search(artifact.content or "")
+    if not match:
+        return []
+    line = (artifact.content or "")[: match.start()].count("\n") + 1
+    return [_finding("artifact.placeholder", "error", "the skeleton placeholder is still there; the stage would do nothing", line)]
+
+
 def check_artifact_set(artifact_set: ArtifactSet, stage: dict | None = None) -> PolicyResult:
     results = [check_artifact(artifact) for artifact in artifact_set.artifacts]
     merged = _merge(*results) if results else PolicyResult(ok=True, findings=[])
+    for artifact in artifact_set.artifacts:
+        findings = placeholder_findings(artifact)
+        if findings:
+            merged.findings.extend(findings)
+            merged.ok = False
     if stage and len(artifact_set.artifacts) > 6:
         merged.findings.append(_finding("size.too_large", "error", "a stage may carry at most six artifacts", 0))
         merged.ok = False

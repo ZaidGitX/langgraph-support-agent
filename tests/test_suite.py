@@ -92,11 +92,15 @@ def test_skeletons_cover_every_platform_and_stay_policy_clean():
         {"name": "scanners", "family": "scan", "purpose": "sast", "depends_on": ["build"]},
         {"name": "deploy", "family": "deploy", "purpose": "deploy", "depends_on": ["test"]},
     ]
+    # Every suite carries the orchestrator's contract scripts for the fixed stages (Sprint 4,
+    # after live run 8): the platform-neutral ones everywhere, the AWS ones on AWS.
+    neutral = {"ci/build.sh", "ci/test.sh", "ci/scanners.sh", "ci/package.sh"}
+    aws_only = {"ci/container.sh", "ci/release.sh", "ci/deploy.sh", "ci/smoke.sh", "ci/dast.sh"}
     expected = {
-        "jenkins": {"ci/pipeline.Jenkinsfile", "deploy/jenkins-job.xml"},
-        "aws": {"ci/buildspec-build.yml", "ci/buildspec-test.yml", "ci/buildspec-scanners.yml", "ci/buildspec-deploy.yml", "deploy/codebuild-project.json", "deploy/ecs-stack.yaml"},
-        "gcp": {"ci/cloudbuild.yaml"},
-        "azure": {"ci/azure-pipelines.yml"},
+        "jenkins": {"ci/pipeline.Jenkinsfile", "deploy/jenkins-job.xml", *neutral},
+        "aws": {"ci/buildspec-build.yml", "ci/buildspec-test.yml", "ci/buildspec-scanners.yml", "ci/buildspec-deploy.yml", "deploy/codebuild-project.json", "deploy/ecs-stack.yaml", *neutral, *aws_only},
+        "gcp": {"ci/cloudbuild.yaml", *neutral},
+        "azure": {"ci/azure-pipelines.yml", *neutral},
     }
     for platform, paths in expected.items():
         rendered = suite.render_skeletons(platform, stages, {"tier": "dev", "platform": platform}, run_id="run-1", placeholders=["AWS_REGION", "SNYK_TOKEN"])
@@ -106,8 +110,11 @@ def test_skeletons_cover_every_platform_and_stay_policy_clean():
             assert "$STAGE_BLOCKS" not in text and "$STAGE_COMMANDS" not in text
             if path in {"ci/pipeline.Jenkinsfile", "ci/cloudbuild.yaml", "ci/azure-pipelines.yml"}:
                 assert "build" in text and "test" in text and "scanners" in text and "deploy" in text
-    jenkinsfile = suite.render_skeletons("jenkins", stages, {}, run_id="r", placeholders=[])["ci/pipeline.Jenkinsfile"]
-    assert "params.STAGE == 'scanners'" in jenkinsfile and "docker run --rm" in jenkinsfile
+    rendered = suite.render_skeletons("jenkins", stages, {}, run_id="r", placeholders=[])
+    jenkinsfile = rendered["ci/pipeline.Jenkinsfile"]
+    # The stage runs the orchestrator's contract script; the scanners live inside it.
+    assert "params.STAGE == 'scanners'" in jenkinsfile and "bash ci/scanners.sh" in jenkinsfile
+    assert "docker run --rm" in rendered["ci/scanners.sh"] and "semgrep" in rendered["ci/scanners.sh"] and "gitleaks" in rendered["ci/scanners.sh"]
     raw = suite.render_skeletons("aws", stages, {}, run_id="r", placeholders=[])["deploy/codebuild-project.json"]
     project = json.loads(raw.replace("$AWS_CODEBUILD_PROJECT", "p").replace("$AWS_S3_BUCKET", "b").replace("$AWS_CODEBUILD_ROLE_ARN", "arn"))
     assert project["source"]["type"] == "S3" and project["serviceRole"] == "arn"
@@ -309,8 +316,15 @@ def test_referenced_secrets_reads_each_platform_binding_form():
 def test_suite_injection_covers_exactly_the_secrets_the_stage_files_bind(tmp_path, monkeypatch):
     values = _run(tmp_path, "aws", monkeypatch)
     records = values["generated_artifacts"]["pipeline"]
-    assert records and all(record["secrets_referenced"] == [] for record in records)
-    assert values["injection"]["status"] == "skipped" and values["injection"]["names"] == []
+    # The stage files bind nothing; only the ECS task's Secrets block may name the app's own
+    # keys, and only those present on this host (then injection carries exactly them).
+    stack_names = {name for record in records if record["path"] == "deploy/ecs-stack.yaml" for name in record["secrets_referenced"]}
+    assert records and all(record["secrets_referenced"] == [] for record in records if record["path"] != "deploy/ecs-stack.yaml")
+    assert stack_names <= set(suite.APP_TASK_SECRETS)
+    if stack_names:
+        assert values["injection"]["status"] == "planned" and set(values["injection"]["names"]) == stack_names
+    else:
+        assert values["injection"]["status"] == "skipped" and values["injection"]["names"] == []
 
 
 def test_aws_injection_creates_a_missing_secret_then_updates_it(tmp_path, monkeypatch):

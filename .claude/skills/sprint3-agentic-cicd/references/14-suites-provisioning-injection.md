@@ -135,6 +135,60 @@ the missing secret otherwise.
 `AWS_CODEBUILD_ROLE_ARN` is a config name the person supplies: the orchestrator never
 creates IAM. The ECS stack creates a task execution role only when none is passed.
 
+## Platform contract (Sprint 4, after live run 8, 2026-11-05)
+
+Live run 8 showed what the model alone produces: a deploy stage returned as the untouched
+skeleton, an infra stage that invented an environment name, a scanners stage that treated
+every finding and every un-credentialed tool as fatal. The orchestrator now owns the platform
+plumbing and Astra works on top of it.
+
+- `orchestrator/templates/contract/*.sh`, rendered by `templates.contract_script(key)` (plain
+  shell; only `__APP_NAME__`, `__PORT__`, and the scanner image tokens are replaced): `build`,
+  `test`, `scanners`, `package` run on every platform's agent; `container`, `release`, `deploy`,
+  `smoke`, `dast` speak to AWS (ECR, CloudFormation, ECS). Each does what the fixed GitHub
+  workflow does, then what Sprint 4 needs beyond it: `container` builds and pushes
+  `<registry>/<repository>:<run id>` (`WITH_CLOUD_CLIS=0`), `release` promotes that tag to
+  `<tier>` through the manifest, `deploy` makes sure the image exists (else builds it), finds
+  the VPC and public subnets when `AWS_VPC_ID`/`AWS_SUBNET_IDS` are empty, runs
+  `aws cloudformation deploy` on `deploy/ecs-stack.yaml` with `CAPABILITY_NAMED_IAM`, waits for
+  the service, checks `/status` on the task's public IP, and publishes the URL to
+  `s3://<bucket>/orchestrator/<run>/state/app_url.txt`; `smoke` and `dast` read that URL (or
+  rediscover it) and exercise the routes, ZAP baseline required, StackHawk when `HAWK_*` are
+  provided. `scanners` runs semgrep, pip-audit, snyk, trivy fs, gitleaks, Sonar, and CodeQL
+  (bundle download, time-capped) and writes `var/scanners/status.jsonl` with `passed`,
+  `failed` (findings at `SCAN_SEVERITY`, default HIGH,CRITICAL), `skipped` (credential not
+  provided, time cap), or `error` (the tool could not run); only `failed` fails the stage.
+- `suite.contract_files(platform)` adds the scripts to every suite's skeletons (`ci/<key>.sh`);
+  `command_hints(stage, platform)` returns `bash ci/<stage>.sh` for a stage that has one, so
+  the Jenkins, Cloud Build, Azure, and CodeBuild skeletons call the scripts. The ECS stack
+  skeleton travels with every AWS suite (not only when `deploy` is a stage).
+- `suite.with_manifest(..., platform=, stages=)` → `assert_contract`: after Astra returns, the
+  contract files (and the stack) are put back when changed or dropped, and each fixed stage's
+  buildspec gets `bash ci/<stage>.sh` appended to `phases.build.commands` when the model dropped
+  it (`_with_build_command`). Astra adds steps around the call; it never owns the plumbing.
+- `generator.platform_floor` (through `with_env_manifest`) gives a generated stage on
+  `aws_codebuild` of family deploy / verify / container (or a name with deploy, smoke, or
+  _image) the matching contract call when its buildspec is missing, still the skeleton
+  placeholder, or does not do the family's job (`_FLOOR_MARKERS`).
+- `policy.placeholder_findings`: the skeleton's no-op command (`echo "stage X placeholder"`)
+  is an `artifact.placeholder` error in `check_artifact_set` and `suite.check`; the `--- ASTRA:`
+  comments may stay. Skeletons themselves are never checked for it.
+- Secrets: `graph._bound_secret_names(bundle)` injects every name any file of the run binds
+  (the suite, a generated stage, the ECS task's `Secrets`), from content and from the records.
+  The stack's task execution role is named `<app>-<tier>-task-execution` (inside the CodeBuild
+  role's `role/<app>-*` statement) and may read `<app>/*` in Secrets Manager;
+  `suite._container_secret_lines` binds `OPENAI_API_KEY`, `TYPESAFE_API_KEY`,
+  `LANGSMITH_API_KEY` when present on the orchestrator host (`APP_TASK_SECRETS`).
+- Account: `ensure_platform` → `discover_network` exports `AWS_VPC_ID` and `AWS_SUBNET_IDS`
+  (registry config names) from the default VPC when unset; the project document hands every
+  build the account, bucket, repository, stack, cluster, service, VPC, and subnets, runs on
+  `BUILD_GENERAL1_MEDIUM` with `timeoutInMinutes` 30 (`AwsProvider.timeout` 1800), and the
+  role may create report groups (`codebuild:CreateReportGroup` …) and describe or re-tag
+  images. `prepare_provision` never packs `.env`, `.env.*` (examples excepted), key files, or
+  `secrets.enc` (`_holds_credentials`).
+- `scripts/aws_teardown.sh` also removes the project's report groups and, with `--all`, the
+  `<app>/*` secrets. `tests/test_run9_contract.py`.
+
 ## Policy
 
 `secret.assignment` exempts by-reference bindings in both copies (`_SECRET_REFERENCE`):

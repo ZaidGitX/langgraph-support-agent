@@ -164,6 +164,17 @@ Commit: `Sprint 4 phase 11: live dashboard with streamed events`.
   the user's yes; `deploy` creates a change set only.
 Commit: `Sprint 4 phase 12: AWS live proof, rehearsal, docs`.
 
+Phase 12 in practice (2026-11-03 to 2026-11-05, runbook "AWS live run"): eight live runs, each
+one card. Runs 1–3 from a hand-started server; runs 4–8 from a push alone (profile, workflow,
+secrets sync, runner checkout). Each run exposed one layer: timeouts and worker effort,
+policy paths and secret ids, Jev's reject criterion and autopilot approving a host fallback,
+Compose's empty placeholders, buildspec artifacts and report groups, and finally what the
+model writes for a deploy (nothing). The answer is the **platform contract**
+(`14-suites-provisioning-injection.md`): code-written stage scripts for build, test,
+scanners, package, container, release, deploy, smoke, and dast travel with every suite and
+run on the platform; Astra adds to them and never owns the plumbing. Run 9 is the first run
+with the contract in place.
+
 ## Resuming after a break
 
 1. `git log --oneline | head`, `git status --short`.

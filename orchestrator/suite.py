@@ -17,9 +17,11 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
 from . import credentials, generator, policy, scanners, templates
 from .llm import AstraQuotaError
-from .schemas import ArtifactReview, PipelineSuite, PolicyResult
+from .schemas import ArtifactReview, GeneratedArtifact, PipelineSuite, PolicyResult
 from .state import STAGE_NAMES, platform_of, target_of
 
 SUITE_STAGE = "pipeline"
@@ -100,7 +102,12 @@ def _docker_lines(stage_name: str) -> list[str]:
     return lines
 
 
-def command_hints(stage_name: str) -> list[str]:
+def command_hints(stage_name: str, platform: str = "") -> list[str]:
+    """What a stage runs on the platform: the orchestrator's contract script when there is one
+    for this stage and platform, else the portable lines (what the GitHub workflow does)."""
+    contract = contract_command(stage_name, platform)
+    if contract:
+        return [contract]
     hints = list(STAGE_COMMAND_HINTS.get(stage_name) or [])
     if stage_name in SCANNER_TOOLS:
         hints.extend(_docker_lines(stage_name))
@@ -114,7 +121,7 @@ def _indent(lines: list[str], spaces: int) -> str:
 
 def _jenkins_block(stage: dict) -> str:
     name = stage["name"]
-    steps = "\n".join(f"        sh '{line.replace(chr(39), chr(34))}'" for line in command_hints(name))
+    steps = "\n".join(f"        sh '{line.replace(chr(39), chr(34))}'" for line in command_hints(name, "jenkins"))
     return (
         f"    stage('{name}') {{\n"
         f"      when {{ expression {{ params.STAGE == '' || params.STAGE == '{name}' }} }}\n"
@@ -129,7 +136,7 @@ def _jenkins_block(stage: dict) -> str:
 
 def _cloudbuild_block(stage: dict, previous: str) -> str:
     name = stage["name"]
-    body = "\n".join(f"        {line}" for line in command_hints(name))
+    body = "\n".join(f"        {line}" for line in command_hints(name, "gcp"))
     return (
         f"  - id: {name}\n"
         f"    name: python:{templates.PYTHON_VERSION}\n"
@@ -148,7 +155,7 @@ def _cloudbuild_block(stage: dict, previous: str) -> str:
 
 def _azure_block(stage: dict, previous: str) -> str:
     name = stage["name"]
-    body = "\n".join(f"              {line}" for line in command_hints(name))
+    body = "\n".join(f"              {line}" for line in command_hints(name, "azure"))
     return (
         f"  - stage: {name}\n"
         f"    dependsOn: {previous}\n"
@@ -230,6 +237,50 @@ def _container_env_lines(names: list[str]) -> str:
     return "\n".join(f"            - {{Name: {name}, Value: \"${name}\"}}" for name in config_names)
 
 
+# The application's own secrets the deployed task reads from Secrets Manager by name
+# (``<app>/NAME``): injected before the first build when present on the orchestrator host.
+APP_TASK_SECRETS = ("OPENAI_API_KEY", "TYPESAFE_API_KEY", "LANGSMITH_API_KEY")
+
+
+def _container_secret_lines(platform: str) -> str:
+    """The task definition's ``Secrets`` block for the app secrets that can be injected, or ""."""
+    names = injectable_secrets(list(APP_TASK_SECRETS), platform)
+    if not names:
+        return ""
+    lines = ["          Secrets:"]
+    lines.extend(f"            - {{Name: {name}, ValueFrom: \"{templates.APP_NAME}/{name}\"}}" for name in names)
+    return "\n".join(lines)
+
+
+# --- Platform contract files (Sprint 4, after live run 8) -----------------------------------
+# The orchestrator's own scripts for the fixed stages travel with every suite: the platform-
+# neutral ones on every platform, the AWS ones (ECR, CloudFormation, ECS) on AWS. A stage's
+# file calls `bash ci/<stage>.sh`; Astra adds steps around it. ``with_manifest`` re-asserts the
+# files after generation, so a run never depends on the model reproducing them.
+CONTRACT_STAGE_KEYS = {"build": "build", "test": "test", "scanners": "scanners", "package": "package",
+                       "container": "container", "release": "release", "deploy": "deploy", "dast": "dast"}
+
+
+def contract_keys(platform: str) -> list[str]:
+    keys = list(templates.CONTRACT_PLATFORM_NEUTRAL)
+    if platform == "aws":
+        keys.extend(templates.CONTRACT_AWS)
+    return keys
+
+
+def contract_files(platform: str) -> dict[str, str]:
+    """path -> content of every contract script this platform's suite carries."""
+    return {templates.contract_path(key): templates.contract_script(key) for key in contract_keys(platform)}
+
+
+def contract_command(stage_name: str, platform: str) -> str | None:
+    """The command a stage file runs when the orchestrator has a contract script for it."""
+    key = CONTRACT_STAGE_KEYS.get(stage_name)
+    if key and key in contract_keys(platform):
+        return f"bash {templates.contract_path(key)}"
+    return None
+
+
 def render_skeletons(platform: str, stages: list[dict], environment: dict, *, run_id: str, placeholders: list[str]) -> dict[str, str]:
     """Suite skeletons keyed by artifact path (not by kind: CodeBuild has one buildspec per stage)."""
     names = [stage["name"] for stage in stages]
@@ -251,7 +302,7 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
             skeletons[f"ci/buildspec-{name}.yml"] = templates.render_template(
                 "buildspec", stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=placeholders,
                 extra={
-                    "STAGE_COMMANDS": "\n".join(f"      - {line}" for line in command_hints(name)),
+                    "STAGE_COMMANDS": "\n".join(f"      - {line}" for line in command_hints(name, platform)),
                     "WORKFLOW_FILE": WORKFLOW_FOR_STAGE.get(name, f"{name}.yml"),
                     "SECRETS_MANAGER_LINES": _secrets_manager_lines(injectable_secrets(_names_for_stage(stage["name"], placeholders), platform)),
                 },
@@ -260,11 +311,12 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
         skeletons["deploy/codebuild-project.json"] = templates.render_template(
             "codebuild_project", base_stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=placeholders,
         )
-        if any(stage["name"] == "deploy" for stage in stages):
-            skeletons["deploy/ecs-stack.yaml"] = templates.render_template(
-                "cloudformation", base_stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=placeholders,
-                extra={"CONTAINER_ENV_LINES": _container_env_lines(placeholders)},
-            )
+        # The stack and the deploy, smoke, and container scripts travel with every AWS suite: a
+        # generated deploy_* or smoke stage relies on them as much as the fixed deploy stage does.
+        skeletons["deploy/ecs-stack.yaml"] = templates.render_template(
+            "cloudformation", base_stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=placeholders,
+            extra={"CONTAINER_ENV_LINES": _container_env_lines(placeholders), "CONTAINER_SECRET_LINES": _container_secret_lines(platform)},
+        )
     elif platform == "gcp":
         blocks = []
         previous = "refuse-production"
@@ -285,6 +337,9 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
             "azure_pipeline", base_stage, environment, runner="azure_pipelines", run_id=run_id, placeholders=placeholders,
             extra={"STAGE_BLOCKS": "\n".join(blocks)}, template=templates.SUITE_TEMPLATES["azure_pipeline"],
         )
+    if platform in SUITE_PLATFORMS:
+        # The orchestrator's contract scripts for the fixed stages travel with every suite.
+        skeletons.update(contract_files(platform))
     return skeletons
 
 
@@ -419,20 +474,81 @@ def _harden(item):
     return item if content == item.content else item.model_copy(update={"content": content})
 
 
-def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str]) -> PipelineSuite:
+def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str], *, platform: str = "", stages: list[dict] | None = None) -> PipelineSuite:
     """Append the env manifest (names only) unless Astra already wrote one; relocate a file
-    written outside the allowed prefixes; harden every file."""
+    written outside the allowed prefixes; harden every file; re-assert the orchestrator's
+    contract files and make sure every fixed stage's file runs its contract script."""
     suite_obj.artifacts = [_harden(generator.relocate(item, SUITE_STAGE)) for item in suite_obj.artifacts]
+    if platform in SUITE_PLATFORMS:
+        assert_contract(suite_obj, platform, stages or [], environment, placeholders)
     if not any(item.kind == "env_example" for item in suite_obj.artifacts):
         suite_obj.artifacts.append(generator.env_manifest({"name": SUITE_STAGE, "environment": environment}, placeholders))
     return suite_obj
 
 
+def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict], environment: dict, placeholders: list[str]) -> list[str]:
+    """The contract scripts (and on AWS the stack) are the orchestrator's: put back any the
+    model changed or dropped, and make sure each fixed stage's file calls its script. Returns
+    what was restored (paths) or appended (``<path>: <command>``)."""
+    restored: list[str] = []
+    wanted = dict(contract_files(platform))
+    if platform == "aws":
+        base_stage = {"name": SUITE_STAGE, "family": "custom", "purpose": "the whole pipeline", "environment": environment}
+        wanted["deploy/ecs-stack.yaml"] = templates.render_template(
+            "cloudformation", base_stage, environment, runner="aws_codebuild", run_id=str(environment.get("run_id") or "local"),
+            placeholders=placeholders,
+            extra={"CONTAINER_ENV_LINES": _container_env_lines(placeholders), "CONTAINER_SECRET_LINES": _container_secret_lines(platform)},
+        )
+    by_path = {item.path: item for item in suite_obj.artifacts}
+    for path, content in wanted.items():
+        kind = "cloudformation" if path.endswith(".yaml") else "shell"
+        current = by_path.get(path)
+        if current is None:
+            suite_obj.artifacts.append(GeneratedArtifact(path=path, kind=kind, purpose=f"orchestrator contract: {path}", content=content, secrets_referenced=[]))
+            restored.append(path)
+        elif current.content != content:
+            current.content = content
+            current.kind = kind
+            restored.append(path)
+    if platform == "aws":
+        for stage in stages:
+            command = contract_command(stage["name"], platform)
+            if not command:
+                continue
+            spec = by_path.get(f"ci/buildspec-{stage['name']}.yml")
+            if spec is not None and command not in spec.content:
+                spec.content = _with_build_command(spec.content, command)
+                restored.append(f"{spec.path}: {command}")
+    return restored
+
+
+def _with_build_command(content: str, command: str) -> str:
+    """Add ``command`` to a buildspec's build phase (the model dropped the contract call)."""
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        document = None
+    if not isinstance(document, dict):
+        return content.rstrip("\n") + f"\n# orchestrator contract\n# phases.build.commands must run: {command}\n"
+    phases = document.setdefault("phases", {}) if isinstance(document.get("phases"), dict) or "phases" not in document else {}
+    build = phases.setdefault("build", {}) if isinstance(phases.get("build"), dict) or "build" not in phases else {}
+    commands = build.get("commands")
+    if not isinstance(commands, list):
+        commands = []
+    commands.append(command)
+    build["commands"] = commands
+    phases["build"] = build
+    document["phases"] = phases
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+
+
 def check(suite: PipelineSuite) -> PolicyResult:
-    """Every artifact through the text and path rules (the suite may carry more than six files)."""
+    """Every artifact through the text and path rules (the suite may carry more than six files),
+    plus the placeholder check: a skeleton returned unchanged is an error."""
     findings = []
     for artifact in suite.artifacts:
         findings.extend(policy.check_artifact(artifact).findings)
+        findings.extend(policy.placeholder_findings(artifact))
     return PolicyResult(ok=not any(item.severity == "error" for item in findings), findings=findings)
 
 
@@ -491,8 +607,9 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
     run_id = str(state.get("run_id") or "local")
     platform = platform_for(state)
     context = context_for(state, provider)
+    fixed = suite_stages(state.get("pipeline") or {})
     suite = planner.generate_suite(context)
-    suite = with_manifest(suite, context["environment"], context["placeholders"])
+    suite = with_manifest(suite, context["environment"], context["placeholders"], platform=platform, stages=fixed)
     result = check(suite)
     revisions_left = max_revisions
     verdict: ArtifactReview = review(result, revisions_left, [item.path for item in suite.artifacts])
@@ -500,7 +617,7 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
         revisions_left -= 1
         try:
             revised = planner.generate_suite(context_for(state, provider, policy_findings=[item.model_dump() for item in result.findings]))
-            suite = with_manifest(revised, context["environment"], context["placeholders"])
+            suite = with_manifest(revised, context["environment"], context["placeholders"], platform=platform, stages=fixed)
         except AstraQuotaError:
             raise
         except (RuntimeError, ValueError, TypeError, OSError):

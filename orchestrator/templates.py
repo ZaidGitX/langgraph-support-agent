@@ -140,6 +140,7 @@ def variables(stage: dict, environment: dict | None = None, *, runner: str = "lo
         "STAGE_NAMES": "",
         "SECRETS_MANAGER_LINES": "",
         "CONTAINER_ENV_LINES": "",
+        "CONTAINER_SECRET_LINES": "",
         "WORKFLOW_FILE": "",
         "CODEBUILD_PROJECT": "$AWS_CODEBUILD_PROJECT",
         "S3_BUCKET": "$AWS_S3_BUCKET",
@@ -160,3 +161,59 @@ def render_template(kind: str, stage: dict, environment: dict | None = None, *, 
     merged["kind"] = kind
     values = variables(stage, environment, runner=runner, run_id=run_id, placeholders=placeholders, extra=merged)
     return Template(template_text(kind, template)).safe_substitute(values)
+
+
+# --- Platform contract scripts (Sprint 4, after live run 8) -----------------------------------
+# Code-written bash for the fixed stages, one per file under templates/contract/. A stage's
+# buildspec (or Jenkins/Cloud Build/Azure step) runs `bash ci/<stage>.sh`; Astra may add steps
+# around it but the orchestrator re-asserts these files after generation (`suite.with_manifest`).
+# They are plain shell, not string.Template files: only the __TOKEN__ markers below are replaced.
+CONTRACT_DIR = TEMPLATE_DIR / "contract"
+CONTRACT_SCRIPTS = {
+    "build": "build.sh",
+    "test": "test.sh",
+    "scanners": "scanners.sh",
+    "dast": "dast.sh",
+    "package": "package.sh",
+    "container": "container.sh",
+    "release": "release.sh",
+    "deploy": "deploy.sh",
+    "smoke": "smoke.sh",
+}
+# Contract scripts that run everywhere (python, node, docker on the agent) versus the ones that
+# speak to AWS (ECR, CloudFormation, ECS).
+CONTRACT_PLATFORM_NEUTRAL = ("build", "test", "scanners", "package")
+CONTRACT_AWS = ("container", "release", "deploy", "smoke", "dast")
+
+
+def contract_images() -> dict[str, str]:
+    """Scanner images from the catalog, with the catalog's own defaults as fallbacks."""
+    from . import scanners
+
+    def image(key: str, default: str) -> str:
+        return scanners.docker_image(key) or default
+
+    return {
+        "TRIVY_IMAGE": image("trivy", "aquasec/trivy:0.58.0"),
+        "GITLEAKS_IMAGE": image("gitleaks", "zricethezav/gitleaks:latest"),
+        "SONAR_IMAGE": image("sonar", "sonarsource/sonar-scanner-cli:latest"),
+        "ZAP_IMAGE": image("zap", "ghcr.io/zaproxy/zaproxy:stable"),
+        "HAWK_IMAGE": image("stackhawk", "stackhawk/hawkscan:latest"),
+    }
+
+
+def contract_script(name: str, values: dict | None = None) -> str:
+    """The rendered contract script for ``name`` (a CONTRACT_SCRIPTS key)."""
+    filename = CONTRACT_SCRIPTS[name]
+    text = (CONTRACT_DIR / filename).read_text(encoding="utf-8")
+    tokens = {"APP_NAME": APP_NAME, "PORT": PORT, "PYTHON_VERSION": PYTHON_VERSION, "NODE_VERSION": NODE_VERSION}
+    tokens.update(contract_images())
+    tokens.update({str(key): str(value) for key, value in (values or {}).items()})
+    for key, value in tokens.items():
+        text = text.replace(f"__{key}__", value)
+    return text
+
+
+def contract_path(name: str) -> str:
+    """Where a contract script lives in the checkout and the source upload."""
+    return f"ci/{name}.sh"

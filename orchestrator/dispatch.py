@@ -302,8 +302,10 @@ def run_workflow(
     command = workflow_command(stage, answers, public_url, workflow_file=workflow_file, ref=ref, inputs=inputs)
     started = time.time()
     try:
+        # The argv is the fixed `gh workflow run` command; its inputs are the validated stage
+        # name, tier, and run id, not free text from the environment.
         dispatched = subprocess.run(
-            command,
+            command,  # nosemgrep: the fixed gh argv with validated stage, tier, and run id inputs
             capture_output=True,
             text=True,
             timeout=120,

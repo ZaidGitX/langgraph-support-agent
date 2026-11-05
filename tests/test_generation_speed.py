@@ -195,7 +195,7 @@ def test_a_codebuild_build_past_the_cap_is_stopped_and_fails_the_stage(tmp_path,
     assert ran.status == "fail" and ran.exit_code == 1
     assert any(call[:3] == ["aws", "codebuild", "stop-build"] and call[3:5] == ["--id", "proj:abc"] for call in calls)
     assert "STOPPED by the orchestrator" in ran.evidence
-    assert aws_module.AwsProvider.timeout == 1200
+    assert aws_module.AwsProvider.timeout == 1800
 
 
 def test_codebuild_templates_cache_dependencies_and_cap_the_build(tmp_path):
@@ -203,7 +203,7 @@ def test_codebuild_templates_cache_dependencies_and_cap_the_build(tmp_path):
     base = {"name": "pipeline", "family": "custom", "purpose": "the whole pipeline", "environment": environment}
     project = templates.render_template("codebuild_project", base, environment, runner="aws_codebuild", run_id="r1", placeholders=[])
     assert '"cache": {"type": "S3", "location": "$AWS_S3_BUCKET/orchestrator/cache"}' in project
-    assert '"timeoutInMinutes": 20' in project
+    assert '"timeoutInMinutes": 30' in project
     stages = [{"name": "build", "family": "build", "purpose": "compile", "environment": environment}]
     skeleton = suite_module.render_skeletons("aws", stages, environment, run_id="r1", placeholders=[])["ci/buildspec-build.yml"]
     assert "cache:\n  paths:\n" in skeleton and "/root/.cache/pip" in skeleton and "frontend/node_modules" in skeleton

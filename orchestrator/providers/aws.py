@@ -31,6 +31,20 @@ PROJECT_RETRIES = 6  # a role created seconds ago takes a moment before CodeBuil
 LOG_TAIL_LINES = 60  # CloudWatch lines fetched for a failed build's evidence (live run 8)
 
 
+_CREDENTIAL_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".kdbx")
+
+
+def _holds_credentials(name: str) -> bool:
+    """Files that never travel in the source upload: .env and its variants (not the examples),
+    private keys, credential stores."""
+    lower = name.lower()
+    if lower == ".env" or (lower.startswith(".env.") and not lower.endswith(".example")):
+        return True
+    if lower in {"credentials", "id_rsa", "id_ed25519", "id_ecdsa", "secrets.enc"}:
+        return True
+    return lower.endswith(_CREDENTIAL_SUFFIXES)
+
+
 def trust_policy() -> dict:
     return {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Principal": {"Service": "codebuild.amazonaws.com"}, "Action": "sts:AssumeRole"}]}
 
@@ -49,8 +63,13 @@ def role_policy(account: str, region: str, *, bucket: str, repository: str, proj
              "Resource": f"arn:aws:logs:{region}:{account}:log-group:/aws/codebuild/{project}*"},
             {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:ListBucket"],
              "Resource": [f"arn:aws:s3:::{bucket}", f"arn:aws:s3:::{bucket}/*"]},
+            # A buildspec's `reports:` section (pytest JUnit, coverage) creates a report group named
+            # after the project; live run 8's test stage passed every phase and failed on this.
+            {"Effect": "Allow", "Action": ["codebuild:CreateReportGroup", "codebuild:CreateReport", "codebuild:UpdateReport", "codebuild:BatchPutTestCases", "codebuild:BatchPutCodeCoverages"],
+             "Resource": f"arn:aws:codebuild:{region}:{account}:report-group/{project}-*"},
             {"Effect": "Allow", "Action": ["ecr:GetAuthorizationToken"], "Resource": "*"},
-            {"Effect": "Allow", "Action": ["ecr:BatchCheckLayerAvailability", "ecr:CompleteLayerUpload", "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+            {"Effect": "Allow", "Action": ["ecr:BatchCheckLayerAvailability", "ecr:CompleteLayerUpload", "ecr:InitiateLayerUpload", "ecr:PutImage", "ecr:UploadLayerPart", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
+                                           "ecr:DescribeImages", "ecr:ListImages", "ecr:DescribeRepositories", "ecr:BatchDeleteImage"],
              "Resource": f"arn:aws:ecr:{region}:{account}:repository/{repository}"},
             {"Effect": "Allow", "Action": ["secretsmanager:GetSecretValue"], "Resource": f"arn:aws:secretsmanager:{region}:{account}:secret:{app}/*"},
             {"Effect": "Allow", "Action": ["cloudformation:*"], "Resource": f"arn:aws:cloudformation:{region}:{account}:stack/{app}-*/*"},
@@ -74,7 +93,7 @@ class AwsProvider(BaseProvider):
     cli = "aws"
     credential_group = "aws"
     artifact_kinds = ("buildspec", "shell")
-    timeout = 1200  # the live-run cap: a build still running after 20 minutes is stopped and fails
+    timeout = 1800  # the live-run cap: a build still running after 30 minutes is stopped and fails (the project's timeoutInMinutes)
 
     def would_run(self, stage: dict, records: list[dict], cwd: str, answers: dict) -> list[list[str]]:
         provider = str(stage.get("provider") or "")
@@ -234,9 +253,40 @@ class AwsProvider(BaseProvider):
                 return failed(f"put-role-policy {role_name} failed: {redact(error, limit=300)}")
             lines.append(f"role {role_name}: policy set (logs, bucket, repository, app secrets, scoped deploy)")
             os.environ["AWS_CODEBUILD_ROLE_ARN"] = arn
+        # Networking for the Fargate service: the names the registry carries, else the account's
+        # default VPC and its public subnets, exported so the project hands them to every build
+        # (ci/deploy.sh repeats the lookup inside CodeBuild when they are still empty).
+        network = self.discover_network(cwd, reg)
+        if network:
+            lines.append(network)
         if created:
             lines.append("created: " + ", ".join(created))
         return {"status": "pass", "evidence": "; ".join(lines), "created": created, "role_created": role_created}
+
+    def discover_network(self, cwd: str, reg: list[str]) -> str:
+        """Fill AWS_VPC_ID and AWS_SUBNET_IDS from the default VPC when unset; a one-line note."""
+        vpc = os.environ.get("AWS_VPC_ID", "").strip()
+        subnets = os.environ.get("AWS_SUBNET_IDS", "").strip()
+        if not vpc:
+            code, payload, _error = self._aws_json(["aws", "ec2", "describe-vpcs", "--filters", "Name=isDefault,Values=true", *reg], cwd)
+            vpcs = (payload or {}).get("Vpcs") or []
+            vpc = str(vpcs[0].get("VpcId") or "") if code == 0 and vpcs else ""
+            if vpc:
+                os.environ["AWS_VPC_ID"] = vpc
+        if vpc and not subnets:
+            code, payload, _error = self._aws_json(
+                ["aws", "ec2", "describe-subnets", "--filters", f"Name=vpc-id,Values={vpc}", "Name=map-public-ip-on-launch,Values=true", *reg], cwd
+            )
+            found = [str(item.get("SubnetId")) for item in ((payload or {}).get("Subnets") or []) if item.get("SubnetId")] if code == 0 else []
+            if not found:
+                code, payload, _error = self._aws_json(["aws", "ec2", "describe-subnets", "--filters", f"Name=vpc-id,Values={vpc}", *reg], cwd)
+                found = [str(item.get("SubnetId")) for item in ((payload or {}).get("Subnets") or []) if item.get("SubnetId")] if code == 0 else []
+            subnets = ",".join(sorted(found))
+            if subnets:
+                os.environ["AWS_SUBNET_IDS"] = subnets
+        if not vpc:
+            return "network: no default VPC; set AWS_VPC_ID and AWS_SUBNET_IDS before a deploy stage"
+        return f"network: {vpc} with {len(subnets.split(',')) if subnets else 0} subnet(s)"
 
     def provision(self, records: list[dict], cwd: str, *, mode: str, answers: dict, bundle: list[dict] | None = None) -> ProvisionResult:
         """Apply: bootstrap what is missing, upload the source, then create or update the project.
@@ -305,11 +355,14 @@ class AwsProvider(BaseProvider):
         zip_path = Path(self._source_zip(cwd, run_id))
         zip_path.parent.mkdir(parents=True, exist_ok=True)
         root = Path(cwd)
-        skip = {"var", "node_modules", ".git", "dist", "__pycache__", ".venv"}
+        skip = {"var", "node_modules", ".git", "dist", "__pycache__", ".venv", ".aws", ".ssh"}
         count = 0
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
             for path in root.rglob("*"):
                 if path.is_dir() or any(part in skip for part in path.relative_to(root).parts):
+                    continue
+                if _holds_credentials(path.name):
+                    # A laptop checkout has .env and key files; they never travel to the platform.
                     continue
                 archive.write(path, path.relative_to(root).as_posix())
                 count += 1

@@ -41,9 +41,17 @@ if aws cloudformation describe-stacks --stack-name "${APP_NAME}-${TIER}" --regio
   run aws cloudformation delete-stack --stack-name "${APP_NAME}-${TIER}" --region "$AWS_REGION"
 fi
 run aws logs delete-log-group --log-group-name "/aws/codebuild/$AWS_CODEBUILD_PROJECT" --region "$AWS_REGION"
+for group_arn in $(aws codebuild list-report-groups --region "$AWS_REGION" --query "reportGroups[?contains(@, ':report-group/${AWS_CODEBUILD_PROJECT}-')]" --output text 2>/dev/null); do
+  run aws codebuild delete-report-group --arn "$group_arn" --delete-reports --region "$AWS_REGION"
+done
 run aws s3 rm "s3://$AWS_S3_BUCKET/orchestrator/" --recursive --region "$AWS_REGION"
+# The ECS stack removes its own cluster, service, roles, and log group; the run's images and
+# the app's secrets stay unless --all.
 
 if [ "$ALL" = "1" ]; then
+  for secret_arn in $(aws secretsmanager list-secrets --region "$AWS_REGION" --filters "Key=name,Values=${APP_NAME}/" --query 'SecretList[].ARN' --output text 2>/dev/null); do
+    run aws secretsmanager delete-secret --secret-id "$secret_arn" --force-delete-without-recovery --region "$AWS_REGION"
+  done
   run aws iam delete-role-policy --role-name "$ROLE_NAME" --policy-name "${ROLE_NAME}-policy"
   run aws iam delete-role --role-name "$ROLE_NAME"
   run aws ecr delete-repository --repository-name "$AWS_ECR_REPOSITORY" --region "$AWS_REGION" --force

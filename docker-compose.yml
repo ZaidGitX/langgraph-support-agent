@@ -35,6 +35,8 @@ services:
       AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
       AWS_CFN_STACK: ${AWS_CFN_STACK:-}
       AWS_CODEBUILD_ROLE_ARN: ${AWS_CODEBUILD_ROLE_ARN:-}
+      AWS_VPC_ID: ${AWS_VPC_ID:-}
+      AWS_SUBNET_IDS: ${AWS_SUBNET_IDS:-}
       # Google Cloud (Cloud Build, Artifact Registry, Cloud Run, GCS) (placeholders; names only, values come from the host environment)
       GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       GCLOUD_SA_KEY: ${GCLOUD_SA_KEY:-}
