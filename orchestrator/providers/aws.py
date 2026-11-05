@@ -139,6 +139,11 @@ class AwsProvider(BaseProvider):
         person configured under another name is left alone. Returns ``status``, ``evidence``,
         ``created``, ``role_created``.
         """
+        from .. import credentials as registry_env
+
+        # An empty AWS_PROFILE or AWS_SESSION_TOKEN from a Compose placeholder makes every aws
+        # call fail ("The config profile () could not be found", live run 7): unset means unset.
+        registry_env.drop_empty_env()
         region = os.environ.get("AWS_REGION", "").strip()
         if not region:
             return {"status": "fail", "evidence": "AWS_REGION is not set", "created": [], "role_created": False}

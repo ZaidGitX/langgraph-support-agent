@@ -19,9 +19,14 @@ from .webhooks import router as webhook_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from orchestrator import vault
+    from orchestrator import credentials, vault
     from orchestrator.session import SessionService
 
+    # Compose passes every placeholder; an unset one arrives as "" and a CLI would read it as
+    # set (live run 7: an empty AWS_PROFILE broke every aws call). Unset means unset.
+    dropped = credentials.drop_empty_env()
+    if dropped:
+        print(f"Orchestrator environment: dropped {len(dropped)} empty name(s)", flush=True)
     try:
         exported = vault.export_env()
         if exported:

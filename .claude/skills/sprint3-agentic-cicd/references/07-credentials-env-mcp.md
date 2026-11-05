@@ -17,6 +17,7 @@ def registry() -> dict                       # the parsed JSON
 def all_names() -> list[str]                 # every env name, sorted, deduped
 def names_for(key: str) -> list[str]         # provider / scanner / app key -> required names
 def placeholders_for(key: str) -> list[str]  # required + optional names Astra may reference
+def drop_empty_env(env=None) -> list[str]    # removes registry names whose value is ""; the app runs it at startup and the AWS provider before its first call (live run 7: Compose passes unset placeholders as "" and the aws CLI read AWS_PROFILE="" as a profile)
 def is_present(name: str) -> bool            # after config.load_env_files(); value never returned
 def readiness(provider_statuses: dict | None = None) -> dict
 def render_env_example() -> str              # deterministic text for .env.example

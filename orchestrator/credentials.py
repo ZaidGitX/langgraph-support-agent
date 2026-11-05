@@ -12,7 +12,7 @@ import json
 import os
 import shutil
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 
 from app import config
@@ -110,6 +110,20 @@ def group_for_runner(runner: str) -> str | None:
 def _value(name: str, env: Mapping[str, str] | None) -> str:
     source = env if env is not None else os.environ
     return str(source.get(name, "") or "").strip()
+
+
+def drop_empty_env(env: MutableMapping[str, str] | None = None) -> list[str]:
+    """Remove registry variables whose value is empty, and return their names.
+
+    Compose passes every placeholder (``AWS_PROFILE: ${AWS_PROFILE:-}``), so an unset host
+    value reaches the container as ``""``. A CLI reads that as set: live run 7 failed its first
+    AWS call on "The config profile () could not be found". Unset means unset.
+    """
+    target = env if env is not None else os.environ
+    dropped = [name for name in all_names() if name in target and not str(target.get(name) or "").strip()]
+    for name in dropped:
+        del target[name]
+    return sorted(dropped)
 
 
 def is_present(name: str, env: Mapping[str, str] | None = None) -> bool:

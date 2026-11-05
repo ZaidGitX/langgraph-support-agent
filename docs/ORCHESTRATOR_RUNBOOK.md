@@ -251,6 +251,12 @@ Started by the push of 6b5195a. Questions at 11 s, Jev's plan at 81 s, eight gen
 
 Fixes that followed: Jev's reject criterion now reads "still reports an error and no revision is left", and `guard_review` accepts a clean policy result whatever the verdict (every reject criterion is a policy finding); a cloud profile does not approve a plan whose suite is not in use: autopilot rejects it once with the reason as feedback so Astra plans again, and a second miss goes to a person; the push workflow makes the whole checkout writable for the container's user; a `.py` stage script runs with `python3` on the host.
 
+### Live run 7 (2026-11-05, 08:59–09:15 UTC, workflow run 41998717456, run cdf28981): the first push-driven plan that was approved on AWS, stopped at the first aws call by an empty `AWS_PROFILE`
+
+Started by the push of cca8340. Questions at 10 s, Jev's plan at 73 s, seven generated stages and the suite (11 files, 361 s at high effort) all accepted, autopilot approved at 09:14:18 (policy clean, reviews accepted, confidence 1.00) with every fixed and generated stage bound to `aws_codebuild`. Provisioning then failed at `sts get-caller-identity`: Compose passes every placeholder (`AWS_PROFILE: ${AWS_PROFILE:-}`), so an unset host value reaches the container as `""`, and the aws CLI reads that as a profile named "" ("The config profile () could not be found"); injection failed the same way, the gate escalated at 09:14:45, and the job was cancelled. Nothing was created on AWS.
+
+Fix that followed: `credentials.drop_empty_env()` removes registry variables whose value is empty; the app runs it at startup before the vault export and the AWS provider runs it before its first call. Unset means unset.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
