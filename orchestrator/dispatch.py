@@ -305,7 +305,7 @@ def run_workflow(
         # The argv is the fixed `gh workflow run` command; its inputs are the validated stage
         # name, tier, and run id, not free text from the environment.
         dispatched = subprocess.run(
-            command,  # nosemgrep: the fixed gh argv with validated stage, tier, and run id inputs
+            command,  # nosemgrep
             capture_output=True,
             text=True,
             timeout=120,
