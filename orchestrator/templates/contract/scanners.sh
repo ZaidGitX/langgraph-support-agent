@@ -76,7 +76,20 @@ print(sum(1 for item in data.get("results", []) if str(item.get("extra", {}).get
 PY
 )"
       total="$(python -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("results", [])))' "$OUT/semgrep.json")"
-      if [ "$high" -gt 0 ]; then record semgrep failed 1 "$high ERROR-level finding(s) of $total"; else record semgrep passed 0 "$total finding(s), none at ERROR level"; fi
+      if [ "$high" -gt 0 ]; then
+        python - "$OUT/semgrep.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+rows = [f"semgrep finding: {r.get('path')}:{(r.get('start') or {}).get('line')} {r.get('check_id')}" for r in data.get("results", []) if str((r.get("extra") or {}).get("severity", "")).upper() == "ERROR"]
+for row in rows[:25]:
+    print(row)
+if len(rows) > 25:
+    print(f"semgrep finding: ... {len(rows) - 25} more in var/scanners/semgrep.json")
+PY
+        record semgrep failed 1 "$high ERROR-level finding(s) of $total"
+      else
+        record semgrep passed 0 "$total finding(s), none at ERROR level"
+      fi
     fi
   fi
 else
@@ -132,7 +145,23 @@ if selected trivy; then
     rc=0
     docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" fs --scanners vuln,misconfig,secret --severity "$SCAN_SEVERITY" \
       --exit-code 1 --skip-dirs node_modules,var,.git,frontend/node_modules --format json -o "/src/$OUT/trivy.json" . >/dev/null || rc=$?
-    case "$rc" in 0) record trivy passed 0 "no finding at $SCAN_SEVERITY";; 1) record trivy failed 1 "findings at $SCAN_SEVERITY, see var/scanners/trivy.json";; *) record trivy error "$rc" "trivy did not complete";; esac
+    if [ "$rc" -eq 1 ]; then
+      python - "$OUT/trivy.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+rows = []
+for res in data.get("Results", []):
+    for key in ("Vulnerabilities", "Misconfigurations", "Secrets"):
+        for item in res.get(key) or []:
+            ident = item.get("ID") or item.get("VulnerabilityID") or item.get("RuleID") or key
+            rows.append(f"trivy finding: {res.get('Target')} {ident} {item.get('Severity')} {(item.get('Title') or item.get('PkgName') or '')[:80]}")
+for row in rows[:25]:
+    print(row)
+if len(rows) > 25:
+    print(f"trivy finding: ... {len(rows) - 25} more in var/scanners/trivy.json")
+PY
+    fi
+    case "$rc" in 0) record trivy passed 0 "no finding at $SCAN_SEVERITY";; 1) record trivy failed 1 "findings at $SCAN_SEVERITY, listed above";; *) record trivy error "$rc" "trivy did not complete";; esac
   else
     record trivy error 1 "docker is not available on this agent"
   fi
@@ -144,7 +173,17 @@ if selected gitleaks; then
     rc=0
     docker run --rm -v "$PWD:/src" "$GITLEAKS_IMAGE" detect --no-git --redact --source /src --exit-code 1 \
       --report-format json --report-path "/src/$OUT/gitleaks.json" >/dev/null 2>&1 || rc=$?
-    case "$rc" in 0) record gitleaks passed 0 "no secret found";; 1) record gitleaks failed 1 "secrets found, see var/scanners/gitleaks.json";; *) record gitleaks error "$rc" "gitleaks did not complete";; esac
+    if [ "$rc" -eq 1 ]; then
+      python - "$OUT/gitleaks.json" <<'PY'
+import json, sys
+rows = json.load(open(sys.argv[1]))
+for item in rows[:25]:  # file, line, rule: never the matched text
+    print(f"gitleaks finding: {item.get('File')}:{item.get('StartLine')} {item.get('RuleID')}")
+if len(rows) > 25:
+    print(f"gitleaks finding: ... {len(rows) - 25} more in var/scanners/gitleaks.json")
+PY
+    fi
+    case "$rc" in 0) record gitleaks passed 0 "no secret found";; 1) record gitleaks failed 1 "secrets found, listed above";; *) record gitleaks error "$rc" "gitleaks did not complete";; esac
   else
     record gitleaks error 1 "docker is not available on this agent"
   fi

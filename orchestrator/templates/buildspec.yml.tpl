@@ -4,6 +4,7 @@
 version: 0.2
 
 env:
+  shell: bash
   variables:
     RUN_ID: "$RUN_ID"
     TIER: "$TIER"

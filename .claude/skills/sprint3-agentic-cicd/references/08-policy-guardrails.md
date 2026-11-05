@@ -120,3 +120,14 @@ mutating command even when the variable is set.
 - `prod.reference` exemption: `# never production` passes; `--target production` fails.
 - `rules_summary()` returns one line per rule.
 - `test_rule_ids_match_skill` (skipped when the skill directory is absent).
+
+## Generated infrastructure (after live run 11)
+
+The scanners contract runs trivy misconfig over the whole uploaded checkout, generated files
+included, so IaC Astra writes must pass at HIGH/CRITICAL. Live run 11 failed on an `infra_plan`
+worker's ECR repository policy with `Principal: "*"` and an internet-facing plain-HTTP load
+balancer. `iac.public_principal` (error, both copies) catches a wildcard principal before
+approval; the generation prompt tells Astra that `infra_plan` validates and plans the
+orchestrator's `deploy/ecs-stack.yaml` rather than writing a second deployment template, and
+that every buildspec keeps `env.shell: bash` (`generator.ensure_bash_shell` enforces it). Tests:
+`tests/test_run11_codebuild.py`.

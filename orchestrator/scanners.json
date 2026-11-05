@@ -914,7 +914,13 @@
       },
       "aliases": [
         "pytest"
-      ]
+      ],
+      "exit_codes": {
+        "0": "passed",
+        "1": "tests failed",
+        "2": "interrupted or usage error",
+        "5": "no tests collected: a test level with no tests in this repository is recorded as skipped, never failed"
+      }
     },
     "k6": {
       "family": "test",

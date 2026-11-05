@@ -149,8 +149,41 @@ def harden(artifact: GeneratedArtifact) -> GeneratedArtifact:
         content = _EMPTY_REGION.sub("", content)
     if _ARTIFACTS_BLOCK.search(content):
         content = _ARTIFACTS_BLOCK.sub("", content).rstrip("\n") + "\n"
+    content = ensure_bash_shell(content)
     content = strip_unresolvable_bindings(content)
     return artifact if content == artifact.content else artifact.model_copy(update={"content": content})
+
+
+_ENV_LINE = re.compile(r"^env:[ \t]*(?:#[^\n]*)?\n", re.MULTILINE)
+_SHELL_LINE = re.compile(r"^([ \t]+)shell:[^\n]*$", re.MULTILINE)
+_VERSION_LINE = re.compile(r"^version:[^\n]*\n", re.MULTILINE)
+
+
+def ensure_bash_shell(content: str) -> str:
+    """Every buildspec says ``env.shell: bash``. CodeBuild runs each command with sh otherwise,
+    and a model-written multi-line command that starts with ``set -euo pipefail`` dies there
+    ("Illegal option -o pipefail": live run 11's sca stage, twice). Text edits keep comments."""
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+    if not isinstance(document, dict):
+        return content
+    env = document.get("env")
+    if isinstance(env, dict) and str(env.get("shell") or "").strip() == "bash":
+        return content
+    if isinstance(env, dict) and env.get("shell") is not None:
+        return _SHELL_LINE.sub(r"\1shell: bash", content, count=1)
+    if isinstance(env, dict):
+        match = _ENV_LINE.search(content)
+        if match:
+            return content[: match.end()] + "  shell: bash\n" + content[match.end():]
+        env["shell"] = "bash"
+        return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+    match = _VERSION_LINE.search(content)
+    if match:
+        return content[: match.end()] + "\nenv:\n  shell: bash\n" + content[match.end():]
+    return "env:\n  shell: bash\n" + content
 
 
 def strip_unresolvable_bindings(content: str, platform: str = "aws") -> str:

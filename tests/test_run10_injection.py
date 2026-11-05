@@ -69,7 +69,7 @@ def test_harden_drops_bindings_codebuild_could_not_resolve(monkeypatch):
         path="ci/buildspec-x.yml", kind="buildspec", purpose="p",
         content='version: 0.2\nenv:\n  secrets-manager:\n    AWS_SECRET_ACCESS_KEY: "langgraph-support-app/AWS_SECRET_ACCESS_KEY"\nphases:\n  build:\n    commands:\n      - echo hi\n',
     ))
-    assert "env" not in yaml.safe_load(only_bad.content)
+    assert yaml.safe_load(only_bad.content)["env"] == {"shell": "bash"}  # the binding is gone; the bash shell stays (live run 11)
 
 
 def test_platform_stages_never_get_the_platform_identity_as_placeholders(monkeypatch):

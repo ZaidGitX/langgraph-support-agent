@@ -146,5 +146,6 @@ def catalog_for_prompt(stage_names: tuple[str, ...] = ("scanners", "dast", "sast
             "stages": list(item.get("stages") or []),
             "argv": argv,
             "severity_from": item.get("severity_from"),
+            "exit_codes": dict(item.get("exit_codes") or {}),
         })
     return rows

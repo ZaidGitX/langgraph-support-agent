@@ -83,6 +83,10 @@ RULES: list[tuple[str, str, str, str, tuple[str, ...]]] = [
     ("secret.assignment", "error",
      r"^[ \t]*(export[ \t]+)?[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|PASSWD)[A-Z0-9_]*[ \t]*[=:][ \t]*[\"']?[^\s\"'$#{<][^\s\"']{7,}",
      "a secret-named variable is assigned a literal; use ${{ secrets.NAME }}, $NAME, or ${NAME}", ()),
+    # Live run 11: a generated ECR repository policy with Principal "*" and an internet-facing
+    # plain-HTTP load balancer failed trivy misconfig at HIGH/CRITICAL in the scanners stage.
+    ("iac.public_principal", "error", r"\bprincipal\b[\"']?[ \t]*:[ \t]*[\"']?\*[\"']?|\bAWS[\"']?[ \t]*:[ \t]*[\"']?\*[\"']?[ \t]*$",
+     "a wildcard principal grants public access; name the account, role, or service", ()),
     ("secret.gh_set_literal", "error", r"\bgh\s+secret\s+set\s+\S+\s+(-b|--body)\s*=?\s*[\"']?[^\s\"'$\-]",
      "gh secret set with a literal body is not allowed", ()),
     ("exfil.env_dump", "error",

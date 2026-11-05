@@ -12,7 +12,7 @@ def test_an_empty_region_is_dropped_from_a_buildspec_but_a_real_one_stays():
     fixed = generator.harden(GeneratedArtifact(kind="buildspec", path="ci/buildspec-sca.yml", purpose="x", content=BUILDSPEC))
     assert "AWS_REGION" not in fixed.content and "TIER: \"dev\"" in fixed.content and "RUN_ID" in fixed.content
     kept = GeneratedArtifact(kind="buildspec", path="ci/buildspec-sca.yml", purpose="x", content=BUILDSPEC.replace('AWS_REGION: ""', 'AWS_REGION: "us-east-1"'))
-    assert generator.harden(kept).content == kept.content
+    assert generator.harden(kept).content.replace("  shell: bash\n", "", 1) == kept.content  # only the bash shell line is added (live run 11)
     shell = GeneratedArtifact(kind="shell", path="ci/x.sh", purpose="x", content="#!/usr/bin/env bash\nAWS_REGION: \"\"\n")
     assert generator.harden(shell).content == shell.content
     bare = generator.harden(GeneratedArtifact(kind="buildspec", path="ci/b.yml", purpose="x", content="env:\n  variables:\n    AWS_REGION:\n    X: y\n"))

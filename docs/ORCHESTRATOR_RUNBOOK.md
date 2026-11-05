@@ -392,6 +392,53 @@ Nothing was built on AWS; the writes were the source upload, the project documen
 three secret values. OpenAI usage: one question round, two proposals, one worker assignment,
 seven stage generations, one suite generation, the reviews, and the 429.
 
+### Live run 11 (2026-11-05, 21:54–22:16 UTC, workflow run 42116879842, run 12a069ba): the first stages built on CodeBuild through the contract; three stages failed and Jev escalated
+
+Started by the push of 6cf5a21 after a one-call probe of the OpenAI key. Questions answered by the
+profile at 21:57:48, generation 21:58–22:08 (eight generated stages in 17–102 s each, the 16-file
+suite in 486 s, every review accept, policy clean), autopilot approved at 22:08:06 (confidence
+1.00) with an injection plan of exactly `OPENAI_API_KEY`, `SNYK_TOKEN`, `TYPESAFE_API_KEY`.
+Provisioning applied (upload, repository, `update-project` ok) and injection applied. Then the
+first platform wave: `build` passed on CodeBuild at 22:09:34 through `bash ci/build.sh`, the
+first fixed stage ever to pass on the platform path, and `test` passed at 22:11:05 (373 tests).
+The scanners stage honored the menu (`selected scan tools: semgrep,pip-audit,snyk,trivy,gitleaks`):
+semgrep, pip-audit, and both Snyk tests passed, Sonar and CodeQL were skipped as not selected.
+Three stages failed, were retried once by Jev's `remediate`, failed the same way, and Jev
+escalated at 22:15:51 (confidence 0.35); the orchestrator cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 21:57:48 |
+| Suite finished (486 s); autopilot approved at 1.00 | 22:08:06 |
+| Provisioning and injection applied | 22:08:13–22:08:45 |
+| `build` passed on CodeBuild | 22:09:34 |
+| `test` passed; `sca` failed | 22:11:05 |
+| `integration_test` failed; `scanners` failed | 22:12:02 / 22:12:24 |
+| Retries failed; Jev escalated | 22:15:05 / 22:15:51 |
+
+What went wrong, and the fix:
+
+- `sca` (generated): its buildspec had no `env.shell: bash`, so CodeBuild ran the multi-line
+  command with sh and died at `set -euo pipefail` ("Illegal option -o pipefail"). Both buildspec
+  templates now say `shell: bash`, `generator.harden` adds or corrects it in every buildspec, and
+  the generation prompt says so.
+- `integration_test` (generated): `pytest -m integration` collected nothing (373 deselected) and
+  pytest's exit code 5 was treated as a failure. The catalog's pytest entry now carries the exit
+  codes, and the prompt says a test level with no tests is recorded as skipped with exit 0.
+- `scanners` (contract): trivy found four HIGH/CRITICAL misconfigurations, all in two files the
+  `infra_plan` worker wrote (`deploy/dev/ecs.generated.yml`: internet-facing load balancer with a
+  plain-HTTP listener; `deploy/ecr.generated.yml`: a repository policy with `Principal: "*"`), and
+  gitleaks flagged one synthetic key-shaped string in `tests/test_run5_hardening.py`. The
+  repository's own files had none (verified locally on the uploaded `source.zip`). Now a wildcard
+  principal is a policy error (`iac.public_principal`, both copies) so Jev sends such a file back
+  before approval, the prompt tells Astra that its IaC must pass trivy misconfig and that
+  `infra_plan` validates the orchestrator's stack rather than writing a second one, the test string
+  is built at runtime, and `ci/scanners.sh` prints each failed tool's findings (file, rule, severity)
+  right before its summary so the dashboard evidence and Astra's advice see them.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and six CodeBuild builds (two passed, four failed). The GitHub job was cancelled at 22:17.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
