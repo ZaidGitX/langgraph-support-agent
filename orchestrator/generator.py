@@ -16,6 +16,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import yaml
+
 from . import credentials, policy, redaction, retrieval, scanners, templates
 from .schemas import ArtifactSet, GeneratedArtifact
 from .state import MAX_ARTIFACT_REVISIONS
@@ -40,13 +42,26 @@ def generated_dir(root: str, run_id: str, stage: str) -> Path:
     return Path(root) / "var" / GENERATED_DIR / str(run_id) / str(stage)
 
 
+PLATFORM_GROUPS = ("jenkins", "aws", "gcp", "azure")
+
+
 def placeholders_for(stage: dict, provider) -> list[str]:
-    """Credential names this stage may reference: the provider's group plus its scanner's."""
+    """Credential names this stage may reference: the provider's group plus its scanner's.
+
+    A stage that runs inside a platform (CodeBuild, Cloud Build, Azure Pipelines, Jenkins) never
+    gets that platform's identity secrets: the service role or the agent is the identity there,
+    and a file that named them made live run 9 inject a key pair and a session token the host
+    does not have.
+    """
     known = set(credentials.all_names())
     names: list[str] = list(provider.placeholders()) if provider is not None else []
     for name in scanners.env_names(str(stage.get("provider") or "")):
         if name in known and name not in names:
             names.append(name)
+    group = credentials.group_for_runner(str(getattr(provider, "runner", "") or ""))
+    if group in PLATFORM_GROUPS:
+        hidden = set(credentials.identity_secrets(group))
+        names = [name for name in names if name not in hidden]
     return names
 
 
@@ -134,7 +149,42 @@ def harden(artifact: GeneratedArtifact) -> GeneratedArtifact:
         content = _EMPTY_REGION.sub("", content)
     if _ARTIFACTS_BLOCK.search(content):
         content = _ARTIFACTS_BLOCK.sub("", content).rstrip("\n") + "\n"
+    content = strip_unresolvable_bindings(content)
     return artifact if content == artifact.content else artifact.model_copy(update={"content": content})
+
+
+def strip_unresolvable_bindings(content: str, platform: str = "aws") -> str:
+    """Drop the ``env.secrets-manager`` entries CodeBuild could never resolve: the platform's own
+    identity secrets (the role is the identity inside the build) and registry secrets with no
+    value on the orchestrator host (nothing would be injected, and CodeBuild fails the build
+    before its first command). Live run 9 escalated at injection on AWS_SESSION_TOKEN. A value
+    that names no registry secret is left for the policy."""
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+    if not isinstance(document, dict):
+        return content
+    env = document.get("env")
+    if not isinstance(env, dict) or not isinstance(env.get("secrets-manager"), dict):
+        return content
+    hidden = set(credentials.identity_secrets(platform))
+    registry = credentials.secret_names()
+    kept: dict = {}
+    for key, value in env["secrets-manager"].items():
+        named = {name for name in registry if name == str(key) or name in str(value)}
+        if any(name in hidden or not credentials.is_present(name) for name in named):
+            continue
+        kept[key] = value
+    if kept == env["secrets-manager"]:
+        return content
+    if kept:
+        env["secrets-manager"] = kept
+    else:
+        del env["secrets-manager"]
+    if not env:
+        del document["env"]
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
 _SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".ps1", ".js", ".ts", ".rb")

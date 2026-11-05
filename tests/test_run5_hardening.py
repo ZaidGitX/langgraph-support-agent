@@ -49,7 +49,8 @@ def test_a_secret_id_that_is_a_credential_name_is_a_reference_in_both_policy_cop
     assert not policy.check_text("API_KEY: NOT_A_REGISTRY_NAME\n", kind="buildspec").ok
 
 
-def test_the_suite_qualifies_bare_secret_ids_only_inside_the_secrets_manager_block():
+def test_the_suite_qualifies_bare_secret_ids_only_inside_the_secrets_manager_block(monkeypatch):
+    monkeypatch.setattr(suite.credentials, "is_present", lambda name, env=None: True)  # both names have a value here (run 9 strips a binding without one)
     item = GeneratedArtifact(path="ci/buildspec-scanners.yml", kind="buildspec", purpose="scan", content=BUILDSPEC)
     hardened = suite._harden(item)
     assert f'    SNYK_TOKEN: "{APP_NAME}/SNYK_TOKEN"' in hardened.content

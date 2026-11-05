@@ -242,6 +242,14 @@ def approval(profile: RunProfile, view: dict) -> tuple[bool, str]:
         suite_status = str(suite_info.get("status") or "no suite was generated")
         if suite_status != "ok":
             return False, f"suite: the {profile.platform} suite is not in use ({suite_status})"
+    injection = view.get("injection") or {}
+    bound = {str(name) for name in injection.get("names") or []}
+    unresolved = [str(name) for name in injection.get("missing") or [] if str(name) in bound]
+    if profile.platform in CLOUD_PLATFORMS and unresolved:
+        # A platform build resolves every bound secret before its first command, and the
+        # orchestrator has no value to inject (live run 9 escalated at injection on
+        # AWS_SESSION_TOKEN): the session rejects once with this as Astra's feedback.
+        return False, "injection: no value for " + ", ".join(unresolved) + "; unbind it or provide the secret"
     return True, "policy clean, reviews accepted, confidence " + ("not reported" if confidence is None else f"{confidence:.2f}")
 
 

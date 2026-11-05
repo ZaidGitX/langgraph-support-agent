@@ -226,3 +226,19 @@ selection too. `SCANNER_TOOLS` lists every provider of the menu, so a provided `
 scripts `ci/scanners.sh` and `ci/dast.sh` read `SCAN_TOOLS`, `SCAN_SEVERITY`, `DAST_TOOLS`
 (`all` by default, `none` allowed) and record an unselected or credential-less provider as
 `skipped`, never failed; the stage fails only on a `failed` line.
+
+## What injection copies (after live run 9)
+
+Live run 9 stopped at injection with `no value for AWS_SESSION_TOKEN`: the names were the union
+of every generated record's declared `secrets_referenced`, and generated stages had declared the
+orchestrator's own AWS identity in `.env.dev.example` manifests, a script, and a GitHub workflow.
+Rules now: `credentials.identity_secrets(group)` (the group's secret-kind names) are never
+placeholders for a stage that runs inside that platform (`generator.placeholders_for`,
+`suite.context_for`) and never injectable (`suite.injectable_secrets`);
+`suite.bound_secret_names(records, platform)` takes explicit bindings in any file's content plus
+the declared names of records the platform itself resolves (`PLATFORM_BOUND_KINDS`: AWS
+buildspecs, the stack, the project document; Jenkinsfile and job XML; cloudbuild; azure
+pipeline; on GitHub the workflows); `generator.harden` drops a `secrets-manager` entry for an
+identity secret or a registry secret without a value (`strip_unresolvable_bindings`); and
+`profile.approval` refuses a plan whose injection plan has a bound name without a value, so the
+session rejects it once with that feedback. Tests: `tests/test_run10_injection.py`.

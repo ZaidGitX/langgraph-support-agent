@@ -208,7 +208,7 @@ def injectable_secrets(names: list[str], platform: str) -> list[str]:
     identity (inside the platform the service role or the agent is the identity, and static
     keys would override it).
     """
-    own = set(credentials.names_for(platform)) if platform in credentials.groups() else set()
+    own = set(credentials.identity_secrets(platform))
     return [
         name
         for name in dict.fromkeys(names)
@@ -237,6 +237,36 @@ def referenced_secrets(items: list) -> list[str]:
         for pattern in _REFERENCE_FORMS:
             found.update(name for name in pattern.findall(content) if credentials.kind_of(name) == "secret")
     return sorted(found)
+
+
+# The record kinds a platform resolves itself, per platform: only their declared bindings count
+# for injection. An env manifest's ``NAME=`` line or a GitHub workflow's ``secrets.NAME`` is not a
+# binding this platform resolves (live run 9 injected the AWS key pair and a session token
+# because generated stages declared them in `.env.dev.example` and `gen-deploy_dev.yml`).
+PLATFORM_BOUND_KINDS = {
+    "aws": ("buildspec", "cloudformation", "codebuild_project"),
+    "jenkins": ("jenkinsfile", "jenkins_job"),
+    "gcp": ("cloudbuild",),
+    "azure": ("azure_pipeline",),
+    "github": ("github_workflow",),
+}
+
+
+def bound_secret_names(records: list, platform: str = "") -> list[str]:
+    """Every secret name the run's platform files bind by reference: explicit bindings in any
+    file's content plus the names a platform-resolved record declares (the ECS task's Secrets).
+    Never the platform's own identity secrets."""
+    names = set(referenced_secrets(records))
+    kinds = PLATFORM_BOUND_KINDS.get(platform) if platform else None  # unknown platform: every declaration counts
+    for record in records:
+        if kinds is not None:
+            kind = str(record.get("kind") if isinstance(record, dict) else getattr(record, "kind", "") or "")
+            if kind not in kinds:
+                continue
+        declared = record.get("secrets_referenced") if isinstance(record, dict) else getattr(record, "secrets_referenced", None)
+        names.update(str(name) for name in (declared or []))
+    hidden = set(credentials.identity_secrets(platform))
+    return sorted(name for name in names if credentials.kind_of(name) == "secret" and name not in hidden)
 
 
 def _names_for_stage(stage_name: str, placeholders: list[str]) -> list[str]:
@@ -397,7 +427,9 @@ def context_for(state: dict, provider, *, policy_findings: list[dict] | None = N
         if environment["tier"] == "local":
             environment["tier"] = "dev"
     environment["platform"] = platform
-    names = list(provider.placeholders())
+    # The platform's identity secrets are never placeholders inside the platform (live run 9).
+    hidden = set(credentials.identity_secrets(platform))
+    names = [name for name in provider.placeholders() if name not in hidden]
     for stage_name in (stage["name"] for stage in stages):
         for tool in SCANNER_TOOLS.get(stage_name, ()):
             for extra_name in scanners.env_names(tool):

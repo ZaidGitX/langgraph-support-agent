@@ -100,6 +100,15 @@ def names_for(key: str) -> list[str]:
     return required
 
 
+def identity_secrets(key: str) -> list[str]:
+    """The secret names a group uses to identify the orchestrator to that platform (the AWS key
+    pair and session token, a service-account key, a Jenkins API token). Inside the platform the
+    service role or the agent is the identity, so a platform file never binds them and injection
+    never copies them (live run 9 escalated on a binding to AWS_SESSION_TOKEN)."""
+    group = groups().get(key) or {}
+    return [item["name"] for item in group.get("env") or [] if item.get("kind") == "secret"]
+
+
 def group_for_runner(runner: str) -> str | None:
     for key, group in groups().items():
         if runner in (group.get("runners") or []):

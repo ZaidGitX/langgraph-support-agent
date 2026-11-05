@@ -307,6 +307,51 @@ Fixes that followed: both buildspec skeletons lost their `artifacts:` block and 
 
 What the CloudWatch logs and the uploaded `source.zip` of run 8 showed afterwards, and what changed because of it (before run 9): the `test` build had passed every phase and failed only because its buildspec's `reports:` section needs `codebuild:CreateReportGroup` (now in the role policy); the `scanners` script treated every semgrep finding and every un-credentialed tool (Sonar, CodeQL) as fatal; the `deploy_dev` buildspec was the untouched skeleton (`echo "stage deploy_dev placeholder"`); the `infra_plan` stack invented a `SERVICE_ENABLED` name; the image was tagged by commit while the stack expected a tag by run. The platform plumbing is therefore code-written now, the **platform contract**: `orchestrator/templates/contract/*.sh` (build, test, scanners, package everywhere; container, release, deploy, smoke, dast on AWS) travel with every suite, each fixed stage's file runs `bash ci/<stage>.sh`, the orchestrator puts the files back if the model changes or drops them, a generated deploy, verify, or image stage on CodeBuild gets the matching call when its file would do nothing, a skeleton returned unchanged is a policy error, every scan of `scanners.yml` runs with findings gated at `SCAN_SEVERITY` (HIGH,CRITICAL) and a tool whose credential is not provided recorded as skipped, the deploy finds the default VPC and public subnets (`AWS_VPC_ID`, `AWS_SUBNET_IDS` when set), creates or updates the `<app>-<tier>` stack, waits for the service, checks `/status` on the task's public IP and publishes the URL for smoke, dast, and UAT, the task reads the app's own keys from Secrets Manager, builds run on `BUILD_GENERAL1_MEDIUM` for 30 minutes at most, and `.env` and key files never travel in the upload. Reference: `14-suites-provisioning-injection.md`, "Platform contract". On this checkout semgrep (p/python, p/javascript) reports no ERROR-level finding and trivy no HIGH or CRITICAL vulnerability, so the scanners stage is expected to pass.
 
+### Live run 9 (2026-11-05, 21:06–21:30 UTC, workflow run 42109645409, run b0b24b1f): the scan menu answered, 38 files approved, AWS provisioned, stopped at secret injection
+
+Started by the push of df9b3dc (the scan and test menu). The push alone ran the whole front
+half: questions at 10 s, now six of them with the two menu questions (`scan_tools`,
+`dast_tools`) answered from `orchestrator.yaml`; Jev `proceed`; the plan `generated_ecs_dev-1`
+ranked at 80 s with ten stages on `aws_codebuild` (build, infra_plan, scanners, test,
+integration_test, build_image, container_scan, deploy_dev, post_deploy_smoke, dast_scan) and
+UAT local. Generation 21:10:37–21:16:38 on four workers: the seven generated stages in 14–115 s
+each, every review `accept`, the suite (16 files) in 282 s at high effort, 38 files in all, no
+policy finding. Autopilot approved at 21:16:38 (confidence 0.98). Provisioning applied: bucket,
+repository, role, and the default VPC with six subnets confirmed, `source.zip` with 260 checkout
+files plus 31 generated files uploaded, the CodeBuild project in place. Then injection failed
+before the first build: `no value for AWS_SESSION_TOKEN`, and the guardrail escalated at
+21:17:16. No build ran. The orchestrator marked the results viewed through the dashboard with
+the token the user had entered, and the workflow stopped the application.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile (six, two of them the scan menu) | 21:09:27 |
+| Jev ranked `generated_ecs_dev-1`, runners assigned | 21:10:37 |
+| Generation finished: 38 files, every review accept, policy clean | 21:16:38 |
+| Autopilot approved (confidence 0.98) | 21:16:38 |
+| Provisioning applied (upload, repository, project) | 21:16:47 |
+| Injection failed on `AWS_SESSION_TOKEN`; escalated | 21:17:16 |
+
+What went wrong, and the fix:
+
+- The injection names were the union of every file's declared `secrets_referenced`, and the
+  generated stages' `.env.dev.example` manifests, a `ci/verify-build-image.py`, and a
+  `.github/workflows/gen-deploy_dev.yml` had declared the orchestrator's own AWS identity
+  (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`), because those names were
+  among the stage placeholders. The session token has no value with static keys, so
+  `inject_secrets` failed and the run stopped. Now: a platform's identity secrets
+  (`credentials.identity_secrets`) are never placeholders for a stage that runs inside that
+  platform and never injectable; injection takes only explicit bindings plus what a record the
+  platform itself resolves declares (`suite.bound_secret_names`, `PLATFORM_BOUND_KINDS`: on AWS
+  the buildspecs, the stack, the project document); `generator.harden` drops a `secrets-manager`
+  entry for an identity secret or a secret without a value; and `profile.approval` refuses a plan
+  whose injection plan still has an unresolved bound name, so the session rejects it once with
+  that feedback instead of approving a run that cannot start.
+
+Nothing was built on AWS; the only writes were the source upload and the project document.
+OpenAI usage: one question round, two proposals, one worker assignment, seven stage
+generations, one suite generation, and the reviews.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
