@@ -694,10 +694,17 @@ def approval_payload(state: dict) -> dict:
     """What the person sees before approving: the pipeline, every candidate, the runner plan,
     every generated artifact with its policy verdict, and the retrieval evidence."""
     pipeline = state.get("pipeline") or {}
-    artifacts = {
-        stage: generator.records_for_view(records)
-        for stage, records in (state.get("generated_artifacts") or {}).items()
-    }
+    # Only what the person would approve: the files of the stages still in the pipeline, and
+    # the suite when it is in use. A dropped stage's files (rejected, so no longer in the plan)
+    # stay in the report but no longer block the gate (live run 5 could not be approved by
+    # anyone because two dropped stages and a rejected suite had policy errors).
+    in_plan = {str(stage.get("name")) for stage in pipeline.get("stages") or []}
+    if str((pipeline.get("suite") or {}).get("status") or "") == "ok":
+        in_plan.add(suite.SUITE_STAGE)
+    generated = state.get("generated_artifacts") or {}
+    artifacts = {stage: generator.records_for_view(records) for stage, records in generated.items() if stage in in_plan}
+    reviews = {stage: review for stage, review in (state.get("artifact_review") or {}).items() if stage in in_plan}
+    dropped_artifacts = {stage: generator.records_for_view(records) for stage, records in generated.items() if stage not in in_plan}
     return {
         "gate": "pipeline_approval",
         "pipeline": pipeline_view(pipeline),
@@ -705,7 +712,8 @@ def approval_payload(state: dict) -> dict:
         "runner_plan": dict(state.get("runner_plan") or {}),
         "worker_plan": dict(state.get("worker_plan") or {}),
         "artifacts": artifacts,
-        "artifact_review": dict(state.get("artifact_review") or {}),
+        "dropped_artifacts": dropped_artifacts,
+        "artifact_review": reviews,
         "policy": list(state.get("policy") or []),
         "readiness": _readiness_brief(state.get("readiness") or {}),
         "retrieval_evidence": list((state.get("ecosystem") or {}).get("evidence") or []),

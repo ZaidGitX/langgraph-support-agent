@@ -142,6 +142,16 @@ READ_ONLY_PATTERNS: list[str] = [
 CASE_SENSITIVE_RULES = {"secret.assignment", "secret.literal"}
 # By-reference bindings a platform needs: Jenkins credentials('NAME'), CodeBuild secrets-manager
 # "<secret-id>:<KEY>" and parameter-store "/path" references, Azure $(NAME). None is a value.
+# A value that is itself a credential NAME, optionally behind a path, is a reference by name
+# (CodeBuild secrets-manager binds that way; live run 5 rejected a suite over it).
+_NAME_REFERENCE = re.compile(r"[=:][ \t]*[\"']?(?:[A-Za-z0-9._\-]+/)*([A-Z][A-Z0-9_]*)[\"']?[ \t]*$")
+
+
+def _is_name_reference(line_text: str) -> bool:
+    match = _NAME_REFERENCE.search(line_text)
+    return bool(match) and match.group(1) in ALL_ENV_NAMES
+
+
 _SECRET_REFERENCE = re.compile(
     r"credentials\(|\$\(|[=:][ \t]*[\"']?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]*:[A-Z][A-Z0-9_]*[\"']?[ \t]*$|[=:][ \t]*[\"']/?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]+[\"'][ \t]*$|[=:][ \t]*[\"']?/[A-Za-z0-9._/\-]+[\"']?[ \t]*$"
 )
@@ -221,7 +231,7 @@ def check_text(text: str, *, kind: str = "shell", path: str = "") -> list[dict]:
             line_text = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
             if rule_id == "prod.reference" and any(r.search(line_text) for r in _PROD_EXEMPT):
                 continue
-            if rule_id == "secret.assignment" and ("${{" in line_text or _SECRET_REFERENCE.search(line_text)):
+            if rule_id == "secret.assignment" and ("${{" in line_text or _SECRET_REFERENCE.search(line_text) or _is_name_reference(line_text)):
                 continue
             key = (rule_id, line_no)
             if key in seen:

@@ -107,6 +107,17 @@ _SECRET_REFERENCE = re.compile(
     r"credentials\(|\$\(|[=:][ \t]*[\"']?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]*:[A-Z][A-Z0-9_]*[\"']?[ \t]*$|[=:][ \t]*[\"']/?[A-Za-z0-9._\-]+/[A-Za-z0-9._/\-]+[\"'][ \t]*$|[=:][ \t]*[\"']?/[A-Za-z0-9._/\-]+[\"']?[ \t]*$"
 )
 
+# A value that is itself a credential NAME, optionally behind a path (``NAME: "NAME"``,
+# ``NAME: "langgraph-support-app/NAME"``), is a reference by name, not a literal: CodeBuild's
+# ``secrets-manager`` block binds that way (live run 5 rejected a suite over it).
+_NAME_REFERENCE = re.compile(r"[=:][ \t]*[\"']?(?:[A-Za-z0-9._\-]+/)*([A-Z][A-Z0-9_]*)[\"']?[ \t]*$")
+
+
+def _is_name_reference(line_text: str) -> bool:
+    match = _NAME_REFERENCE.search(line_text)
+    return bool(match) and match.group(1) in credentials.all_names()
+
+
 ASK_PATTERNS: list[tuple[str, str]] = [
     ("cloud.aws_mutate", r"\baws\s+(codebuild\s+start-build|ecs\s+(update|create|run)-\S+|ecr\s+(create|put|batch-delete)\S*|cloudformation\s+(create|update|deploy)\S*|s3\s+(cp|sync|mb)\b|lambda\s+(create|update)\S*|iam\s+(create|put|attach)\S*|sts\s+assume-role|logs\s+(create|put)\S*)"),
     ("cloud.aws_login", r"\baws\s+(login|sso\s+login|configure\b(?!\s+(list|get)))"),
@@ -211,7 +222,7 @@ def check_text(text: str, *, kind: str = "shell", path: str = "") -> PolicyResul
             line_text = lines[line_no - 1] if 0 < line_no <= len(lines) else ""
             if rule_id == "prod.reference" and any(rule.search(line_text) for rule in _PROD_EXEMPT):
                 continue
-            if rule_id == "secret.assignment" and ("${{" in line_text or _SECRET_REFERENCE.search(line_text)):
+            if rule_id == "secret.assignment" and ("${{" in line_text or _SECRET_REFERENCE.search(line_text) or _is_name_reference(line_text)):
                 continue
             key = (rule_id, line_no)
             if key in seen:

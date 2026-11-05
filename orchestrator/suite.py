@@ -365,12 +365,47 @@ _PRIVILEGED_OFF = re.compile(r'"privilegedMode"\s*:\s*false')
 CODEBUILD_DESCRIPTION_MAX = 255  # CreateProject refuses a longer description (live run 3)
 
 
+_SECRETS_BLOCK = re.compile(r"^([ \t]*)secrets-manager:[ \t]*$")
+_BARE_SECRET_ID = re.compile(r"^([ \t]*)([A-Z][A-Z0-9_]*):[ \t]*[\"']?([A-Z][A-Z0-9_]*)[\"']?[ \t]*$")
+
+
+def _qualify_secret_ids(content: str) -> str:
+    """Inside a buildspec's ``secrets-manager`` block, a bare id that is a registry secret name
+    (``SNYK_TOKEN: "SNYK_TOKEN"``) becomes the id the orchestrator injects
+    (``SNYK_TOKEN: "langgraph-support-app/SNYK_TOKEN"``), so the build resolves what was
+    copied. Live run 5's suite bound the bare name."""
+    out: list[str] = []
+    block_indent: int | None = None
+    for line in content.splitlines(keepends=True):
+        stripped = line.rstrip("\n")
+        indent = len(stripped) - len(stripped.lstrip(" \t"))
+        if block_indent is not None and stripped.strip() and indent <= block_indent:
+            block_indent = None
+        if block_indent is None:
+            start = _SECRETS_BLOCK.match(stripped)
+            if start:
+                block_indent = len(start.group(1))
+            out.append(line)
+            continue
+        match = _BARE_SECRET_ID.match(stripped)
+        if match and credentials.kind_of(match.group(3)) == "secret":
+            out.append(f'{match.group(1)}{match.group(2)}: "{templates.APP_NAME}/{match.group(3)}"' + ("\n" if line.endswith("\n") else ""))
+        else:
+            out.append(line)
+    return "".join(out)
+
+
 def _harden(item):
     """The suite's files through the shared fixes, plus the CodeBuild project document:
     ``privilegedMode`` stays true because the image stages run docker inside CodeBuild (live
     run 3 was rejected at the gate for a suite that turned it off), and the description is
-    cut to CodeBuild's limit (the same run's provisioning failed on 268 characters)."""
+    cut to CodeBuild's limit (the same run's provisioning failed on 268 characters). A
+    buildspec's bare secret ids are qualified with the app prefix (live run 5)."""
     item = generator.harden(item)
+    if item.kind == "buildspec" and "secrets-manager" in item.content:
+        qualified = _qualify_secret_ids(item.content)
+        if qualified != item.content:
+            item = item.model_copy(update={"content": qualified})
     if not item.path.endswith("codebuild-project.json"):
         return item
     content = _PRIVILEGED_OFF.sub('"privilegedMode": true', item.content)
@@ -385,8 +420,9 @@ def _harden(item):
 
 
 def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str]) -> PipelineSuite:
-    """Append the env manifest (names only) unless Astra already wrote one; harden every file."""
-    suite_obj.artifacts = [_harden(item) for item in suite_obj.artifacts]
+    """Append the env manifest (names only) unless Astra already wrote one; relocate a file
+    written outside the allowed prefixes; harden every file."""
+    suite_obj.artifacts = [_harden(generator.relocate(item, SUITE_STAGE)) for item in suite_obj.artifacts]
     if not any(item.kind == "env_example" for item in suite_obj.artifacts):
         suite_obj.artifacts.append(generator.env_manifest({"name": SUITE_STAGE, "environment": environment}, placeholders))
     return suite_obj

@@ -106,7 +106,10 @@ Hardening of model-written files (`suite._harden`, `generator.harden`, live run 
 docker) and its description is cut to 255 characters (CreateProject refuses more; the run's
 provisioning failed on 268); a buildspec line that sets `AWS_REGION` to nothing is dropped
 (it overrides the project's region), and the generated-stage skeleton no longer carries
-`$REGION`. `tests/test_hardening.py`.
+`$REGION`. `tests/test_hardening.py`. Live run 5 (2026-11-05): a bare id under a buildspec's
+`secrets-manager` block that is a registry secret name is qualified to `<app>/NAME`
+(`suite._qualify_secret_ids`), so `referenced_secrets`, injection, and the build agree;
+`with_manifest` also runs `generator.relocate` on every suite file. `tests/test_run5_hardening.py`.
 
 Secrets, decided after live run 1: a stage file may bind only `suite.injectable_secrets`
 (secret kind, a value present on the orchestrator host, never the platform's own identity

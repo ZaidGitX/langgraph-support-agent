@@ -239,6 +239,12 @@ What went wrong, and the fix that followed each:
 
 Nothing was applied on AWS; OpenAI usage was one question round, two proposals, one worker assignment, about 16 generation and review calls, and the two timed-out suite calls.
 
+### Live run 5 (2026-11-05, 01:08–01:25 UTC, workflow run 41946454197, run 9721290b): the suite finished, three policy findings left a gate nobody could pass, cancelled
+
+Started by the push of c2608db. Questions answered at 12 s, Jev's plan at 95 s, generation 01:12:25–01:21:49 with every worker on the timeline (eight generated stages in 14–127 s each; the suite in 500 s at high effort, inside its new budget). The approval gate went human again: `integration_test` and `post_deploy_smoke` wrote files under `scripts/ci/` and a workflow not named `gen-<stage>.yml` (policy `path.outside`, Jev rejected both, dropped), and the suite's `ci/buildspec-scanners.yml` bound `SNYK_TOKEN: "SNYK_TOKEN"` under `secrets-manager`, which the secret rule read as a literal (Jev rejected the suite after its one revision, so every platform stage fell back to the host). Because the approval view carried the dropped stages' and the rejected suite's findings, neither autopilot nor a person could approve; the run was cancelled with nothing applied on AWS.
+
+Fixes that followed: a value that is itself a credential name, optionally behind a path, is a reference and not a literal in both policy copies; the suite qualifies a bare id in a buildspec's `secrets-manager` block with the app prefix so injection and the build agree; a file a worker writes outside the allowed prefixes is moved (`scripts/…` and loose scripts to `ci/`, a workflow to `.github/workflows/gen-<stage>.yml`, a Dockerfile or Compose file to `docker/`) and its purpose says so; the approval payload carries only the stages still in the plan (and the suite when it is in use), with the rest under `dropped_artifacts`; a Jev reject that comes with policy findings gets the stage's one revision first.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

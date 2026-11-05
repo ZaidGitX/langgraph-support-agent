@@ -747,6 +747,11 @@ def guard_review(review: ArtifactReview, ok: bool, revisions_left: int) -> Artif
     if verdict == "accept" and not ok:
         verdict = "revise" if revisions_left > 0 else "reject"
         rationale += " | guardrail: policy errors cannot be accepted"
+    if verdict == "reject" and not ok and revisions_left > 0:
+        # A policy finding is mechanical and comes with its line; the stage (or the whole
+        # platform suite, live run 5) gets its one revision before a reject stands.
+        verdict = "revise"
+        rationale += " | guardrail: policy findings get their revision before a reject"
     if verdict == "revise" and revisions_left <= 0:
         verdict = "reject"
         rationale += " | guardrail: revisions exhausted"

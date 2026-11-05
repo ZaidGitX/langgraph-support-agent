@@ -60,7 +60,9 @@ severity, message, and the 1-based line.
 | `shell.eval` | warn | `(^\|[;&|\s])eval\s` | all |
 | `shell.base64_exec` | error | `base64\s+(-d\|--decode)[^\n]*\|\s*(ba\|)sh` | all |
 | `shell.no_verify` | warn | `--no-verify` | all |
-| `path.outside` | error | path not under `ALLOWED_PATH_PREFIXES` (a root Dockerfile or docker-compose file is also fine when `.generated` sits anywhere after its base name, `ROOT_GENERATED_FILE`; live run 4 lost build_image to `Dockerfile.dev.generated`), contains `..`, or starts with `/` | all (path rule) |
+| `path.outside` | error | path not under `ALLOWED_PATH_PREFIXES` (a root Dockerfile or docker-compose file is also fine when `.generated` sits anywhere after its base name, `ROOT_GENERATED_FILE`; live run 4 lost build_image to `Dockerfile.dev.generated`), contains `..`, or starts with `/`. Since live run 5 `generator.relocate` moves a model-written file to an allowed prefix before the check (`scripts/…` and loose scripts to `ci/`, a workflow to `.github/workflows/gen-<stage>.yml`, a Dockerfile or Compose file to `docker/`) and notes the move in its purpose. | all (path rule) |
+
+`secret.assignment` exemptions (both copies): `${{ secrets.NAME }}`, the platform reference forms in `_SECRET_REFERENCE`, and, since live run 5, a value that is itself a credential name, optionally behind a path (`_NAME_REFERENCE`, `_is_name_reference`): `SNYK_TOKEN: "SNYK_TOKEN"` under a CodeBuild `secrets-manager` block is a reference by name. `llm.guard_review` also turns a Jev `reject` that comes with policy findings into the stage's one `revise` first.
 | `path.workflow_name` | error | a github_workflow whose path is not `.github/workflows/gen-<stage>.yml` | github_workflow |
 | `toggle.in_artifact` | error | `ORCHESTRATOR_CLOUD_APPLY\|ORCHESTRATOR_WRITE_ARTIFACTS` set inside an artifact | all |
 | `size.too_large` | error | content over 32 KB | all |

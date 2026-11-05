@@ -136,7 +136,10 @@ Interrupt payload:
  "readiness": {...},
  "retrieval_evidence": [{"path", "lines", "topic"}]}
 ```
-`pipeline_view` adds `runner`, `provider`, `environment`, `kind`, `family` per stage.
+`pipeline_view` adds `runner`, `provider`, `environment`, `kind`, `family` per stage. Since
+live run 5 (2026-11-05) `artifacts` and `artifact_review` carry only the stages still in the
+pipeline (plus the suite when `pipeline.suite.status == "ok"`); a dropped stage's files sit
+under `dropped_artifacts` and no longer block autopilot or the API's approval check.
 
 ### `dispatch_stages` / `route_dispatch`
 Unchanged except the `Send` target:

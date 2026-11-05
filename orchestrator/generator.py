@@ -124,9 +124,44 @@ def harden(artifact: GeneratedArtifact) -> GeneratedArtifact:
     return artifact
 
 
+_SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".ps1", ".js", ".ts", ".rb")
+_WORKFLOW_DIR = ".github/workflows/"
+
+
+def relocate(artifact: GeneratedArtifact, stage_name: str) -> GeneratedArtifact:
+    """Move a model-written file that landed outside the allowed prefixes to where the policy
+    (and the stage's commands) expect it, and say so in its purpose.
+
+    Live run 5 lost two stages to ``scripts/ci/*.py`` and ``.github/workflows/integration.generated.yml``:
+    scripts and other loose files go under ``ci/``, a workflow becomes
+    ``.github/workflows/gen-<stage>.yml``, a Dockerfile or Compose file goes under ``docker/``.
+    A path that already passes the policy is left alone; a path escaping the checkout is left
+    for the policy to refuse.
+    """
+    original = (artifact.path or "").replace("\\", "/")
+    while original.startswith("./"):
+        original = original[2:]
+    if not original or original.startswith("/") or ".." in original.split("/") or policy.check_path(original).ok:
+        return artifact
+    name = original.rsplit("/", 1)[-1]
+    slug = re.sub(r"[^a-z0-9_]+", "_", str(stage_name or "stage").lower()).strip("_") or "stage"
+    if original.startswith(_WORKFLOW_DIR) or artifact.kind == "github_workflow":
+        target = f"{_WORKFLOW_DIR}gen-{slug}.yml"
+    elif name.startswith(("Dockerfile", "docker-compose")) or artifact.kind in ("dockerfile", "compose"):
+        target = f"docker/{name}"
+    else:
+        # Scripts, loose files, and anything under scripts/ or another folder of the model's choosing.
+        target = f"ci/{name}"
+    if not policy.check_path(target).ok:
+        return artifact
+    purpose = f"{artifact.purpose} (moved from {original} to {target})".strip()
+    return artifact.model_copy(update={"path": target, "purpose": purpose[:400]})
+
+
 def with_env_manifest(artifact_set: ArtifactSet, stage: dict, placeholders: list[str]) -> ArtifactSet:
-    """Replace any model-written env manifest with the code-written one (names only)."""
-    kept = [harden(artifact) for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
+    """Replace any model-written env manifest with the code-written one (names only);
+    relocate a file written outside the allowed prefixes; harden every file."""
+    kept = [harden(relocate(artifact, str(stage.get("name") or ""))) for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
     kept.append(env_manifest(stage, placeholders))
     return ArtifactSet(stage=artifact_set.stage, artifacts=kept[:6], notes=artifact_set.notes)
 
