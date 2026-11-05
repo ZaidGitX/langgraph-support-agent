@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import time
 import zipfile
@@ -378,7 +379,11 @@ class AwsProvider(BaseProvider):
         project_doc = artifact_of_kind(records, "codebuild_project", cwd=cwd)
         if project_doc:
             rendered = Path(self._rendered_path(project_doc, cwd))
-            rendered.write_text(expand_env([Path(project_doc).read_text(encoding="utf-8")])[0], encoding="utf-8")
+            expanded = expand_env([Path(project_doc).read_text(encoding="utf-8")])[0]
+            # A config name the account could not supply (no default VPC, say) must reach the
+            # build as an empty value, not as the literal "$AWS_VPC_ID" the gap marker leaves.
+            expanded = re.sub(r'"\$\{?(AWS_[A-Z0-9_]+)\}?"', '""', expanded)
+            rendered.write_text(expanded, encoding="utf-8")
         return f"source.zip holds {count} checkout files plus {len(packed)} generated file(s)"
 
     def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:

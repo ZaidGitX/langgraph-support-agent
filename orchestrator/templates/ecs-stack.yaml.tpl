@@ -87,8 +87,9 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: !Sub "$${AppName}-$${Tier}"
-      Cpu: "256"
-      Memory: "512"
+      # The support app imports LangGraph and LangChain at start-up; 512 MiB is too tight for it.
+      Cpu: "512"
+      Memory: "1024"
       NetworkMode: awsvpc
       RequiresCompatibilities: [FARGATE]
       ExecutionRoleArn: !If [CreateExecutionRole, !GetAtt ExecutionRole.Arn, !Ref ExecutionRoleArn]
