@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Read the run profile
         # orchestrator.yaml decides where this push goes: ORCHESTRATOR_DISPATCH, cloud apply,
