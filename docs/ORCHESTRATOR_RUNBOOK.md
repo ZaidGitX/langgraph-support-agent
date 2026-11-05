@@ -352,6 +352,46 @@ Nothing was built on AWS; the only writes were the source upload and the project
 OpenAI usage: one question round, two proposals, one worker assignment, seven stage
 generations, one suite generation, and the reviews.
 
+### Live run 10 (2026-11-05, 21:33–21:41 UTC, workflow run 42113562288, run 3c2d392a): the injection fix held and applied, then the OpenAI account ran out of credits at the first stage brief
+
+Started by the push of 703b104. The front half ran as in run 9: six questions answered by the
+profile at 10 s, Jev's plan at about a minute (seven generated stages on CodeBuild plus the fixed
+build, test, and scanners), generation 21:36:00–21:40:30 (the seven stages in 30–132 s each, the
+16-file suite in 200 s, every review accept, policy clean), autopilot approved at 21:40:30
+(confidence 0.98). The approval view's injection plan named only `OPENAI_API_KEY`, `SNYK_TOKEN`,
+and `TYPESAFE_API_KEY`, nothing missing: the run 9 defect is gone. Provisioning applied at
+21:40:35 (upload, repository, project) and injection applied: the three secrets were written to
+Secrets Manager at 21:40:39–21:40:42. The first stage node then asked its worker
+(`gpt-6.1-sol`) for the stage brief and OpenAI answered 429 `insufficient_quota`
+(`credit_balance_exhausted`, "You have no credits remaining"); the session went to `error` at
+21:40:53, the workflow's waiter exited 1, and the application was stopped. No CodeBuild build
+started; no stack exists.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 21:34:51 |
+| Generation started on four workers | 21:36:00 |
+| Suite finished (16 files, 200 s); autopilot approved | 21:40:30 |
+| Provisioning applied; three app secrets injected | 21:40:35–21:40:42 |
+| First stage brief: OpenAI 429, no credits; session error | 21:40:53 |
+
+What went wrong, and the fix:
+
+- The account's OpenAI credits ran out between run 9 and the first stage of run 10. That is the
+  account's state, not a defect, and the next run needs credits first. The defect was that a
+  stage *brief*, an advisory text, could end an approved run whose stages need no model at all
+  (CodeBuild runs the files; Jev, a different vendor, routes). Now `_brief_for` returns a plain
+  note when Astra cannot answer, the quality gate records "Astra was unavailable for the
+  diagnosis" instead of failing, and the deploy document is skipped on any Astra error; the
+  stages run as approved (`tests/test_run10_astra_optional.py`).
+- The container's log was gone with the runner, so the only trace of the exception was the
+  waiter's one line. The workflow's "Stop the application" step now prints the orchestrator
+  container's last 400 log lines (already redacted by the orchestrator) before `compose down`.
+
+Nothing was built on AWS; the writes were the source upload, the project document, and the
+three secret values. OpenAI usage: one question round, two proposals, one worker assignment,
+seven stage generations, one suite generation, the reviews, and the 429.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

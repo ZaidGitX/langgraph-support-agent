@@ -47,6 +47,7 @@ from .schemas import (
     FollowUpDecision,
     GateDecision,
     RunnerDecision,
+    StageBrief,
 )
 from .state import (
     ALLOWED_TARGETS,
@@ -1285,6 +1286,19 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             }
         return plan
 
+    def _brief_for(worker, payload: dict) -> StageBrief:
+        """Astra's brief for a stage, or a plain note when Astra cannot answer. The brief is
+        advisory: an approved stage runs on its platform without it (live run 10 reached AWS and
+        then died on a 429 "no credits remaining" raised by the first stage's brief)."""
+        try:
+            return worker.brief(payload)
+        except (RuntimeError, ValueError, TypeError, OSError) as exc:  # AstraQuotaError is a RuntimeError
+            reason = scrub(str(exc))[:200]
+            return StageBrief(
+                summary=f"Astra was unavailable for this brief ({reason}); the stage ran as approved.",
+                watch_for="The stage's own summary line and exit code.",
+            )
+
     def _worker_for(spec: dict):
         """The sub-agent bound to a stage's assignment; the planner itself when it has no workers."""
         factory = getattr(planner, "worker", None)
@@ -1668,12 +1682,13 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
     def make_runner(stage_name: str):
         def node(state: dict) -> dict:
             worker = _worker_for(state.get("spec") or {})
-            brief = worker.brief(
+            brief = _brief_for(
+                worker,
                 {
                     "stage": stage_name,
                     "purpose": state.get("purpose") or "",
                     "answers": state.get("answers") or {},
-                }
+                },
             )
             spec = dict(state.get("spec") or {})
             runner = str(spec.get("runner") or "local")
@@ -1753,12 +1768,13 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         spec = dict(state.get("spec") or {"name": stage_name, "runner": "local", "kind": "generated"})
         spec["run_id"] = state.get("run_id") or spec.get("run_id")
         worker = _worker_for(spec)
-        brief = worker.brief(
+        brief = _brief_for(
+            worker,
             {
                 "stage": stage_name,
                 "purpose": state.get("purpose") or spec.get("purpose") or "",
                 "answers": state.get("answers") or {},
-            }
+            },
         )
         ran = execute_stage_v2(
             spec,
@@ -1844,8 +1860,12 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         if decision.route in {"remediate", "escalate"} and failed_stages(state):
             failed = failed_stages(state)
             spec = next((stage for stage in (state.get("pipeline") or {}).get("stages") or [] if stage.get("name") == failed[0]), {})
-            diagnosis = _worker_for(spec).diagnose(payload)
-            update["diagnosis"] = scrub(diagnosis.summary)
+            try:
+                diagnosis = _worker_for(spec).diagnose(payload)
+                update["diagnosis"] = scrub(diagnosis.summary)
+            except (RuntimeError, ValueError, TypeError, OSError) as exc:
+                # The diagnosis is advisory; the gate's decision stands without it (live run 10).
+                update["diagnosis"] = f"Astra was unavailable for the diagnosis ({scrub(str(exc))[:200]}); see the stage evidence."
         return update
 
     def report(state: PipelineState) -> dict:
@@ -1889,9 +1909,8 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
             target = generator.docs_path(state["repo"]["root"], str(state.get("run_id")), pipeline.get("environment"))
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(scrub(doc.content), encoding="utf-8")
-        except AstraQuotaError:
-            raise
         except (RuntimeError, ValueError, TypeError, OSError):
+            # The document is optional; a quota error here must not end the run at report time.
             return
 
     builder = StateGraph(PipelineState)

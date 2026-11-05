@@ -120,4 +120,8 @@ jobs:
 
       - name: Stop the application
         if: always()
-        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down
+        run: |
+          # The container's own log (already redacted by the orchestrator) is the only trace of
+          # an exception once the runner is gone: keep its tail in the job log.
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --no-color --tail 400 orchestrator || true
+          docker compose -f docker-compose.yml -f docker-compose.ci.yml down
