@@ -199,3 +199,18 @@ Extend `FakeAstra` with `follow_up` (returns one question on round 1 when
 content is `#!/usr/bin/env bash\nset -euo pipefail\necho generated-ok\n`), `write_docs`.
 `propose` returns one deterministic and one stochastic candidate; the stochastic one adds a
 generated `container_scan` stage with `runner="local"` so the echo script really runs.
+
+## Scan and test menu (Sprint 4, run 9)
+
+The hardcoded workflows are reference implementations, not part of every journey. Two more
+canonical question ids, `scan_tools` and `dast_tools` (with `scan_policy` for the severity),
+let the person pick providers from the scanner catalog: semgrep, pip-audit, snyk, trivy,
+gitleaks, SonarQube Cloud, CodeQL; ZAP, StackHawk; or `all` / `none`.
+`scanners.selection_from_answers` resolves the text (aliases included) and both generation
+contexts carry `scan_selection` plus `scanner_catalog` (`scanners.catalog_for_prompt`: tool,
+aliases, docker image, cli, install, env names, `skip_without`, argv per stage, severity rule;
+names only). `GENERATE_SYSTEM` tells Astra a scan or test stage runs the selected providers from
+the catalog and records a provider whose `skip_without` names are not in `placeholders` as
+skipped; `SUITE_SYSTEM` tells it to keep the skeleton's `SCAN_TOOLS=... SCAN_SEVERITY=...
+bash ci/scanners.sh` and `DAST_TOOLS=... bash ci/dast.sh` calls as written. Tests:
+`tests/test_run9_scan_menu.py`.

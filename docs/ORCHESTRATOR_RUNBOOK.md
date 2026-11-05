@@ -135,6 +135,38 @@ Three ways a push reaches the orchestrator:
 2. **Webhook.** Point the host at `POST <orchestrator>/api/orchestrator/hooks/push` with the `ORCHESTRATOR_WEBHOOK_SECRET` value as the HMAC secret (GitHub, Gitea, Bitbucket) or the token (GitLab). The orchestrator clones the pushed commit into `var/workspaces/<slug>` (private HTTPS remotes need `GIT_REMOTE_USER` and `GIT_REMOTE_TOKEN` in the vault; SSH remotes `SSH_KEY_PATH`) and starts the run there. A push that arrives while a run is active waits in the queue. `remotes.branches` in the profile filters branches. For a bare remote on any host, install `scripts/git-post-receive.sample`.
 3. **Polling.** Set `ORCHESTRATOR_WATCH_REMOTE` (and `ORCHESTRATOR_WATCH_INTERVAL`) when the host cannot reach the orchestrator; the service runs `git ls-remote` on the interval and starts a run when a watched branch moves.
 
+## Scan and test menu (Sprint 4)
+
+The fixed GitHub workflows (`scanners.yml`, `dast.yml`, `test.yml`) are reference
+implementations, not a step every run takes. Which scans and tests run is an answer:
+
+- `scan_tools`: any of the scanner catalog by name (semgrep, pip-audit, snyk, trivy, gitleaks,
+  sonar / SonarQube Cloud, codeql), `all` (the default when unanswered), or `none`.
+- `dast_tools`: `zap`, `stackhawk`, both, or `none`.
+- `scan_policy`: the severity that fails a run (`high and critical` by default; naming `medium`
+  or `low` lowers the bar, `critical only` raises it).
+
+`orchestrator.yaml` answers them for pushes (`answers.by_id.scan_tools`, `dast_tools`, and the
+`scanner` / `dast` topics). `scanners.selection_from_answers` turns the text into catalog keys and
+`selection_env` into the three values the contract scripts read: `SCAN_TOOLS`, `SCAN_SEVERITY`,
+`DAST_TOOLS`. Every suite skeleton carries them in front of the call
+(`SCAN_TOOLS="semgrep,pip-audit" SCAN_SEVERITY="HIGH,CRITICAL" bash ci/scanners.sh`) on Jenkins,
+CodeBuild, Cloud Build, and Azure alike; `suite.assert_contract` puts the call back, selection
+included, if the model drops it. `ci/scanners.sh` records every catalog tool as passed, failed,
+skipped (not selected, credential not provided, time cap), or error and fails only on `failed`;
+`ci/dast.sh` runs ZAP and StackHawk the same way against the deployed URL.
+
+A provider that needs an account runs when its names are provided and is skipped otherwise:
+Snyk (`SNYK_TOKEN`), SonarQube Cloud (`SONAR_TOKEN`, `SONAR_ORGANIZATION`, `SONAR_PROJECT_KEY`),
+StackHawk (`HAWK_API_KEY`, `HAWK_APP_ID`). Add them on the Connections page or in `.env`; the
+orchestrator injects the ones a suite references into the platform's store, by name.
+
+Astra sees the same menu: `scan_selection` and `scanner_catalog` (image, argv per stage, env
+names, `skip_without`, and the severity rule of every tool, names only) are in the suite context
+and in the per-stage context of scan, verify, and test stages, so a generated stage for any
+provider in the catalog, or a platform-native scan step, is written from the catalog rather than
+from the GitHub workflow text.
+
 ## AWS live run (Sprint 4, phase 12)
 
 The platform proof with a real account. Every apply is a decision; nothing below runs on its own.

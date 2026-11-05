@@ -65,7 +65,9 @@ STAGE_COMMAND_HINTS: dict[str, list[str]] = {
         'python -m orchestrator.local_ops deploy --target "$TIER"',
     ],
 }
-SCANNER_TOOLS = {"scanners": ("semgrep", "trivy", "gitleaks", "snyk"), "dast": ("zap", "stackhawk")}
+# The scan menu (Sprint 4): every provider the answers may select; their credential names
+# join the placeholders when provided, so a suite can bind them by name.
+SCANNER_TOOLS = {"scanners": scanners.SCAN_STAGE_TOOLS, "dast": scanners.DAST_STAGE_TOOLS}
 
 
 def wants_suite(state: dict) -> bool:
@@ -95,19 +97,39 @@ def _docker_lines(stage_name: str) -> list[str]:
         image = str(item.get("docker_image") or "")
         if not image:
             continue
+        parts = [str(part) for part in ((item.get("argv") or {}).get(stage_name) or [])]
+        if parts and parts[0] == "docker":  # the catalog already spells the docker invocation
+            lines.append(" ".join(parts).replace("$ROOT", "$PWD"))
+            continue
         env_names = [name for name in item.get("env") or [] if name in credentials.all_names()]
         env_flags = " ".join(f"-e {name}" for name in env_names)
-        argv = " ".join(str(part) for part in ((item.get("argv") or {}).get(stage_name) or [])[1:])
+        argv = " ".join(parts[1:])
         lines.append(f'docker run --rm {env_flags} -v "$PWD:/src" -w /src {image} {argv}'.replace("  ", " ").rstrip())
     return lines
 
 
-def command_hints(stage_name: str, platform: str = "") -> list[str]:
+def selection_prefix(stage_name: str, answers: dict | None) -> str:
+    """``SCAN_TOOLS="..." SCAN_SEVERITY="..." `` (or ``DAST_TOOLS="..." ``) in front of a scan or
+    DAST contract call, so the person's menu reaches the script on every platform. Empty when
+    there are no answers (the script then runs every catalog tool) and for other stages."""
+    if not answers:
+        return ""
+    env = scanners.selection_env(answers)
+    key = CONTRACT_STAGE_KEYS.get(stage_name)
+    if key == "scanners":
+        return f'SCAN_TOOLS="{env["SCAN_TOOLS"]}" SCAN_SEVERITY="{env["SCAN_SEVERITY"]}" '
+    if key == "dast":
+        return f'DAST_TOOLS="{env["DAST_TOOLS"]}" '
+    return ""
+
+
+def command_hints(stage_name: str, platform: str = "", answers: dict | None = None) -> list[str]:
     """What a stage runs on the platform: the orchestrator's contract script when there is one
-    for this stage and platform, else the portable lines (what the GitHub workflow does)."""
+    for this stage and platform (with the person's scan and DAST selection in front when answers
+    are given), else the portable lines (what the GitHub workflow does)."""
     contract = contract_command(stage_name, platform)
     if contract:
-        return [contract]
+        return [selection_prefix(stage_name, answers) + contract]
     hints = list(STAGE_COMMAND_HINTS.get(stage_name) or [])
     if stage_name in SCANNER_TOOLS:
         hints.extend(_docker_lines(stage_name))
@@ -119,9 +141,9 @@ def _indent(lines: list[str], spaces: int) -> str:
     return "\n".join(pad + line for line in lines)
 
 
-def _jenkins_block(stage: dict) -> str:
+def _jenkins_block(stage: dict, answers: dict | None = None) -> str:
     name = stage["name"]
-    steps = "\n".join(f"        sh '{line.replace(chr(39), chr(34))}'" for line in command_hints(name, "jenkins"))
+    steps = "\n".join(f"        sh '{line.replace(chr(39), chr(34))}'" for line in command_hints(name, "jenkins", answers))
     return (
         f"    stage('{name}') {{\n"
         f"      when {{ expression {{ params.STAGE == '' || params.STAGE == '{name}' }} }}\n"
@@ -134,9 +156,9 @@ def _jenkins_block(stage: dict) -> str:
     )
 
 
-def _cloudbuild_block(stage: dict, previous: str) -> str:
+def _cloudbuild_block(stage: dict, previous: str, answers: dict | None = None) -> str:
     name = stage["name"]
-    body = "\n".join(f"        {line}" for line in command_hints(name, "gcp"))
+    body = "\n".join(f"        {line}" for line in command_hints(name, "gcp", answers))
     return (
         f"  - id: {name}\n"
         f"    name: python:{templates.PYTHON_VERSION}\n"
@@ -153,9 +175,9 @@ def _cloudbuild_block(stage: dict, previous: str) -> str:
     )
 
 
-def _azure_block(stage: dict, previous: str) -> str:
+def _azure_block(stage: dict, previous: str, answers: dict | None = None) -> str:
     name = stage["name"]
-    body = "\n".join(f"              {line}" for line in command_hints(name, "azure"))
+    body = "\n".join(f"              {line}" for line in command_hints(name, "azure", answers))
     return (
         f"  - stage: {name}\n"
         f"    dependsOn: {previous}\n"
@@ -281,14 +303,14 @@ def contract_command(stage_name: str, platform: str) -> str | None:
     return None
 
 
-def render_skeletons(platform: str, stages: list[dict], environment: dict, *, run_id: str, placeholders: list[str]) -> dict[str, str]:
+def render_skeletons(platform: str, stages: list[dict], environment: dict, *, run_id: str, placeholders: list[str], answers: dict | None = None) -> dict[str, str]:
     """Suite skeletons keyed by artifact path (not by kind: CodeBuild has one buildspec per stage)."""
     names = [stage["name"] for stage in stages]
     base_stage = {"name": SUITE_STAGE, "family": "custom", "purpose": "the whole pipeline", "environment": environment}
     skeletons: dict[str, str] = {}
     branch = os.getenv("GITHUB_REF_NAME", "").strip() or "main"
     if platform == "jenkins":
-        blocks = "\n".join(_jenkins_block(stage) for stage in stages)
+        blocks = "\n".join(_jenkins_block(stage, answers) for stage in stages)
         skeletons["ci/pipeline.Jenkinsfile"] = templates.render_template(
             "jenkinsfile", base_stage, environment, runner="jenkins", run_id=run_id, placeholders=placeholders,
             extra={"STAGE_BLOCKS": blocks, "STAGE_NAMES": ", ".join(names)}, template=templates.SUITE_TEMPLATES["jenkinsfile"],
@@ -302,7 +324,7 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
             skeletons[f"ci/buildspec-{name}.yml"] = templates.render_template(
                 "buildspec", stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=placeholders,
                 extra={
-                    "STAGE_COMMANDS": "\n".join(f"      - {line}" for line in command_hints(name, platform)),
+                    "STAGE_COMMANDS": "\n".join(f"      - {line}" for line in command_hints(name, platform, answers)),
                     "WORKFLOW_FILE": WORKFLOW_FOR_STAGE.get(name, f"{name}.yml"),
                     "SECRETS_MANAGER_LINES": _secrets_manager_lines(injectable_secrets(_names_for_stage(stage["name"], placeholders), platform)),
                 },
@@ -321,7 +343,7 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
         blocks = []
         previous = "refuse-production"
         for stage in stages:
-            blocks.append(_cloudbuild_block(stage, previous))
+            blocks.append(_cloudbuild_block(stage, previous, answers))
             previous = stage["name"]
         skeletons["ci/cloudbuild.yaml"] = templates.render_template(
             "cloudbuild", base_stage, environment, runner="gcp_cloudbuild", run_id=run_id, placeholders=placeholders,
@@ -331,7 +353,7 @@ def render_skeletons(platform: str, stages: list[dict], environment: dict, *, ru
         blocks = []
         previous = "refuse_production"
         for stage in stages:
-            blocks.append(_azure_block(stage, previous))
+            blocks.append(_azure_block(stage, previous, answers))
             previous = stage["name"]
         skeletons["ci/azure-pipelines.yml"] = templates.render_template(
             "azure_pipeline", base_stage, environment, runner="azure_pipelines", run_id=run_id, placeholders=placeholders,
@@ -381,7 +403,8 @@ def context_for(state: dict, provider, *, policy_findings: list[dict] | None = N
             for extra_name in scanners.env_names(tool):
                 if extra_name in credentials.all_names() and extra_name not in names:
                     names.append(extra_name)
-    skeletons = render_skeletons(platform, stages, environment, run_id=run_id, placeholders=names)
+    answers = dict(state.get("answers") or {})
+    skeletons = render_skeletons(platform, stages, environment, run_id=run_id, placeholders=names, answers=answers)
     runner_status = ((state.get("readiness") or {}).get("runners") or {}).get(provider.runner) or {}
     return {
         "platform": platform,
@@ -409,7 +432,11 @@ def context_for(state: dict, provider, *, policy_findings: list[dict] | None = N
             for stage in stages
             for tool in SCANNER_TOOLS.get(stage["name"], ())
         },
-        "answers": dict(state.get("answers") or {}),
+        "answers": answers,
+        # Sprint 4: scans and tests are a menu. The selection says which providers the person
+        # chose; the catalog says how each one runs on this platform's agent (names only).
+        "scan_selection": scanners.selection_from_answers(answers),
+        "scanner_catalog": scanners.catalog_for_prompt(),
         "readiness": {"runner": provider.runner, "mode": runner_status.get("mode") or "plan", "missing": list(runner_status.get("missing") or [])},
         "policy_rules": policy.rules_summary(),
         "policy_findings": list(policy_findings or []),
@@ -474,19 +501,19 @@ def _harden(item):
     return item if content == item.content else item.model_copy(update={"content": content})
 
 
-def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str], *, platform: str = "", stages: list[dict] | None = None) -> PipelineSuite:
+def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str], *, platform: str = "", stages: list[dict] | None = None, answers: dict | None = None) -> PipelineSuite:
     """Append the env manifest (names only) unless Astra already wrote one; relocate a file
     written outside the allowed prefixes; harden every file; re-assert the orchestrator's
     contract files and make sure every fixed stage's file runs its contract script."""
     suite_obj.artifacts = [_harden(generator.relocate(item, SUITE_STAGE)) for item in suite_obj.artifacts]
     if platform in SUITE_PLATFORMS:
-        assert_contract(suite_obj, platform, stages or [], environment, placeholders)
+        assert_contract(suite_obj, platform, stages or [], environment, placeholders, answers)
     if not any(item.kind == "env_example" for item in suite_obj.artifacts):
         suite_obj.artifacts.append(generator.env_manifest({"name": SUITE_STAGE, "environment": environment}, placeholders))
     return suite_obj
 
 
-def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict], environment: dict, placeholders: list[str]) -> list[str]:
+def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict], environment: dict, placeholders: list[str], answers: dict | None = None) -> list[str]:
     """The contract scripts (and on AWS the stack) are the orchestrator's: put back any the
     model changed or dropped, and make sure each fixed stage's file calls its script. Returns
     what was restored (paths) or appended (``<path>: <command>``)."""
@@ -517,6 +544,7 @@ def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict],
                 continue
             spec = by_path.get(f"ci/buildspec-{stage['name']}.yml")
             if spec is not None and command not in spec.content:
+                command = selection_prefix(stage["name"], answers) + command
                 spec.content = _with_build_command(spec.content, command)
                 restored.append(f"{spec.path}: {command}")
     return restored
@@ -609,7 +637,7 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
     context = context_for(state, provider)
     fixed = suite_stages(state.get("pipeline") or {})
     suite = planner.generate_suite(context)
-    suite = with_manifest(suite, context["environment"], context["placeholders"], platform=platform, stages=fixed)
+    suite = with_manifest(suite, context["environment"], context["placeholders"], platform=platform, stages=fixed, answers=context["answers"])
     result = check(suite)
     revisions_left = max_revisions
     verdict: ArtifactReview = review(result, revisions_left, [item.path for item in suite.artifacts])
@@ -617,7 +645,7 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
         revisions_left -= 1
         try:
             revised = planner.generate_suite(context_for(state, provider, policy_findings=[item.model_dump() for item in result.findings]))
-            suite = with_manifest(revised, context["environment"], context["placeholders"], platform=platform, stages=fixed)
+            suite = with_manifest(revised, context["environment"], context["placeholders"], platform=platform, stages=fixed, answers=context["answers"])
         except AstraQuotaError:
             raise
         except (RuntimeError, ValueError, TypeError, OSError):

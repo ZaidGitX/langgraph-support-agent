@@ -212,3 +212,17 @@ carry a value; provisioning is skipped without a document and planned with one.
 Still open for the live proof (phase 12): the orchestrator does not create the S3 bucket,
 the ECR repository, or the CodeBuild service role; those are the user's, named in the
 registry, and every apply is carded first.
+
+## The scan menu in a suite (Sprint 4, run 9)
+
+`suite.command_hints(stage, platform, answers)` puts the selection in front of the contract
+call for the `scanners` and `dast` stages (`suite.selection_prefix`:
+`SCAN_TOOLS="semgrep,pip-audit" SCAN_SEVERITY="HIGH,CRITICAL" bash ci/scanners.sh`,
+`DAST_TOOLS="zap" bash ci/dast.sh`), so the Jenkinsfile, every CodeBuild buildspec, the Cloud
+Build step, and the Azure stage carry the person's menu; `render_skeletons(..., answers=)` and
+`with_manifest(..., answers=)` / `assert_contract` thread it, and a restored call carries the
+selection too. `SCANNER_TOOLS` lists every provider of the menu, so a provided `SONAR_*`,
+`SNYK_TOKEN`, or `HAWK_*` name joins the placeholders and `available_secrets`. The contract
+scripts `ci/scanners.sh` and `ci/dast.sh` read `SCAN_TOOLS`, `SCAN_SEVERITY`, `DAST_TOOLS`
+(`all` by default, `none` allowed) and record an unselected or credential-less provider as
+`skipped`, never failed; the stage fails only on a `failed` line.

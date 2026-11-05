@@ -26,6 +26,10 @@ answers:
     test_depth: unit and integration
     release_policy: deploy the dev tier on ECS Fargate from the generated CloudFormation stack, creating the cluster and the service when they do not exist yet; manual release after UAT sign-off
     scan_policy: fail the run on high or critical findings
+    # Which providers run (any of the scanner catalog: semgrep, pip-audit, snyk, trivy, gitleaks,
+    # sonar, codeql, zap, stackhawk, ...). A tool whose credential is not provided is skipped.
+    scan_tools: semgrep, pip-audit, snyk, trivy, gitleaks
+    dast_tools: zap
   # Keywords matched against the question id and prompt when no id matches.
   by_topic:
     platform: aws
@@ -35,6 +39,8 @@ answers:
     region: us-east-1
     test: unit and integration
     scan: fail the run on high or critical findings
+    scanner: semgrep, pip-audit, snyk, trivy, gitleaks
+    dast: zap
     severity: high
     release: deploy the dev tier on ECS Fargate from the generated stack, creating the cluster and the service when absent; manual release after UAT sign-off
     deploy: dev only, on ECS Fargate from the generated stack, creating the cluster and the service when absent; there is no production target

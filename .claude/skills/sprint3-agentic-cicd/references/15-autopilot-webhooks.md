@@ -105,3 +105,11 @@ poller starting only for a new commit.
 
 Human gates stay `interrupt()`s. The ecosystem, follow-up, and approval gates may be answered
 by the committed profile through the session; `uat_signoff` is answered only through the UI.
+
+## Scan menu answers (Sprint 4, run 9)
+
+`orchestrator.yaml` answers the two menu questions for pushes: `answers.by_id.scan_tools`
+(`semgrep, pip-audit, snyk, trivy, gitleaks`), `answers.by_id.dast_tools` (`zap`), and the
+`scanner` / `dast` topics for questions Astra words differently. Any catalog provider may be
+named, including `sonar` and `codeql`, or `all` / `none`; the `scan_policy` answer sets the
+failing severity. `tests/test_run9_scan_menu.py::test_profile_answers_the_scan_menu`.

@@ -94,6 +94,10 @@ def context_for(state: dict, stage: dict, provider, *, policy_findings: list[dic
         "readiness": {"runner": runner, "mode": runner_status.get("mode") or "plan", "missing": list(runner_status.get("missing") or [])},
         "policy_rules": policy.rules_summary(),
         "policy_findings": list(policy_findings or []),
+        # The scan and test providers are a menu (Sprint 4): the answers choose, the catalog says
+        # how each one runs on any agent (image, argv, env names, when to skip it).
+        "scan_selection": scanners.selection_from_answers(state.get("answers") or {}),
+        "scanner_catalog": scanners.catalog_for_prompt() if str(stage.get("family") or "") in {"scan", "security", "verify", "test"} else [],
     }
 
 

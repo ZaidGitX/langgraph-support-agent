@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Orchestrator platform contract for the "dast" stage (Sprint 4): what dast.yml does against
-# the deployed service: a reachability check, the OWASP ZAP baseline scan (required), and the
-# StackHawk scan when HAWK_API_KEY and an application UUID in HAWK_APP_ID are provided.
-# ZAP FAIL-level alerts fail the stage; warnings are reported. Nothing prints a secret value.
-set -euo pipefail
+# Orchestrator platform contract for the "dast" stage (Sprint 4): the dynamic scan providers
+# the person selected, against the deployed service.
+#
+#   DAST_TOOLS   comma list of zap, stackhawk; "all" (default) or "none"
+#
+# ZAP (the baseline scan) fails the stage on FAIL-level alerts and reports warnings; StackHawk
+# runs when selected and HAWK_API_KEY plus an application UUID in HAWK_APP_ID are provided,
+# else it is skipped. Nothing prints a secret value.
 STAGE="dast"
 : "${RUN_ID:=local}"
 : "${TIER:=dev}"
 : "${PLATFORM:=aws}"
+: "${DAST_TOOLS:=all}"
 APP_NAME="__APP_NAME__"
 PORT="__PORT__"
 ZAP_IMAGE="__ZAP_IMAGE__"
@@ -17,6 +21,11 @@ case "$TIER" in production|prod) echo "No path past UAT."; exit 2;; esac
 OUT="var/$STAGE"
 mkdir -p "$OUT"
 summary() { printf '{"type":"stage_summary","run_id":"%s","platform":"%s","tier":"%s","stage":"%s","status":"%s"%s}\n' "$RUN_ID" "$PLATFORM" "$TIER" "$STAGE" "$1" "${2:-}"; }
+selected() {
+  local tool="$1" list=",${DAST_TOOLS// /},"
+  case "$list" in *,all,*|*,every,*|*,default,*|*,"$tool",*) return 0;; esac
+  return 1
+}
 
 app_url() {
   local region="${AWS_REGION:?AWS_REGION is required}"
@@ -34,6 +43,10 @@ app_url() {
   printf 'http://%s:%s' "$ip" "$PORT"
 }
 
+if [ "$DAST_TOOLS" = "none" ]; then
+  summary passed ',"zap":"skipped","stackhawk":"skipped","reason":"no dynamic scan selected"'
+  exit 0
+fi
 base="$(app_url || true)"
 if [ -z "$base" ]; then
   summary failed ',"reason":"no deployed service URL could be found"'
@@ -44,20 +57,27 @@ python -c 'import json,sys; assert isinstance(json.load(open(sys.argv[1])), dict
 docker info >/dev/null
 
 # ZAP baseline: exit 0 pass, 1 FAIL alerts, 2 WARN alerts (ignored with -I), 3 the scan did not run.
-rc=0
-docker run --rm -u root -v "$PWD/$OUT:/zap/wrk:rw" "$ZAP_IMAGE" zap-baseline.py -t "$base" -J zap.json -r zap.html -I >/dev/null 2>&1 || rc=$?
-case "$rc" in
-  0) zap="passed";;
-  1) zap="failed";;
-  *) summary failed ",\"url\":\"$base\",\"reason\":\"ZAP did not complete (exit $rc)\""; exit 1;;
-esac
-
-# StackHawk: only with its API key and an application UUID; stackhawk.yml is in the checkout.
-hawk="skipped"
-if [ -n "${HAWK_API_KEY:-}" ] && printf '%s' "${HAWK_APP_ID:-}" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+zap="skipped"
+if selected zap; then
   rc=0
-  docker run --rm -e HAWK_API_KEY -e HAWK_APP_ID -e "APP_HOST=$base" -v "$PWD:/hawk:rw" "$HAWK_IMAGE" > "$OUT/hawk.log" 2>&1 || rc=$?
-  case "$rc" in 0) hawk="passed";; 42) hawk="failed";; *) hawk="error";; esac
+  docker run --rm -u root -v "$PWD/$OUT:/zap/wrk:rw" "$ZAP_IMAGE" zap-baseline.py -t "$base" -J zap.json -r zap.html -I >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) zap="passed";;
+    1) zap="failed";;
+    *) summary failed ",\"url\":\"$base\",\"reason\":\"ZAP did not complete (exit $rc)\""; exit 1;;
+  esac
+fi
+
+# StackHawk: only when selected, with its API key and an application UUID; stackhawk.yml is in the checkout.
+hawk="skipped"
+if selected stackhawk; then
+  if [ -n "${HAWK_API_KEY:-}" ] && printf '%s' "${HAWK_APP_ID:-}" | grep -Eq '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'; then
+    rc=0
+    docker run --rm -e HAWK_API_KEY -e HAWK_APP_ID -e "APP_HOST=$base" -v "$PWD:/hawk:rw" "$HAWK_IMAGE" > "$OUT/hawk.log" 2>&1 || rc=$?
+    case "$rc" in 0) hawk="passed";; 42) hawk="failed";; *) hawk="error";; esac
+  else
+    echo "stackhawk skipped: HAWK_API_KEY and an application UUID in HAWK_APP_ID are not provided"
+  fi
 fi
 if [ "$zap" = "failed" ] || [ "$hawk" = "failed" ]; then
   summary failed ",\"url\":\"$base\",\"zap\":\"$zap\",\"stackhawk\":\"$hawk\",\"report\":\"var/dast/zap.json\""
