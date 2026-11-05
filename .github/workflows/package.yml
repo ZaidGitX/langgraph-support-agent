@@ -19,7 +19,7 @@ jobs:
       - name: Build artifact
         run: python -m orchestrator.local_ops package
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: support-app
           path: dist/langgraph-support-app.tgz
