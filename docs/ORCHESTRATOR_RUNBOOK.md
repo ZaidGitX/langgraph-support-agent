@@ -482,6 +482,47 @@ Nothing was deployed; the writes were the source upload, the project update, the
 values, and eight CodeBuild builds (five passed, three failed). The GitHub job was cancelled at
 00:12.
 
+### Live run 13 (2026-11-06, 00:27–00:45 UTC, workflow run 42137003919, run 0bcdc0e3): four stages passed on CodeBuild at the first attempt; the generated sca stage re-ran the whole scanners contract and died on a system-wide semgrep
+
+Started by the push of aee3b48 after a one-call probe of the OpenAI key. Questions answered at
+00:30:41, eight generated stages and the suite (230 s) accepted, autopilot approved at 00:37:29
+(confidence 0.98), provisioning and injection applied. The platform waves: `build` passed at
+00:38:50, `test` at 00:40:20 at the first attempt (the run 12 flake is gone), `frontend_build` at
+00:41:01, `scanners` at 00:41:46. `sca` failed twice and Jev escalated at 00:44:24 (confidence
+0.77 then escalate) before the image, infrastructure, and deploy waves; the orchestrator cancelled
+the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 00:30:41 |
+| Suite finished (230 s); autopilot approved at 0.98 | 00:37:29 |
+| `build` passed | 00:38:50 |
+| `test` passed at the first attempt | 00:40:20 |
+| `sca` failed (attempt 1); `frontend_build` and `scanners` passed | 00:40:56 / 00:41:01 / 00:41:46 |
+| `sca` failed (attempt 2); Jev escalated | 00:43:54 / 00:44:24 |
+
+What went wrong, and the fix:
+
+- The `sca` worker installed `semgrep==1.99.0` into the agent's system Python and then called
+  `bash ci/scanners.sh` with no selection, so the contract re-ran the whole menu. Its semgrep step
+  ran the venv's `semgrep` shim, which resolves `pysemgrep` on PATH and found the system install,
+  which crashed on `pkg_resources`; the step wrote no report and the contract's report parser
+  died with it. Now the contract runs the venv's own `python -m semgrep` (with `setuptools`
+  installed), a missing or unreadable report is recorded as `error` instead of ending the script,
+  and a generated scan stage is scoped to its own provider (`generator.scope_scan_contract`:
+  `SCAN_TOOLS="pip-audit" bash ci/scanners.sh` for a `pip_audit` stage; the prompt says so and
+  forbids a second semgrep or pip-audit in the system Python). The full menu belongs to the fixed
+  `scanners` stage.
+- In the `scanners` stage gitleaks did not run: `docker run` exited 125 with its output discarded,
+  recorded as `error`, and the stage passed without a secret scan. The images for trivy and
+  gitleaks now come from GitHub Container Registry (`ghcr.io/aquasecurity/trivy`,
+  `ghcr.io/gitleaks/gitleaks`), since anonymous Docker Hub pulls from shared CodeBuild addresses
+  are rate limited, and the contract keeps each docker tool's output in `var/scanners/<tool>.log`
+  and prints its last lines when the tool could not run.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and six CodeBuild builds (four passed, two failed). The GitHub job was cancelled at 00:45.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

@@ -120,7 +120,7 @@ def test_docker_plan_mounts_the_checkout(tmp_path, no_subprocess, monkeypatch):
     run = provider.execute(_stage("container_scan", "docker", platform="docker"), records, str(tmp_path), mode="apply", answers={})
     assert run.status == "planned" and run.plan["would_run"][0][0] == "docker"
     scan = provider.would_run(_stage("container_scan", "docker", provider="trivy", platform="docker"), [], str(tmp_path), {})
-    assert "aquasec/trivy" in " ".join(scan[0]) and "image" in scan[0] and "trivy" not in scan[0][scan[0].index("--rm") + 1:]
+    assert "aquasecurity/trivy" in " ".join(scan[0]) and "image" in scan[0] and "trivy" not in scan[0][scan[0].index("--rm") + 1:]
 
 
 def test_kubernetes_dry_runs_in_plan_mode(tmp_path, monkeypatch):

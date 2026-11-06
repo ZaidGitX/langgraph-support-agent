@@ -377,8 +377,39 @@ def with_env_manifest(artifact_set: ArtifactSet, stage: dict, placeholders: list
     would do nothing."""
     kept = [harden(relocate(artifact, str(stage.get("name") or ""))) for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
     kept = platform_floor(kept, stage)
+    kept = scope_scan_contract(kept, stage)
     kept.append(env_manifest(stage, placeholders))
     return ArtifactSet(stage=artifact_set.stage, artifacts=kept[:6], notes=artifact_set.notes)
+
+
+_SCANNERS_CALL = re.compile(r"(?<![\w\"'=/])bash ci/scanners\.sh")
+_SCOPED_KINDS = ("buildspec", "shell", "script", "github_workflow", "jenkinsfile", "cloudbuild", "azure_pipeline")
+
+
+def scope_scan_contract(artifacts: list[GeneratedArtifact], stage: dict) -> list[GeneratedArtifact]:
+    """A generated scan stage runs only its own provider through the scanners contract. Live run
+    13's sca stage called ``bash ci/scanners.sh`` with no selection, re-ran the whole menu, and
+    died on a tool it did not own; the fixed scanners stage is the one that runs the full menu."""
+    if str(stage.get("family") or "") != "scan":
+        return artifacts
+    provider = str(stage.get("provider") or "").strip().lower().replace("-", "_")
+    if provider not in scanners.SCAN_STAGE_TOOLS:
+        return artifacts
+    prefix = f'SCAN_TOOLS="{provider.replace("_", "-")}" '
+    scoped: list[GeneratedArtifact] = []
+    for item in artifacts:
+        if item.kind not in _SCOPED_KINDS or "ci/scanners.sh" not in item.content:
+            scoped.append(item)
+            continue
+        lines = item.content.splitlines(keepends=True)
+        changed = False
+        for index, line in enumerate(lines):
+            if "ci/scanners.sh" in line and "SCAN_TOOLS=" not in line:
+                replaced = _SCANNERS_CALL.sub(prefix + "bash ci/scanners.sh", line)
+                changed = changed or replaced != line
+                lines[index] = replaced
+        scoped.append(item.model_copy(update={"content": "".join(lines)}) if changed else item)
+    return scoped
 
 
 def _safe_target(base: Path, relative: str) -> Path | None:

@@ -59,24 +59,28 @@ echo "selected scan tools: $SCAN_TOOLS (fail at $SCAN_SEVERITY)"
 if selected semgrep; then
   rc=0
   python -m venv "$OUT/semgrep-venv"
-  "$OUT/semgrep-venv/bin/python" -m pip install --quiet semgrep || rc=$?
+  "$OUT/semgrep-venv/bin/python" -m pip install --quiet semgrep setuptools || rc=$?
   if [ "$rc" -ne 0 ]; then
     record semgrep error "$rc" "semgrep could not be installed"
   else
     rc=0
-    "$OUT/semgrep-venv/bin/semgrep" scan --config p/python --config p/javascript --metrics=off --quiet \
+    # The venv's own semgrep, by module: the `semgrep` shim resolves pysemgrep on PATH and picked a
+    # broken system install in live run 13 (ModuleNotFoundError: pkg_resources).
+    "$OUT/semgrep-venv/bin/python" -m semgrep scan --config p/python --config p/javascript --metrics=off --quiet \
       --json -o "$OUT/semgrep.json" app mcp_server orchestrator frontend/src || rc=$?
-    if [ "$rc" -gt 1 ]; then
-      record semgrep error "$rc" "semgrep did not complete"
+    if [ "$rc" -gt 1 ] || [ ! -s "$OUT/semgrep.json" ]; then
+      record semgrep error "$rc" "semgrep did not complete or wrote no report"
     else
       high="$(python - "$OUT/semgrep.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
 print(sum(1 for item in data.get("results", []) if str(item.get("extra", {}).get("severity", "")).upper() == "ERROR"))
 PY
-)"
-      total="$(python -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("results", [])))' "$OUT/semgrep.json")"
-      if [ "$high" -gt 0 ]; then
+)" || high=""
+      total="$(python -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("results", [])))' "$OUT/semgrep.json")" || total="?"
+      if [ -z "$high" ]; then
+        record semgrep error 1 "the semgrep report could not be read"
+      elif [ "$high" -gt 0 ]; then
         python - "$OUT/semgrep.json" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -144,7 +148,7 @@ if selected trivy; then
   if has_docker; then
     rc=0
     docker run --rm -v "$PWD:/src" -w /src "$TRIVY_IMAGE" fs --scanners vuln,misconfig,secret --severity "$SCAN_SEVERITY" \
-      --exit-code 1 --skip-dirs node_modules,var,.git,frontend/node_modules --format json -o "/src/$OUT/trivy.json" . >/dev/null || rc=$?
+      --exit-code 1 --skip-dirs node_modules,var,.git,frontend/node_modules --format json -o "/src/$OUT/trivy.json" . > "$OUT/trivy.log" 2>&1 || rc=$?
     if [ "$rc" -eq 1 ]; then
       python - "$OUT/trivy.json" <<'PY'
 import json, sys
@@ -161,7 +165,11 @@ if len(rows) > 25:
     print(f"trivy finding: ... {len(rows) - 25} more in var/scanners/trivy.json")
 PY
     fi
-    case "$rc" in 0) record trivy passed 0 "no finding at $SCAN_SEVERITY";; 1) record trivy failed 1 "findings at $SCAN_SEVERITY, listed above";; *) record trivy error "$rc" "trivy did not complete";; esac
+    case "$rc" in
+      0) record trivy passed 0 "no finding at $SCAN_SEVERITY";;
+      1) record trivy failed 1 "findings at $SCAN_SEVERITY, listed above";;
+      *) tail -n 5 "$OUT/trivy.log" 2>/dev/null | sed 's/^/trivy: /'; record trivy error "$rc" "trivy did not complete (see the lines above)";;
+    esac
   else
     record trivy error 1 "docker is not available on this agent"
   fi
@@ -172,7 +180,7 @@ if selected gitleaks; then
   if has_docker; then
     rc=0
     docker run --rm -v "$PWD:/src" "$GITLEAKS_IMAGE" detect --no-git --redact --source /src --exit-code 1 \
-      --report-format json --report-path "/src/$OUT/gitleaks.json" >/dev/null 2>&1 || rc=$?
+      --report-format json --report-path "/src/$OUT/gitleaks.json" > "$OUT/gitleaks.log" 2>&1 || rc=$?
     if [ "$rc" -eq 1 ]; then
       python - "$OUT/gitleaks.json" <<'PY'
 import json, sys
@@ -183,7 +191,11 @@ if len(rows) > 25:
     print(f"gitleaks finding: ... {len(rows) - 25} more in var/scanners/gitleaks.json")
 PY
     fi
-    case "$rc" in 0) record gitleaks passed 0 "no secret found";; 1) record gitleaks failed 1 "secrets found, listed above";; *) record gitleaks error "$rc" "gitleaks did not complete";; esac
+    case "$rc" in
+      0) record gitleaks passed 0 "no secret found";;
+      1) record gitleaks failed 1 "secrets found, listed above";;
+      *) tail -n 5 "$OUT/gitleaks.log" 2>/dev/null | sed 's/^/gitleaks: /'; record gitleaks error "$rc" "gitleaks did not complete (see the lines above)";;
+    esac
   else
     record gitleaks error 1 "docker is not available on this agent"
   fi

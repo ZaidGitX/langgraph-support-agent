@@ -367,8 +367,8 @@
         "scanners"
       ],
       "cli": "trivy",
-      "docker_image": "aquasec/trivy:0.58.0",
-      "install": "brew install trivy",
+      "docker_image": "ghcr.io/aquasecurity/trivy:0.58.0",
+      "install": "brew install trivy, or the GHCR image (Docker Hub anonymous pulls are rate limited on shared CI addresses)",
       "argv": {
         "container_scan": [
           "trivy",
@@ -407,7 +407,7 @@
           "$ROOT:/src",
           "-w",
           "/src",
-          "aquasec/trivy:0.58.0",
+          "ghcr.io/aquasecurity/trivy:0.58.0",
           "fs",
           "--scanners",
           "vuln,misconfig,secret",
@@ -486,8 +486,8 @@
         "scanners"
       ],
       "cli": "gitleaks",
-      "docker_image": "zricethezav/gitleaks:latest",
-      "install": "brew install gitleaks",
+      "docker_image": "ghcr.io/gitleaks/gitleaks:latest",
+      "install": "brew install gitleaks, or the GHCR image (Docker Hub anonymous pulls are rate limited on shared CI addresses)",
       "argv": {
         "secrets_scan": [
           "gitleaks",
@@ -503,7 +503,7 @@
           "--rm",
           "-v",
           "$ROOT:/src",
-          "zricethezav/gitleaks:latest",
+          "ghcr.io/gitleaks/gitleaks:latest",
           "detect",
           "--no-git",
           "--redact",
