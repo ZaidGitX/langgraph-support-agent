@@ -546,9 +546,9 @@ def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: lis
 
 
 def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict], environment: dict, placeholders: list[str], answers: dict | None = None) -> list[str]:
-    """The contract scripts (and on AWS the stack) are the orchestrator's: put back any the
-    model changed or dropped, and make sure each fixed stage's file calls its script. Returns
-    what was restored (paths) or appended (``<path>: <command>``)."""
+    """The contract scripts (and on AWS the stack and the project document) are the
+    orchestrator's: put back any the model changed or dropped, and make sure each fixed stage's
+    file calls its script. Returns what was restored (paths) or appended (``<path>: <command>``)."""
     restored: list[str] = []
     wanted = dict(contract_files(platform))
     if platform == "aws":
@@ -558,9 +558,15 @@ def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict],
             placeholders=placeholders,
             extra={"CONTAINER_ENV_LINES": _container_env_lines(placeholders), "CONTAINER_SECRET_LINES": _container_secret_lines(platform)},
         )
+        # The project document too (live run 18): the model's version listed nine environment
+        # names and dropped AWS_ECR_REPOSITORY, AWS_CFN_STACK, AWS_ECS_CLUSTER, and
+        # AWS_ECS_SERVICE, so the skeleton-only build_image buildspec found no repository.
+        wanted["deploy/codebuild-project.json"] = templates.render_template(
+            "codebuild_project", base_stage, environment, runner="aws_codebuild", run_id=str(environment.get("run_id") or "local"), placeholders=placeholders,
+        )
     by_path = {item.path: item for item in suite_obj.artifacts}
     for path, content in wanted.items():
-        kind = "cloudformation" if path.endswith(".yaml") else "shell"
+        kind = "cloudformation" if path.endswith(".yaml") else "codebuild_project" if path.endswith(".json") else "shell"
         current = by_path.get(path)
         if current is None:
             suite_obj.artifacts.append(GeneratedArtifact(path=path, kind=kind, purpose=f"orchestrator contract: {path}", content=content, secrets_referenced=[]))

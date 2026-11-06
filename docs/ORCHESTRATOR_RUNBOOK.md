@@ -695,6 +695,50 @@ What went wrong, and the fix:
 Nothing was deployed; the writes were the source upload, the project update, the three secret
 values, and five CodeBuild builds (three passed, two failed). The GitHub job was cancelled at 06:16.
 
+### Live run 18 (2026-11-06, approved 06:33 UTC, escalated 06:43 UTC, workflow run 42173922426, run 6b98c5ce): five stages passed at the first attempt; the image stage found no repository name
+
+Started by the push of a863688 after a one-call probe of the OpenAI key. Questions answered by
+the profile, the generated stages and the suite accepted, autopilot approved at 06:33:21
+(confidence 0.98), provisioning and injection applied. `build`, `sca`, `test`, `scanners`, and
+`integration_test` passed at their first attempt. `build_image` failed twice (06:41:00, 06:42:55):
+its buildspec was the skeleton calling `bash ci/container.sh`, and the contract stopped at
+`ci/container.sh: line 20: AWS_ECR_REPOSITORY: AWS_ECR_REPOSITORY is required`. Jev escalated at
+06:43:33; the orchestrator session cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Autopilot approved at 0.98 | 06:33:21 |
+| `build_image` failed | 06:41:00 |
+| `build_image` failed again | 06:42:55 |
+| Jev escalated | 06:43:33 |
+
+What went wrong, and the fix:
+
+- The run's uploaded source (`s3://…/orchestrator/6b98c5ce…/source.zip`) and `codebuild
+  batch-get-projects` agree: the project document Astra wrote listed nine environment names
+  (APP_NAME, RUN_ID, PLATFORM, TIER, AWS_REGION, AWS_ACCOUNT_ID, AWS_S3_BUCKET, AWS_VPC_ID,
+  AWS_SUBNET_IDS) and dropped AWS_ECR_REPOSITORY, AWS_CFN_STACK, AWS_ECS_CLUSTER, and
+  AWS_ECS_SERVICE, four of the eleven the template carries. Since live run 17 a floored stage's
+  buildspec is the skeleton, which declares only RUN_ID, TIER, PLATFORM, and APP_NAME, so the
+  contract had nowhere else to read the repository from (run 16's image stage had passed only
+  because the model's buildspec of that run declared the name itself; run 17's guard had seen
+  names empty for the same reason).
+- The project document is the orchestrator's now, like the stack and the contract scripts:
+  `suite.assert_contract` restores `deploy/codebuild-project.json` from the template whatever the
+  model wrote, and `templates.CODEBUILD_ENV_NAMES` is the one list of build names (a test holds
+  the template to it; none is a secret).
+- Every CodeBuild `start-build` now carries the names itself: `AwsProvider.would_run` passes
+  `--environment-variables-override` as JSON with RUN_ID, PLATFORM, TIER, APP_NAME, and each
+  AWS_* config name as a `$NAME` placeholder (values never appear in the plan); `apply` expands
+  them from the host, where `ensure_platform` exported them before the first build, and
+  `resolve_build_env` drops an entry still unresolved so a build never sees the literal
+  `$AWS_VPC_ID`. JSON rather than the shorthand form because AWS_SUBNET_IDS holds commas.
+- `SUITE_SYSTEM` tells Astra the project document is the orchestrator's. Tests:
+  `tests/test_run18_build_env.py`.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and seven CodeBuild builds (five passed, two failed).
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

@@ -14,6 +14,7 @@ from pathlib import Path
 
 from ..runner import redact, run_commands
 from ..templates import APP_NAME as APP
+from ..templates import CODEBUILD_ENV_NAMES
 from .base import (
     BaseProvider,
     ProvisionResult,
@@ -23,6 +24,7 @@ from .base import (
     expand_env,
     run_id_of,
     stored_path,
+    tier_of,
 )
 
 APP_IMAGE = "langgraph-support-app"
@@ -30,6 +32,52 @@ POLL_SECONDS = 10
 ROLE_SUFFIX = "-codebuild-role"
 PROJECT_RETRIES = 6  # a role created seconds ago takes a moment before CodeBuild may assume it
 LOG_TAIL_LINES = 60  # CloudWatch lines fetched for a failed build's evidence (live run 8)
+_UNRESOLVED = re.compile(r"^\$\{?[A-Z][A-Z0-9_]*\}?$")
+
+
+def build_env_override(run_id: str, tier: str = "dev") -> str:
+    """The ``start-build`` environment override every stage carries: RUN_ID, TIER, PLATFORM,
+    APP_NAME, and each AWS config name the contracts read, as placeholders the apply expands
+    from the host environment (``ensure_platform`` exports them before the first build).
+
+    Live run 18: the project document is rendered from what the model wrote and the floored
+    buildspecs declare only RUN_ID, TIER, PLATFORM, and APP_NAME, so a name missing from the
+    project reached ``ci/container.sh`` unset. JSON, not the shorthand form: AWS_SUBNET_IDS holds
+    commas the shorthand parser would split on.
+    """
+    entries = [{"name": "RUN_ID", "value": run_id, "type": "PLAINTEXT"}, {"name": "PLATFORM", "value": "aws", "type": "PLAINTEXT"}]
+    for name in CODEBUILD_ENV_NAMES:
+        if name == "APP_NAME":
+            value = APP
+        elif name == "TIER":
+            value = tier
+        else:
+            value = f"${name}"
+        entries.append({"name": name, "value": value, "type": "PLAINTEXT"})
+    return json.dumps(entries, separators=(",", ":"))
+
+
+def resolve_build_env(argv: list[str]) -> list[str]:
+    """After ``expand_env``: drop an override entry whose value is still a placeholder or empty,
+    so the build sees the project's value or nothing, never the literal ``$AWS_VPC_ID``."""
+    if "--environment-variables-override" not in argv:
+        return argv
+    position = argv.index("--environment-variables-override") + 1
+    if position >= len(argv):
+        return argv
+    try:
+        entries = json.loads(argv[position])
+    except json.JSONDecodeError:
+        return argv
+    if not isinstance(entries, list):
+        return argv
+    kept = [
+        entry for entry in entries
+        if isinstance(entry, dict) and str(entry.get("value") or "").strip() and not _UNRESOLVED.match(str(entry.get("value")).strip())
+    ]
+    resolved = list(argv)
+    resolved[position] = json.dumps(kept, separators=(",", ":"))
+    return resolved
 
 
 _CREDENTIAL_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".kdbx")
@@ -99,6 +147,7 @@ class AwsProvider(BaseProvider):
     def would_run(self, stage: dict, records: list[dict], cwd: str, answers: dict) -> list[list[str]]:
         provider = str(stage.get("provider") or "")
         run_id = run_id_of(stage, answers)
+        tier = tier_of(stage, answers)
         region = ["--region", "$AWS_REGION"]
         image = f"$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:{run_id}"
         buildspec = artifact_for_stage(records, str(stage.get("name") or ""), "buildspec", cwd=cwd) or artifact_of_kind(records, "buildspec", cwd=cwd)
@@ -109,7 +158,7 @@ class AwsProvider(BaseProvider):
             return [[
                 "aws", "codebuild", "start-build", "--project-name", "$AWS_CODEBUILD_PROJECT", *region,
                 "--buildspec-override", f"file://{buildspec}",
-                "--environment-variables-override", f"name=RUN_ID,value={run_id},type=PLAINTEXT",
+                "--environment-variables-override", build_env_override(run_id, tier),
             ]]
         if provider == "aws_ecs":
             return [["aws", "ecs", "update-service", "--cluster", "$AWS_ECS_CLUSTER", "--service", "$AWS_ECS_SERVICE", "--force-new-deployment", *region]]
@@ -125,13 +174,13 @@ class AwsProvider(BaseProvider):
                 ["docker", "push", image],
             ]
         command = ["aws", "codebuild", "start-build", "--project-name", "$AWS_CODEBUILD_PROJECT", *region]
-        command.extend(["--environment-variables-override", f"name=RUN_ID,value={run_id},type=PLAINTEXT"])
+        command.extend(["--environment-variables-override", build_env_override(run_id, tier)])
         return [command]
 
     def apply(self, stage: dict, argvs: list[list[str]], cwd: str, records: list[dict], answers: dict) -> StageRun:
         if not argvs or argvs[0][:3] != ["aws", "codebuild", "start-build"]:
             return super().apply(stage, argvs, cwd, records, answers)
-        return self._codebuild(stage, expand_env(argvs[0]), cwd)
+        return self._codebuild(stage, resolve_build_env(expand_env(argvs[0])), cwd)
 
     # --- Sprint 4 phase 9: provisioning and secret injection ---------------------------------
 

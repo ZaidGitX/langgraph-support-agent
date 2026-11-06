@@ -186,6 +186,16 @@ CONTRACT_SCRIPTS = {
 CONTRACT_PLATFORM_NEUTRAL = ("build", "test", "scanners", "package")
 CONTRACT_AWS = ("container", "release", "deploy", "smoke", "dast", "image_scan")
 
+# The config names the CodeBuild project hands every build and the orchestrator repeats on each
+# start-build, in the template's order. Live run 18: the model's project document listed nine
+# names and dropped the repository, the stack, the cluster, and the service; the skeleton-only
+# build_image buildspec then found no AWS_ECR_REPOSITORY. Never a secret: the service role is
+# the build's identity.
+CODEBUILD_ENV_NAMES = (
+    "APP_NAME", "TIER", "AWS_REGION", "AWS_ACCOUNT_ID", "AWS_S3_BUCKET", "AWS_ECR_REPOSITORY",
+    "AWS_CFN_STACK", "AWS_ECS_CLUSTER", "AWS_ECS_SERVICE", "AWS_VPC_ID", "AWS_SUBNET_IDS",
+)
+
 
 def contract_images() -> dict[str, str]:
     """Scanner images from the catalog, with the catalog's own defaults as fallbacks."""

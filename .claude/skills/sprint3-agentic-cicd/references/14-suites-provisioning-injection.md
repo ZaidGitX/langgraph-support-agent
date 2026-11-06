@@ -242,3 +242,15 @@ pipeline; on GitHub the workflows); `generator.harden` drops a `secrets-manager`
 identity secret or a registry secret without a value (`strip_unresolvable_bindings`); and
 `profile.approval` refuses a plan whose injection plan has a bound name without a value, so the
 session rejects it once with that feedback. Tests: `tests/test_run10_injection.py`.
+
+**Live run 18 (2026-11-06).** The project document Astra wrote listed nine environment names and
+dropped `AWS_ECR_REPOSITORY`, `AWS_CFN_STACK`, `AWS_ECS_CLUSTER`, and `AWS_ECS_SERVICE`; the
+skeleton-only `build_image` buildspec (run 17's rule) declares none of them, so `ci/container.sh`
+stopped on the missing repository. Rules now: `deploy/codebuild-project.json` is the
+orchestrator's like the stack and the contract scripts (`suite.assert_contract` restores it from
+the template); `templates.CODEBUILD_ENV_NAMES` is the one list of build names and a test holds the
+template to it; `AwsProvider.would_run` adds a JSON `--environment-variables-override` carrying
+RUN_ID, PLATFORM, TIER, APP_NAME, and each AWS_* config name as a `$NAME` placeholder, which
+`apply` expands from the host (after `ensure_platform` exported them) and `resolve_build_env`
+trims of unresolved entries (JSON because `AWS_SUBNET_IDS` holds commas); `SUITE_SYSTEM` says the
+project document is the orchestrator's. Tests: `tests/test_run18_build_env.py`.
