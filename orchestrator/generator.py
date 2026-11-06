@@ -265,10 +265,28 @@ _FLOOR_COMMANDS = {
     "deploy": "bash ci/deploy.sh",
     "deploy_plan": "DEPLOY_MODE=plan bash ci/deploy.sh",
     "smoke": "bash ci/smoke.sh",
+    "dast": "bash ci/dast.sh",
     "container": "bash ci/container.sh",
 }
-_FLOOR_MARKERS = {"deploy": ("ci/deploy.sh",), "deploy_plan": ("ci/deploy.sh",), "smoke": ("curl", "http", "urlopen", "requests"), "container": ("docker build", "docker buildx")}
+# Only the contract call counts as doing the job (live runs 12 to 14: a model-written change set,
+# image push, or probe beside the contract is what failed), and these commands are dropped when
+# the floor applies: a docker push of an image this build's container never built, a stack
+# mutation, an HTTP probe of a URL the stage cannot know, a second ZAP, and the stage's own script.
+_FLOOR_MARKERS = {key: (command.split()[-1],) for key, command in _FLOOR_COMMANDS.items()}
 _STACK_MUTATION = re.compile(r"\baws\s+cloudformation\s+(deploy|create-stack|update-stack|create-change-set|execute-change-set)\b")
+_IMAGE_MUTATION = re.compile(r"\bdocker\s+(build|buildx\s+build|push|tag)\b")
+_HTTP_PROBE = re.compile(r"\b(curl|wget|httpie|http)\s|urllib\.request|requests\.(get|post)")
+_DAST_RUN = re.compile(r"zap-baseline|zap-full-scan|zaproxy|hawkscan|\bhawk\s+scan|\bnuclei\b")
+# A model-written script under ci/ that is not a contract script (the model names its files
+# freely: smoke_dev.generated.py, deploy_dev.generated.py, sca.sh).
+_OWN_SCRIPT = re.compile(r"\b(bash|sh|python3?|node)\s+(\./)?ci/(?!(?:build|test|scanners|package|container|release|deploy|smoke|dast)\.sh\b)[\w.-]+")
+_FLOOR_STRIP = {
+    "deploy": (_STACK_MUTATION,),
+    "deploy_plan": (_STACK_MUTATION,),
+    "container": (_IMAGE_MUTATION,),
+    "smoke": (_HTTP_PROBE,),
+    "dast": (_DAST_RUN,),
+}
 _PLACEHOLDER_MARK = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
 
 
@@ -279,6 +297,8 @@ def floor_for(stage: dict) -> str | None:
     name = str(stage.get("name") or "").lower()
     if "infra" in name or name.endswith("_plan") or name.startswith("plan_"):
         return "deploy" if "apply" in name else "deploy_plan"
+    if "dast" in name:
+        return "dast"
     if family in _FLOOR_BY_FAMILY:
         return _FLOOR_BY_FAMILY[family]
     if "deploy" in name:
@@ -300,6 +320,7 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
         return artifacts
     command = _FLOOR_COMMANDS[key]
     markers = _FLOOR_MARKERS[key]
+    strip = (*_FLOOR_STRIP.get(key, ()), _OWN_SCRIPT)
     specs = [item for item in artifacts if item.kind == "buildspec"]
     others = [item for item in artifacts if item.kind != "buildspec"]
     if not specs:
@@ -314,12 +335,12 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
         lowered = content.lower()
         placeholder = bool(_PLACEHOLDER_MARK.search(content))
         does_job = any(marker in lowered for marker in markers) or command in content
-        mutates = key in ("deploy", "deploy_plan") and bool(_STACK_MUTATION.search(content))
-        if placeholder or not does_job or mutates:
+        contradicts = any(pattern.search(content) for pattern in strip)
+        if placeholder or not does_job or contradicts:
             lines = [line for line in content.splitlines() if not _PLACEHOLDER_MARK.search(line)]
             content = "\n".join(lines).rstrip("\n") + "\n"
-            if mutates:
-                content = _drop_stack_mutations(content)
+            if contradicts:
+                content = _drop_commands(content, strip)
             if command not in content:
                 content = _append_build_command(content, command)
             spec = spec.model_copy(update={"content": content, "purpose": f"{spec.purpose} (orchestrator floor: {command})".strip()})
@@ -327,9 +348,9 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
     return others + fixed
 
 
-def _drop_stack_mutations(content: str) -> str:
-    """Remove buildspec commands that create, update, or change-set the stack themselves; the
-    contract script does that with every parameter resolved."""
+def _drop_commands(content: str, patterns: tuple) -> str:
+    """Remove the buildspec commands that match any pattern (a stack mutation, an image push, an
+    HTTP probe, a second dynamic scan, the stage's own script); the contract does that work."""
     import yaml
 
     try:
@@ -342,7 +363,7 @@ def _drop_stack_mutations(content: str) -> str:
     for phase in document["phases"].values():
         if not isinstance(phase, dict) or not isinstance(phase.get("commands"), list):
             continue
-        kept = [item for item in phase["commands"] if not (isinstance(item, str) and _STACK_MUTATION.search(item))]
+        kept = [item for item in phase["commands"] if not (isinstance(item, str) and any(pattern.search(item) for pattern in patterns))]
         if len(kept) != len(phase["commands"]):
             phase["commands"] = kept
             changed = True

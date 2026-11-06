@@ -101,6 +101,8 @@ Resources:
           Environment:
             - {Name: TIER, Value: !Ref Tier}
             - {Name: APP_PUBLIC_URL, Value: ""}
+            # The deployed product is the support app; it never starts an orchestrator run of its own.
+            - {Name: ORCHESTRATOR_AUTOSTART, Value: "0"}
 $CONTAINER_ENV_LINES
 $CONTAINER_SECRET_LINES
           LogConfiguration:

@@ -560,6 +560,26 @@ Nothing was deployed; the writes were the source upload, the project update, the
 values, the image in ECR, and eight CodeBuild builds (seven passed, one failed). The GitHub job
 was cancelled at 01:22.
 
+### Before live run 15: the late waves run their contracts and nothing beside them
+
+Runs 12, 13, and 14 each failed on a model-written step next to a contract that already did the
+job (a change set without parameters, a second scanners run, an image scan with no allowance
+for unfixable findings). The six stages that have never run live are the image wave, the deploy
+wave, and UAT, so before run 15 the orchestrator makes them deterministic on CodeBuild: a
+generated `build_image` or `push_image` stage runs `bash ci/container.sh` and nothing that
+builds, tags, or pushes an image itself (a later build's container holds no local image to
+push); `deploy_*` and `infra_apply` run `bash ci/deploy.sh`; `infra_plan` runs
+`DEPLOY_MODE=plan bash ci/deploy.sh`; `*smoke*` runs `bash ci/smoke.sh`; `*dast*` runs
+`bash ci/dast.sh` (both read the URL the deploy published); and any model-written script
+under `ci/` that is not a contract script, any HTTP probe of a URL the stage cannot know, and
+any second ZAP run are dropped from those stages' buildspecs (`generator.platform_floor`,
+`_FLOOR_STRIP`, `_OWN_SCRIPT`). The deployed task sets `ORCHESTRATOR_AUTOSTART=0`, so the
+support app in ECS never starts an orchestrator run of its own. The CodeBuild role's policy was
+cross-checked against every resource the stack creates (cluster, log group under `/ecs/<app>-*`,
+the `<app>-<tier>-task-execution` role with PassRole, security group with ingress only, task
+definition, service) and needs no change. The image was built locally from the updated
+Dockerfile and scanned with the catalog's image policy before the push.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
