@@ -17,7 +17,10 @@ MARK = "[redacted]"
 _MIN_VALUE_CHARS = 4
 
 TOKEN_PATTERNS = [
-    r"sk-[A-Za-z0-9_\-]{8,}",
+    # An OpenAI key: "sk-" at a token boundary followed by a key's length. Live run 20: the
+    # unbounded form turned "task-execution" into "ta[redacted]" inside the stored stack, and
+    # CloudFormation rejected the role name.
+    r"(?<![A-Za-z0-9_\-])sk-[A-Za-z0-9_\-]{20,}",
     r"\bAKIA[0-9A-Z]{16}\b",
     r"\bASIA[0-9A-Z]{16}\b",
     r"\bgh[pousr]_[A-Za-z0-9]{20,}\b",
@@ -32,10 +35,13 @@ TOKEN_PATTERNS = [
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
     "api" + r"key_[A-Za-z0-9_]+",
 ]
-ASSIGNMENT_PATTERN = r"(?i)((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)(?!credentials\(|\$|\{\{|secrets\.)[^\s\"',;]+"
+# A shell default expansion such as "${HAWK_API_KEY:-}" or ': "${SNYK_TOKEN:=}"' is a reference
+# by name, not an assigned value (live run 20's sweep: the stored dast.sh had lost its "-}" to the
+# mark, which would have been a bad substitution at run time).
+ASSIGNMENT_PATTERN = r"(?i)((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)(?!credentials\(|\$|\{\{|secrets\.|[-=?+}])[^\s\"',;]+"
 
 FILE_SCAN_PATTERNS = [
-    r"sk-[A-Za-z0-9]{20,}",
+    r"(?<![A-Za-z0-9_\-])sk-[A-Za-z0-9]{20,}",
     r"\bAKIA[0-9A-Z]{16}\b",
     r"\bASIA[0-9A-Z]{16}\b",
     r"\bgh[pousr]_[A-Za-z0-9]{20,}\b",

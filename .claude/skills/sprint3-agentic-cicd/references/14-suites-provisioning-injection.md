@@ -264,3 +264,17 @@ answers, are fallbacks), and `AwsProvider.pin_project_document` rewrites the ren
 provision from the run and the host (project name, the exact upload key, `CODEBUILD_ENV_NAMES`
 values, a name without a value left out), so the stored document and the upload cannot disagree.
 Tests: `tests/test_run19_source_key.py`.
+
+**Live run 20 (2026-11-06).** Seven stages passed at the first attempt (build, test, infra_plan,
+scanners, integration_test, build_image, container_scan) and the deploy ran for the first time.
+The stack rolled back: the redaction every stored artifact passes through (`generator.write`) had
+an unbounded `sk-` key pattern that turned `task-execution` into `ta[redacted]` in the stack's
+`RoleName`; the retry then could not update a ROLLBACK_COMPLETE stack. Rules now: the key pattern
+needs a token boundary and a key's length; the assignment pattern leaves shell default expansions
+(`${NAME:-}`, `:=`, `:?`, `:+`) alone (the stored `dast.sh` had lost its `-}`); every contract
+script, skeleton, and the stack are tested to survive `redaction.redact` unchanged; `deploy.sh`
+creates a new stack with `create-stack --on-failure DELETE` (a failed create removes itself and
+prints its CREATE_FAILED events from the stack id), updates an existing one with `cloudformation
+deploy`, and never deletes a stack: a stack left in a failed state is reported, and the person
+removes it with `scripts/aws_teardown.sh` before the next run. The destructive-command guard is
+unchanged. Tests: `tests/test_run20_deploy_recovery.py`.

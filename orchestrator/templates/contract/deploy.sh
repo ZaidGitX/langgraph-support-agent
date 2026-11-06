@@ -3,9 +3,10 @@ set -euo pipefail
 # Orchestrator platform contract for the "deploy" stage on AWS (Sprint 4): one Fargate service
 # per app and tier from the orchestrator's CloudFormation stack (deploy/ecs-stack.yaml).
 #
-#   1. tier guard (no path past UAT)                     4. aws cloudformation deploy (creates or updates)
-#   2. the run's image must exist in ECR, else build it  5. wait until the service is stable
-#   3. VPC and subnets: given, else the default VPC       6. find the task's public IP, check /status,
+#   1. tier guard (no path past UAT)                     4. create the stack (create-stack, --on-failure
+#   2. the run's image must exist in ECR, else build it     DELETE) or update it (cloudformation deploy)
+#   3. VPC and subnets: given, else the default VPC       5. wait until the service is stable
+#                                                        6. find the task's public IP, check /status,
 #                                                           publish the URL for smoke, dast, and UAT
 # DEPLOY_MODE=plan (an infra_plan stage) stops after step 3: it validates the template, resolves
 # every parameter the real deploy would pass, reports whether the stack and the image exist, and
@@ -74,15 +75,57 @@ if [ "$DEPLOY_MODE" = "plan" ]; then
     --query 'Parameters[].ParameterKey' --output text | tr '\t' ' ' | sed 's/^/template parameters: /'
   stack_status="$(aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].StackStatus' --output text --region "$AWS_REGION" 2>/dev/null || echo ABSENT)"
   echo "plan: stack $STACK is $stack_status; deploy would pass AppName=$APP_NAME Tier=$TIER VpcId=$vpc SubnetIds=$subnets Image=$image ContainerPort=$PORT"
+  case "$stack_status" in
+    ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED|DELETE_FAILED) echo "plan: the stack is left from a failed create and cannot be updated; remove it (scripts/aws_teardown.sh) before the deploy";;
+  esac
   summary passed ",\"mode\":\"plan\",\"stack\":\"$STACK\",\"stack_status\":\"$stack_status\",\"image\":\"$image\",\"image_in_ecr\":$image_in_ecr,\"vpc\":\"$vpc\""
   exit 0
 fi
 
-# 4. Create or update the stack; the change set is executed for every allowed tier.
-aws cloudformation deploy --stack-name "$STACK" --template-file "$template" \
-  --capabilities CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset --region "$AWS_REGION" \
-  --parameter-overrides "AppName=$APP_NAME" "Tier=$TIER" "VpcId=$vpc" "SubnetIds=$subnets" "Image=$image" "ContainerPort=$PORT" \
-  --tags "orchestrator=$APP_NAME" "run_id=$RUN_ID" "tier=$TIER"
+# 4. Create or update the stack. A first create uses create-stack with --on-failure DELETE, so a
+#    failed create leaves no ROLLBACK_COMPLETE stack behind (live run 20: the retry hit "is in
+#    ROLLBACK_COMPLETE state and can not be updated") and its events are printed from the stack
+#    id, which outlives the stack. A stack an earlier run left in a failed state is reported, never
+#    removed here: scripts/aws_teardown.sh removes it, then the run is repeated.
+stack_status="$(aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].StackStatus' --output text --region "$AWS_REGION" 2>/dev/null || echo ABSENT)"
+case "$stack_status" in
+  ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED|DELETE_FAILED|DELETE_IN_PROGRESS)
+    echo "stack $STACK is $stack_status from an earlier failed create and cannot be updated; remove it (scripts/aws_teardown.sh) and rerun"
+    summary failed ",\"reason\":\"stack $STACK is $stack_status; remove it and rerun\""
+    exit 1
+    ;;
+  ABSENT)
+    cat > "var/$STAGE/parameters.json" <<PARAMS
+[
+  {"ParameterKey": "AppName", "ParameterValue": "$APP_NAME"},
+  {"ParameterKey": "Tier", "ParameterValue": "$TIER"},
+  {"ParameterKey": "VpcId", "ParameterValue": "$vpc"},
+  {"ParameterKey": "SubnetIds", "ParameterValue": "$subnets"},
+  {"ParameterKey": "Image", "ParameterValue": "$image"},
+  {"ParameterKey": "ContainerPort", "ParameterValue": "$PORT"}
+]
+PARAMS
+    stack_id="$(aws cloudformation create-stack --stack-name "$STACK" --template-body "file://$template" \
+      --capabilities CAPABILITY_NAMED_IAM --on-failure DELETE --region "$AWS_REGION" \
+      --parameters "file://var/$STAGE/parameters.json" \
+      --tags "Key=orchestrator,Value=$APP_NAME" "Key=run_id,Value=$RUN_ID" "Key=tier,Value=$TIER" \
+      --query StackId --output text)"
+    echo "creating stack $STACK ($stack_id)"
+    if ! aws cloudformation wait stack-create-complete --stack-name "$stack_id" --region "$AWS_REGION"; then
+      echo "stack $STACK did not create; the resources that failed:"
+      aws cloudformation describe-stack-events --stack-name "$stack_id" --region "$AWS_REGION" \
+        --query 'StackEvents[?ResourceStatus==`CREATE_FAILED`].[LogicalResourceId,ResourceStatusReason]' --output text || true
+      summary failed ",\"reason\":\"stack $STACK did not create; see the events above\""
+      exit 1
+    fi
+    ;;
+  *)
+    aws cloudformation deploy --stack-name "$STACK" --template-file "$template" \
+      --capabilities CAPABILITY_NAMED_IAM --no-fail-on-empty-changeset --region "$AWS_REGION" \
+      --parameter-overrides "AppName=$APP_NAME" "Tier=$TIER" "VpcId=$vpc" "SubnetIds=$subnets" "Image=$image" "ContainerPort=$PORT" \
+      --tags "orchestrator=$APP_NAME" "run_id=$RUN_ID" "tier=$TIER"
+    ;;
+esac
 aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].StackStatus' --output text --region "$AWS_REGION"
 
 # 5. The service must reach its desired count with the new task definition.

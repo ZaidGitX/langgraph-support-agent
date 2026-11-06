@@ -778,6 +778,61 @@ What went wrong, and the fix:
 Nothing was deployed; the writes were the source upload, the project update, the three secret
 values, and two CodeBuild builds (both failed before any command ran).
 
+### Live run 20 (2026-11-06, 07:30–07:59 UTC, workflow run 42181282903, run 99164633): seven stages passed at the first attempt and the deploy ran for the first time; the stack rolled back on a role name the redaction had mangled
+
+Started by the push of b1f1fd6 at 07:30:12 after a one-call probe of the OpenAI key. Questions
+answered by the profile at 07:33:06, the suite written from 07:35:16, autopilot approved at
+07:42:20 (confidence 1.00), provisioning (project pinned to the run's upload) and injection applied.
+Then the longest live path so far, every stage at its first attempt: `build` 07:44:02, `test`
+07:46:05, `infra_plan` 07:46:06 (the plan mode's first live pass), `scanners` 07:46:47,
+`integration_test` 07:48:27, `build_image` 07:51:22 (the run 18 fix proven: every build carried
+the thirteen names), `container_scan` 07:53:35 (the image-scan contract's first live pass).
+`deploy_dev` failed twice: at 07:56:14 CloudFormation rolled the new stack back
+(`ExecutionRole CREATE_FAILED: The specified value for roleName is invalid`), and at 07:58:04 the
+retry stopped on `Stack … is in ROLLBACK_COMPLETE state and can not be updated`. Jev escalated at
+07:58:55; the orchestrator session cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of b1f1fd6; workflow started | 07:30:12 |
+| Questions answered by the profile | 07:33:06 |
+| Suite done; autopilot approved at 1.00 | 07:42:20 |
+| `build` passed | 07:44:02 |
+| `test`, `infra_plan` passed | 07:46:05 |
+| `scanners` passed | 07:46:47 |
+| `integration_test` passed | 07:48:27 |
+| `build_image` passed | 07:51:22 |
+| `container_scan` passed | 07:53:35 |
+| `deploy_dev` failed (stack rolled back) | 07:56:14 |
+| `deploy_dev` failed again (ROLLBACK_COMPLETE cannot be updated) | 07:58:04 |
+| Jev escalated | 07:58:55 |
+
+What went wrong, and the fix:
+
+- The deployed template read `RoleName: !Sub "${AppName}-${Tier}-ta[redacted]"`. The redaction
+  that every stored artifact passes through (`generator.write`) carried an OpenAI key pattern
+  `sk-` plus eight characters with no boundary, and it matched `sk-execution` inside
+  `task-execution`. IAM rejected the role name, CloudFormation rolled the stack back. The key
+  pattern now needs a token boundary and a key's length (`(?<![A-Za-z0-9_-])sk-` plus twenty).
+- A sweep of the orchestrator's own files through the redaction found a second false positive
+  before it reached a live run: the assignment pattern treated the shell default expansion
+  `"${HAWK_API_KEY:-}"` in `ci/dast.sh` as `API_KEY: -}` and replaced the `-}`, a bad substitution
+  the dast stage would have died on. The pattern now leaves `:-`, `:=`, `:?`, `:+` expansions
+  alone. `tests/test_run20_deploy_recovery.py` holds every contract script, skeleton, and the
+  stack to "unchanged by the redaction".
+- The retry could not update a stack in ROLLBACK_COMPLETE. The deploy contract now creates a new
+  stack with `create-stack --on-failure DELETE`, so a failed create removes itself and the retry
+  creates again; it prints the failed resources' events from the stack id (which outlives the
+  stack) so the reason is in the build log; an existing healthy stack is still updated with
+  `cloudformation deploy`. The destructive-command guard stays whole: the contract never removes
+  a stack. A stack an earlier run left in a failed state is reported with a clear summary, and
+  the person removes it (`scripts/aws_teardown.sh`) before the next run.
+
+Account state after the run: the stack `langgraph-support-app-dev` is ROLLBACK_COMPLETE and
+empty (every resource rolled back); the image for run 99164633 is in ECR. The writes were the
+source upload, the project update, the three secret values, nine CodeBuild builds (seven passed,
+two failed), and the rolled-back stack.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
