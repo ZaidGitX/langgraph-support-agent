@@ -663,6 +663,38 @@ Nothing was deployed; the writes were the source upload, the project update, the
 values, the image in ECR, and eight CodeBuild builds (six passed, two failed). The GitHub job was
 cancelled at 05:57.
 
+### Live run 17 (2026-11-06, 06:01–06:16 UTC, workflow run 42171888087, run 47c2c59d): the plan stage failed on a guard the model wrote beside the contract
+
+Started by the push of 55606c0 after a one-call probe of the OpenAI key. Questions answered at
+06:04:14, nine generated stages and the suite (252 s) accepted, autopilot approved at 06:10:38
+(confidence 1.00), provisioning and injection applied. `build` passed at 06:11:57, `test` at
+06:13:25, `scanners` at 06:14:41. `infra_plan` failed twice (06:13:25, 06:15:23): its buildspec
+called `DEPLOY_MODE=plan bash ci/deploy.sh` as required, but a guard the worker wrote before it
+(`if [[ -z "${AWS_ACCOUNT_ID:-}" || -z "${AWS_ECS_CLUSTER:-}" ... ]]; then ... exit 2`) exited
+with "missing_required_inputs" on names the contract resolves itself. Jev escalated; the
+orchestrator cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 06:04:14 |
+| Suite finished (252 s); autopilot approved at 1.00 | 06:10:38 |
+| `build` passed | 06:11:57 |
+| `test` passed; `infra_plan` failed | 06:13:25 |
+| `scanners` passed | 06:14:41 |
+| `infra_plan` failed again; Jev escalated | 06:15:23 |
+
+What went wrong, and the fix:
+
+- Runs 12 to 17 each failed on a model-written line next to a correct contract call, and
+  dropping known kinds of such lines (stack mutations, probes, archives, scripts) left room for
+  the next kind. On CodeBuild a container, image-scan, deploy, plan, smoke, or dast stage's
+  buildspec is now the orchestrator's skeleton calling the contract and nothing else, whatever
+  the model wrote (`generator.platform_floor`); the model's other files for the stage stay with
+  the run as evidence. The fixed stages already run their contracts the same way.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and five CodeBuild builds (three passed, two failed). The GitHub job was cancelled at 06:16.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

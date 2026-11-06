@@ -258,9 +258,11 @@ def relocate(artifact: GeneratedArtifact, stage_name: str) -> GeneratedArtifact:
 # untouched skeleton). A stage of these families gets the orchestrator's contract script when
 # its buildspec is missing, still a placeholder, or does not do the family's job.
 _FLOOR_BY_FAMILY = {"deploy": "deploy", "verify": "smoke", "container": "container"}
-# What a floored stage must call, and what counts as already doing the job. A stack mutation is
-# the contract's alone: live run 12's infra_plan ran its own change set without the stack's
-# parameters, so for deploy and plan stages only the contract call counts.
+# What a floored stage runs on CodeBuild: the contract, and only the contract. Live runs 12 to 17
+# each failed on a model-written line next to a correct contract call (a change set without
+# parameters, a second scanners run, an archive no stage produces, a quote YAML rejects, a guard
+# on names the contract resolves itself), so a floored stage's buildspec is the orchestrator's
+# skeleton calling the contract, whatever the model wrote.
 _FLOOR_COMMANDS = {
     "deploy": "bash ci/deploy.sh",
     "deploy_plan": "DEPLOY_MODE=plan bash ci/deploy.sh",
@@ -268,28 +270,6 @@ _FLOOR_COMMANDS = {
     "dast": "bash ci/dast.sh",
     "container": "bash ci/container.sh",
     "image_scan": "bash ci/image_scan.sh",
-}
-# Only the contract call counts as doing the job (live runs 12 to 14: a model-written change set,
-# image push, or probe beside the contract is what failed), and these commands are dropped when
-# the floor applies: a docker push of an image this build's container never built, a stack
-# mutation, an HTTP probe of a URL the stage cannot know, a second ZAP, and the stage's own script.
-_FLOOR_MARKERS = {key: (command.split()[-1],) for key, command in _FLOOR_COMMANDS.items()}
-_STACK_MUTATION = re.compile(r"\baws\s+cloudformation\s+(deploy|create-stack|update-stack|create-change-set|execute-change-set)\b")
-_IMAGE_MUTATION = re.compile(r"\bdocker\s+(build|buildx\s+build|push|tag)\b")
-_HTTP_PROBE = re.compile(r"\b(curl|wget|httpie|http)\s|urllib\.request|requests\.(get|post)")
-_DAST_RUN = re.compile(r"zap-baseline|zap-full-scan|zaproxy|hawkscan|\bhawk\s+scan|\bnuclei\b")
-# An image scan of its own, or the archive handling live run 16's generated scan expected.
-_IMAGE_SCAN_RUN = re.compile(r"\bdocker\s+(image\s+)?(save|load)\b|\btrivy\s+image\b|\bgrype\b|\bimage\.tar\b")
-# A model-written script under ci/ that is not a contract script (the model names its files
-# freely: smoke_dev.generated.py, deploy_dev.generated.py, sca.sh).
-_OWN_SCRIPT = re.compile(r"\b(bash|sh|python3?|node)\s+(\./)?ci/(?!(?:build|test|scanners|package|container|release|deploy|smoke|dast)\.sh\b)[\w.-]+")
-_FLOOR_STRIP = {
-    "deploy": (_STACK_MUTATION,),
-    "deploy_plan": (_STACK_MUTATION,),
-    "container": (_IMAGE_MUTATION,),
-    "smoke": (_HTTP_PROBE,),
-    "dast": (_DAST_RUN,),
-    "image_scan": (_IMAGE_MUTATION, _IMAGE_SCAN_RUN),
 }
 _PLACEHOLDER_MARK = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
 
@@ -317,75 +297,38 @@ def floor_for(stage: dict) -> str | None:
     return None
 
 
-def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[GeneratedArtifact]:
-    """On aws_codebuild, make sure a deploy, verify, or image stage's buildspec does its job:
-    the contract script is called when the model left the placeholder or wrote none."""
+def platform_floor(artifacts: list[GeneratedArtifact], stage: dict, run_id: str = "") -> list[GeneratedArtifact]:
+    """On aws_codebuild a container, image-scan, deploy, plan, smoke, or dast stage runs its
+    contract: its buildspec is the orchestrator's skeleton with the contract call, whether the
+    model's file was missing, a placeholder, invalid YAML, or a correct call with extra steps
+    beside it (every such extra step failed a live run). Other files of the stage are left to
+    the policy; other runners are untouched."""
     if str(stage.get("runner") or "") != "aws_codebuild":
         return artifacts
     key = floor_for(stage)
     if not key:
         return artifacts
     command = _FLOOR_COMMANDS[key]
-    markers = _FLOOR_MARKERS[key]
-    strip = (*_FLOOR_STRIP.get(key, ()), _OWN_SCRIPT)
-    specs = [item for item in artifacts if item.kind == "buildspec"]
-    others = [item for item in artifacts if item.kind != "buildspec"]
     environment = dict(stage.get("environment") or {})
+    skeleton = _skeleton_with(stage, environment, command, run_id)
+    others = [item for item in artifacts if item.kind != "buildspec"]
+    specs = [item for item in artifacts if item.kind == "buildspec"]
     if not specs:
-        specs = [GeneratedArtifact(path=templates.artifact_path("buildspec", str(stage.get("name")), environment), kind="buildspec",
-                                   purpose=f"orchestrator floor: {command}", content=_skeleton_with(stage, environment, command), secrets_referenced=[])]
+        return others + [GeneratedArtifact(path=templates.artifact_path("buildspec", str(stage.get("name")), environment), kind="buildspec",
+                                           purpose=f"orchestrator floor: {command}", content=skeleton, secrets_referenced=[])]
     fixed: list[GeneratedArtifact] = []
     for spec in specs:
-        content = spec.content
-        if policy.yaml_findings(content, "buildspec"):
-            # CodeBuild rejects a buildspec that does not parse before any command runs (live run
-            # 15); the orchestrator's skeleton with the contract call replaces it.
-            fixed.append(spec.model_copy(update={"content": _skeleton_with(stage, environment, command), "purpose": f"{spec.purpose} (orchestrator floor: invalid YAML replaced by {command})".strip()}))
+        if spec.content == skeleton:
+            fixed.append(spec)
             continue
-        lowered = content.lower()
-        placeholder = bool(_PLACEHOLDER_MARK.search(content))
-        does_job = any(marker in lowered for marker in markers) or command in content
-        contradicts = any(pattern.search(content) for pattern in strip)
-        if placeholder or not does_job or contradicts:
-            lines = [line for line in content.splitlines() if not _PLACEHOLDER_MARK.search(line)]
-            content = "\n".join(lines).rstrip("\n") + "\n"
-            if contradicts:
-                content = _drop_commands(content, strip)
-            if command not in content:
-                content = _append_build_command(content, command)
-            spec = spec.model_copy(update={"content": content, "purpose": f"{spec.purpose} (orchestrator floor: {command})".strip()})
-        fixed.append(spec)
+        fixed.append(spec.model_copy(update={"content": skeleton, "purpose": f"{spec.purpose} (orchestrator floor: the skeleton calling {command})".strip()}))
     return others + fixed
 
 
-def _skeleton_with(stage: dict, environment: dict, command: str) -> str:
+def _skeleton_with(stage: dict, environment: dict, command: str, run_id: str = "") -> str:
     """The orchestrator's buildspec skeleton with the contract call in place of the placeholder."""
-    skeleton = templates.render_template("buildspec", stage, environment, runner="aws_codebuild", run_id="", placeholders=[])
+    skeleton = templates.render_template("buildspec", stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=[])
     return re.sub(r'^(\s*)- echo "stage [^"]* placeholder"[ \t]*$', lambda m: f"{m.group(1)}- {command}", skeleton, flags=re.MULTILINE)
-
-
-def _drop_commands(content: str, patterns: tuple) -> str:
-    """Remove the buildspec commands that match any pattern (a stack mutation, an image push, an
-    HTTP probe, a second dynamic scan, the stage's own script); the contract does that work."""
-    import yaml
-
-    try:
-        document = yaml.safe_load(content)
-    except yaml.YAMLError:
-        return content
-    if not isinstance(document, dict) or not isinstance(document.get("phases"), dict):
-        return content
-    changed = False
-    for phase in document["phases"].values():
-        if not isinstance(phase, dict) or not isinstance(phase.get("commands"), list):
-            continue
-        kept = [item for item in phase["commands"] if not (isinstance(item, str) and any(pattern.search(item) for pattern in patterns))]
-        if len(kept) != len(phase["commands"]):
-            phase["commands"] = kept
-            changed = True
-    if not changed:
-        return content
-    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
 def _append_build_command(content: str, command: str) -> str:
@@ -407,13 +350,13 @@ def _append_build_command(content: str, command: str) -> str:
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
-def with_env_manifest(artifact_set: ArtifactSet, stage: dict, placeholders: list[str]) -> ArtifactSet:
+def with_env_manifest(artifact_set: ArtifactSet, stage: dict, placeholders: list[str], run_id: str = "") -> ArtifactSet:
     """Replace any model-written env manifest with the code-written one (names only);
     relocate a file written outside the allowed prefixes; harden every file; on aws_codebuild
     give a deploy, verify, or image stage the orchestrator's floor when the model's file
     would do nothing."""
     kept = [harden(relocate(artifact, str(stage.get("name") or ""))) for artifact in artifact_set.artifacts if artifact.kind != "env_example"]
-    kept = platform_floor(kept, stage)
+    kept = platform_floor(kept, stage, run_id)
     kept = scope_scan_contract(kept, stage)
     kept.append(env_manifest(stage, placeholders))
     return ArtifactSet(stage=artifact_set.stage, artifacts=kept[:6], notes=artifact_set.notes)

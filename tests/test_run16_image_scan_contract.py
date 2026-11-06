@@ -49,7 +49,7 @@ def test_an_image_scan_stage_is_floored_to_the_contract():
         "      - echo scanned\n"
     ))
     commands = yaml.safe_load(generator.platform_floor([model], stage)[0].content)["phases"]["build"]["commands"]
-    assert "bash ci/image_scan.sh" in commands and "echo scanned" in commands and "set -euo pipefail" in commands
+    assert commands == ["bash ci/image_scan.sh"]  # since live run 17: the skeleton calling the contract, nothing else
     assert not any("image.tar" in c or "docker load" in c or "trivy image" in c or "ci/container_scan.sh" in c for c in commands)
     assert generator.platform_floor([model], {**stage, "runner": "local"})[0].content == model.content
     assert "bash ci/image_scan.sh" in llm.GENERATE_SYSTEM

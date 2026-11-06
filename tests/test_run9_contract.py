@@ -103,10 +103,11 @@ def test_generated_deploy_verify_and_image_stages_get_a_floor_on_codebuild():
     taken_over = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="p", content=real)], deploy_stage)[0].content
     assert "bash ci/deploy.sh" in taken_over and "cloudformation deploy" not in taken_over
     own = "version: 0.2\nphases:\n  build:\n    commands:\n      - bash ci/deploy.sh\n"
-    assert generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="p", content=own)], deploy_stage)[0].content == own
+    assert "bash ci/deploy.sh" in generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="p", content=own)], deploy_stage)[0].content
     lazy = "version: 0.2\nphases:\n  build:\n    commands:\n      - echo deploying\n"
     appended = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-build_image.yml", kind="buildspec", purpose="p", content=lazy)], {"name": "build_image", "family": "container", "runner": "aws_codebuild", "environment": ENV})
-    assert "bash ci/container.sh" in appended[0].content and "echo deploying" in appended[0].content
+    # Since live run 17 the floored buildspec is the skeleton calling the contract and nothing else.
+    assert "bash ci/container.sh" in appended[0].content and "echo deploying" not in appended[0].content
     # Other runners and other families are untouched.
     local_stage = {"name": "deploy_dev", "family": "deploy", "runner": "local", "environment": ENV}
     assert generator.platform_floor([GeneratedArtifact(path="ci/x.sh", kind="shell", purpose="p", content="echo\n")], local_stage)[0].content == "echo\n"

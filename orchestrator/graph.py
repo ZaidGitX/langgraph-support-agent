@@ -1356,7 +1356,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
         revisions_left = MAX_ARTIFACT_REVISIONS
         try:
             context = generator.context_for(state, stage, provider)
-            artifact_set = generator.with_env_manifest(worker.generate_artifacts(context), stage, context["placeholders"])
+            artifact_set = generator.with_env_manifest(worker.generate_artifacts(context), stage, context["placeholders"], run_id=context["run_id"])
         except AstraQuotaError:
             raise
         except (RuntimeError, ValueError, TypeError, OSError) as exc:
@@ -1370,7 +1370,7 @@ def build_graph(checkpointer, *, jev=None, astra=None, commands=None, episodes_d
                 revised = worker.generate_artifacts(
                     generator.context_for(state, stage, provider, policy_findings=[item.model_dump() for item in result.findings])
                 )
-                artifact_set = generator.with_env_manifest(revised, stage, context["placeholders"])
+                artifact_set = generator.with_env_manifest(revised, stage, context["placeholders"], run_id=context["run_id"])
             except AstraQuotaError:
                 raise
             except (RuntimeError, ValueError, TypeError, OSError):

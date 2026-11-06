@@ -43,14 +43,14 @@ def test_infra_stages_floor_to_the_deploy_contract():
     commands = yaml.safe_load(floored[0].content)["phases"]["build"]["commands"]
     assert "DEPLOY_MODE=plan bash ci/deploy.sh" in commands
     assert not any("cloudformation deploy" in command for command in commands)  # the model's change set is gone
-    assert any("validate-template" in command for command in commands) and "echo planned" in commands  # harmless steps stay
+    assert commands == ["DEPLOY_MODE=plan bash ci/deploy.sh"]  # nothing beside the contract (live run 17)
     apply_stage = {"name": "infra_apply", "family": "deploy", "runner": "aws_codebuild", "environment": ENV}
     applied = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-infra_apply.yml", kind="buildspec", purpose="apply", content=MODEL_PLAN)], apply_stage)
     apply_commands = yaml.safe_load(applied[0].content)["phases"]["build"]["commands"]
     assert apply_commands.count("bash ci/deploy.sh") == 1 and not any("cloudformation deploy" in c for c in apply_commands)
     clean = "version: 0.2\nenv:\n  shell: bash\nphases:\n  build:\n    commands:\n      - bash ci/deploy.sh\n"
     untouched = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="deploy", content=clean)], {**apply_stage, "name": "deploy_dev"})
-    assert untouched[0].content == clean
+    assert yaml.safe_load(untouched[0].content)["phases"]["build"]["commands"] == ["bash ci/deploy.sh"]
     local = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-infra_plan.yml", kind="buildspec", purpose="plan", content=MODEL_PLAN)], {**stage, "runner": "local"})
     assert local[0].content == MODEL_PLAN  # the floor is CodeBuild's
 

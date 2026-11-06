@@ -53,5 +53,5 @@ def test_a_floored_stage_with_an_unparsable_buildspec_gets_the_skeleton():
     spec = next(item for item in floored if item.kind == "buildspec")
     document = yaml.safe_load(spec.content)
     assert "bash ci/container.sh" in document["phases"]["build"]["commands"] and document["env"]["shell"] == "bash"
-    assert "invalid YAML replaced" in spec.purpose and not policy.placeholder_findings(spec)
+    assert "orchestrator floor" in spec.purpose and not policy.placeholder_findings(spec)
     assert policy.check_artifact(spec).ok
