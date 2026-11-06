@@ -32,6 +32,7 @@ POLL_SECONDS = 10
 ROLE_SUFFIX = "-codebuild-role"
 PROJECT_RETRIES = 6  # a role created seconds ago takes a moment before CodeBuild may assume it
 LOG_TAIL_LINES = 60  # CloudWatch lines fetched for a failed build's evidence (live run 8)
+ECS_SERVICE_LINKED_ROLE = "AWSServiceRoleForECS"  # the account-wide role ECS needs before its first service (live run 21)
 _UNRESOLVED = re.compile(r"^\$\{?[A-Z][A-Z0-9_]*\}?$")
 
 
@@ -130,8 +131,13 @@ def role_policy(account: str, region: str, *, bucket: str, repository: str, proj
             {"Effect": "Allow", "Action": ["ec2:Describe*", "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup", "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress", "ec2:CreateTags"], "Resource": "*"},
             {"Effect": "Allow", "Action": ["logs:CreateLogGroup", "logs:DeleteLogGroup", "logs:PutRetentionPolicy", "logs:TagResource", "logs:DescribeLogGroups"],
              "Resource": f"arn:aws:logs:{region}:{account}:log-group:/ecs/{app}-*"},
-            {"Effect": "Allow", "Action": ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:PassRole"],
+            {"Effect": "Allow", "Action": ["iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:PassRole"],
              "Resource": f"arn:aws:iam::{account}:role/{app}-*"},
+            # ECS creates its service-linked role on first use only when the caller may (live run
+            # 21: "Unable to assume the service linked role" on the first service in the account).
+            {"Effect": "Allow", "Action": ["iam:CreateServiceLinkedRole"],
+             "Resource": f"arn:aws:iam::{account}:role/aws-service-role/ecs.amazonaws.com/{ECS_SERVICE_LINKED_ROLE}*",
+             "Condition": {"StringLike": {"iam:AWSServiceName": "ecs.amazonaws.com"}}},
         ],
     }
 
@@ -303,6 +309,14 @@ class AwsProvider(BaseProvider):
                 return failed(f"put-role-policy {role_name} failed: {redact(error, limit=300)}")
             lines.append(f"role {role_name}: policy set (logs, bucket, repository, app secrets, scoped deploy)")
             os.environ["AWS_CODEBUILD_ROLE_ARN"] = arn
+        # ECS needs its account-wide service-linked role before the first service exists (live run
+        # 21: the stack's Service failed with "Unable to assume the service linked role"); the
+        # person's credentials create it once, and the CodeBuild role may create it too.
+        linked = self.ensure_ecs_service_linked_role(cwd)
+        if linked.get("created"):
+            created.append(f"service-linked role {ECS_SERVICE_LINKED_ROLE}")
+        elif linked.get("note"):
+            lines.append(str(linked["note"]))
         # Networking for the Fargate service: the names the registry carries, else the account's
         # default VPC and its public subnets, exported so the project hands them to every build
         # (ci/deploy.sh repeats the lookup inside CodeBuild when they are still empty).
@@ -312,6 +326,18 @@ class AwsProvider(BaseProvider):
         if created:
             lines.append("created: " + ", ".join(created))
         return {"status": "pass", "evidence": "; ".join(lines), "created": created, "role_created": role_created}
+
+    def ensure_ecs_service_linked_role(self, cwd: str) -> dict:
+        """Create ``AWSServiceRoleForECS`` when the account has none (idempotent; IAM is global).
+        A failure is a note, not a provisioning failure: a run without a deploy stage needs no
+        service, and the deploy contract reports the missing role in its own words."""
+        code, _payload, _error = self._aws_json(["aws", "iam", "get-role", "--role-name", ECS_SERVICE_LINKED_ROLE], cwd)
+        if code == 0:
+            return {"created": False, "note": ""}
+        code, _payload, error = self._aws_json(["aws", "iam", "create-service-linked-role", "--aws-service-name", "ecs.amazonaws.com"], cwd)
+        if code == 0 or "has been taken" in error or "InvalidInput" in error and "exists" in error:
+            return {"created": code == 0, "note": ""}
+        return {"created": False, "note": f"service-linked role {ECS_SERVICE_LINKED_ROLE} is missing and could not be created: {redact(error, limit=200)}"}
 
     def discover_network(self, cwd: str, reg: list[str]) -> str:
         """Fill AWS_VPC_ID and AWS_SUBNET_IDS from the default VPC when unset; a one-line note."""

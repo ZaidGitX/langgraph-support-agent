@@ -278,3 +278,14 @@ prints its CREATE_FAILED events from the stack id), updates an existing one with
 deploy`, and never deletes a stack: a stack left in a failed state is reported, and the person
 removes it with `scripts/aws_teardown.sh` before the next run. The destructive-command guard is
 unchanged. Tests: `tests/test_run20_deploy_recovery.py`.
+
+**Live run 21 (2026-11-06).** Seven stages passed at the first attempt again and the deploy
+contract's create path worked (the failed stack removed itself and the log named the reason): the
+stack's `AWS::ECS::Service` failed with "Unable to assume the service linked role" because the
+account had never run ECS and the scoped CodeBuild role may not create `AWSServiceRoleForECS`.
+Rules now: `ensure_platform` creates that role once with the person's credentials
+(`ensure_ecs_service_linked_role`, before the project update; a role that cannot be created is a
+note, not a failure), and `role_policy` grants `iam:CreateServiceLinkedRole` on the ECS
+service-linked role (condition `iam:AWSServiceName: ecs.amazonaws.com`) plus `iam:GetRolePolicy`,
+`iam:ListRolePolicies`, `iam:ListAttachedRolePolicies` on the app's roles. Tests:
+`tests/test_run21_ecs_service_linked_role.py`.

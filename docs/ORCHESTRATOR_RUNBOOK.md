@@ -833,6 +833,56 @@ empty (every resource rolled back); the image for run 99164633 is in ECR. The wr
 source upload, the project update, the three secret values, nine CodeBuild builds (seven passed,
 two failed), and the rolled-back stack.
 
+### Live run 21 (2026-11-06, 09:26–09:58 UTC, workflow run 42194996896, run 6cedf9c9): seven stages passed at the first attempt again; the stack's ECS service needed an account role that did not exist yet
+
+The empty ROLLBACK_COMPLETE stack from run 20 was removed first (one `cloudformation delete-stack`
+through the vault wrapper, on the person's yes). Started by the push of ab27c17 at 09:25:56 after
+a one-call probe of the OpenAI key. Questions answered by the profile at 09:28:54, the suite
+written from 09:31:02, autopilot approved at 09:35:13 (confidence 0.98), provisioning and
+injection applied. Every stage up to the deploy passed at its first attempt: `build`, `test`,
+`infra_plan`, `scanners` (09:39:24), `integration_test` (09:41:49), `build_image`,
+`container_scan` (09:47:00). This run's plan put `infra_apply` before `push_image` and
+`deploy_dev`, so the deploy contract ran as `infra_apply`. Its new create path did what it was
+written to do: the stack was created with `--on-failure DELETE`, the `Service` resource failed,
+the stack removed itself, and the build log named the reason (`Unable to assume the service
+linked role. Please verify that the ECS service linked role exists`). The retry at 09:52:04 met
+the same account state and failed the same way; Jev escalated at 09:58:11; the orchestrator
+session cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of ab27c17; workflow started | 09:25:56 |
+| Questions answered by the profile | 09:28:54 |
+| Suite done; autopilot approved at 0.98 | 09:35:13 |
+| `build`, `test`, `infra_plan`, `scanners` passed | 09:39:24 |
+| `integration_test` passed | 09:41:49 |
+| `build_image`, `container_scan` passed | 09:47:00 |
+| `infra_apply` failed (Service: no ECS service-linked role) | 09:51:42 |
+| `infra_apply` failed again | 09:57:50 |
+| Jev escalated | 09:58:11 |
+
+What went wrong, and the fix:
+
+- An account creates ECS's service-linked role `AWSServiceRoleForECS` on first use, but only when
+  the caller may (`iam:CreateServiceLinkedRole`). This account had never run an ECS service, and the
+  scoped CodeBuild role could not create the role, so the first `AWS::ECS::Service` failed.
+  Provisioning now creates the role once with the person's credentials
+  (`AwsProvider.ensure_ecs_service_linked_role`, before the project is updated, so the first build
+  sees it; a role that cannot be created is a note in the evidence, never a provisioning failure),
+  and the CodeBuild role policy may create it too (`iam:CreateServiceLinkedRole` on the ECS
+  service-linked role with the `iam:AWSServiceName` condition). The policy also gains
+  `iam:GetRolePolicy`, `iam:ListRolePolicies`, and `iam:ListAttachedRolePolicies` on the app's
+  roles (CloudFormation warned it could not check an existing policy when creating the task
+  execution role). Tests: `tests/test_run21_ecs_service_linked_role.py`.
+- During the run the orchestrator session tried to create the role at once from the terminal so
+  the retry would pass; the Claude Code auto-mode classifier refused the IAM write, and the retry
+  failed as expected. The role is now the orchestrator's to create inside the run.
+
+Account state after the run: no stack (both creates removed themselves), the image for run
+6cedf9c9 in ECR, no ECS service-linked role yet. The writes were the source upload, the project
+update, the three secret values, nine CodeBuild builds (seven passed, two failed), and two
+self-removed stacks.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

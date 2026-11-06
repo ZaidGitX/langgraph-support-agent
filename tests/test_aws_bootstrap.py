@@ -133,7 +133,8 @@ def test_a_role_the_person_configured_is_not_touched(provider, tmp_path, monkeyp
     provider._aws_json = fake
     result = provider.provision(_records(tmp_path), str(tmp_path), mode="apply", answers={"run_id": "r1"}, bundle=None)
     assert result.status == "pass", result.evidence
-    assert not any(call[1] == "iam" for call in fake.calls)
+    # The ECS service-linked role check (live run 21) is the one IAM call left: never the person's role.
+    assert not any(call[1] == "iam" and call[2] != "create-service-linked-role" and aws_module.ECS_SERVICE_LINKED_ROLE not in call for call in fake.calls)
     assert os.environ["AWS_CODEBUILD_ROLE_ARN"].endswith("their-own-role")
     assert "their-own-role was configured by the person" in result.evidence
 
