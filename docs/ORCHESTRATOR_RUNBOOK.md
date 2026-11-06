@@ -936,6 +936,22 @@ role exists, the image for run 48e6b612 is in ECR. The writes were the source up
 update, the service-linked role, the three secret values, twelve CodeBuild builds (ten passed, one
 failed, one stopped at the cap), and the stack.
 
+### Desk-check before live run 23 (2026-11-06, 11:10–11:25 UTC): the five paths no run had reached, checked without an AWS run
+
+Runs 18 to 22 each failed on the first path never exercised live before, so the paths past the
+service creation were checked from the laptop before the next push. No new defect was found.
+
+| Path | Check | Result |
+| --- | --- | --- |
+| Task boot | The runtime image (`WITH_CLOUD_CLIS=0`, unchanged since ffc3bbd) run locally as the task would: non-root, placeholder app secrets, `TIER=dev`, `APP_PUBLIC_URL=` empty, `ORCHESTRATOR_AUTOSTART=0` | up in 2 s as `appuser`; `/status` 200 with a JSON object, `/api/support/status` 200, `GET /` 200 (the built frontend's index); the empty name dropped at start-up; no autostart |
+| Secret binding | `secretsmanager describe-secret` by the partial ARN the task definition now uses (name only read back, never a value) | resolves to the suffixed ARN; the execution role's `GetSecretValue` resource covers it |
+| Stack with the new bindings | the rendered stack through `cloudformation validate-template` | valid; eight parameters listed |
+| Contract tails | `deploy.sh` (service stable, task IP, `/status` probe, URL to S3), `smoke.sh` (URL from `APP_PUBLIC_URL`, else S3, else the task; `/status`, `/api/support/status`, `GET /` 200/304), `dast.sh` (same URL lookup, ZAP baseline with `-I`, StackHawk skipped without its names), `release.sh` (ECR manifest re-tag; every action in the role policy) read against what a fresh CodeBuild container has | each reads only the names every build carries; the S3 and ECR actions are in the CodeBuild role policy |
+| Account state | the stack left by run 22 | gone: CloudFormation gave up on the service and `--on-failure DELETE` removed it; the service-linked role and the run images remain |
+
+Still first-time live in run 23: the Fargate task pulling the image and the secrets on AWS, the
+service reaching steady state, ZAP's run time inside CodeBuild, UAT after a real deploy.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
