@@ -95,7 +95,7 @@ def test_skeletons_cover_every_platform_and_stay_policy_clean():
     # Every suite carries the orchestrator's contract scripts for the fixed stages (Sprint 4,
     # after live run 8): the platform-neutral ones everywhere, the AWS ones on AWS.
     neutral = {"ci/build.sh", "ci/test.sh", "ci/scanners.sh", "ci/package.sh"}
-    aws_only = {"ci/container.sh", "ci/release.sh", "ci/deploy.sh", "ci/smoke.sh", "ci/dast.sh"}
+    aws_only = {"ci/container.sh", "ci/release.sh", "ci/deploy.sh", "ci/smoke.sh", "ci/dast.sh", "ci/image_scan.sh"}
     expected = {
         "jenkins": {"ci/pipeline.Jenkinsfile", "deploy/jenkins-job.xml", *neutral},
         "aws": {"ci/buildspec-build.yml", "ci/buildspec-test.yml", "ci/buildspec-scanners.yml", "ci/buildspec-deploy.yml", "deploy/codebuild-project.json", "deploy/ecs-stack.yaml", *neutral, *aws_only},

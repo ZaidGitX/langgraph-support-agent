@@ -267,6 +267,7 @@ _FLOOR_COMMANDS = {
     "smoke": "bash ci/smoke.sh",
     "dast": "bash ci/dast.sh",
     "container": "bash ci/container.sh",
+    "image_scan": "bash ci/image_scan.sh",
 }
 # Only the contract call counts as doing the job (live runs 12 to 14: a model-written change set,
 # image push, or probe beside the contract is what failed), and these commands are dropped when
@@ -277,6 +278,8 @@ _STACK_MUTATION = re.compile(r"\baws\s+cloudformation\s+(deploy|create-stack|upd
 _IMAGE_MUTATION = re.compile(r"\bdocker\s+(build|buildx\s+build|push|tag)\b")
 _HTTP_PROBE = re.compile(r"\b(curl|wget|httpie|http)\s|urllib\.request|requests\.(get|post)")
 _DAST_RUN = re.compile(r"zap-baseline|zap-full-scan|zaproxy|hawkscan|\bhawk\s+scan|\bnuclei\b")
+# An image scan of its own, or the archive handling live run 16's generated scan expected.
+_IMAGE_SCAN_RUN = re.compile(r"\bdocker\s+(image\s+)?(save|load)\b|\btrivy\s+image\b|\bgrype\b|\bimage\.tar\b")
 # A model-written script under ci/ that is not a contract script (the model names its files
 # freely: smoke_dev.generated.py, deploy_dev.generated.py, sca.sh).
 _OWN_SCRIPT = re.compile(r"\b(bash|sh|python3?|node)\s+(\./)?ci/(?!(?:build|test|scanners|package|container|release|deploy|smoke|dast)\.sh\b)[\w.-]+")
@@ -286,6 +289,7 @@ _FLOOR_STRIP = {
     "container": (_IMAGE_MUTATION,),
     "smoke": (_HTTP_PROBE,),
     "dast": (_DAST_RUN,),
+    "image_scan": (_IMAGE_MUTATION, _IMAGE_SCAN_RUN),
 }
 _PLACEHOLDER_MARK = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
 
@@ -299,6 +303,9 @@ def floor_for(stage: dict) -> str | None:
         return "deploy" if "apply" in name else "deploy_plan"
     if "dast" in name:
         return "dast"
+    provider = str(stage.get("provider") or "").lower()
+    if "container_scan" in name or "image_scan" in name or (family == "scan" and provider in ("trivy", "grype") and "image" in name):
+        return "image_scan"
     if family in _FLOOR_BY_FAMILY:
         return _FLOOR_BY_FAMILY[family]
     if "deploy" in name:

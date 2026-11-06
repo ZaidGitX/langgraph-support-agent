@@ -625,6 +625,44 @@ Nothing was deployed; the writes were the source upload, the project update, the
 values, and seven CodeBuild builds (five passed, two rejected before running). The GitHub job was
 cancelled at 05:21.
 
+### Live run 16 (2026-11-06, 05:34–05:57 UTC, workflow run 42169337255, run fcdeea97): the image was built and pushed through the contract; the generated image scan looked for an archive no stage produces
+
+Started by the push of 2cd6b30 after a one-call probe of the OpenAI key. Questions answered at
+05:37:51, nine generated stages and the suite (278 s) accepted, autopilot approved at 05:45:19
+(confidence 1.00), provisioning and injection applied. Six stages passed at the first attempt:
+`build` 05:47:43, `infra_plan` and `test` 05:49:34, `scanners` 05:50:26, `integration_test`
+05:52:07, and `build_image` 05:53:47, the first live pass of the image wave, through the
+contract-only floor (`bash ci/container.sh` built and pushed `<repository>:<run id>`).
+`container_scan` failed twice: the worker's `ci/container_scan.sh` expected an image archive its
+own `build_image` design would have written ("expected_exactly_one_image_archive",
+archive_count 0), but the floor had, correctly, left no such archive. Jev escalated at 05:55:44;
+the orchestrator cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 05:37:51 |
+| Suite finished (278 s); autopilot approved at 1.00 | 05:45:19 |
+| `build` passed | 05:47:43 |
+| `infra_plan`, `test` passed | 05:49:34 |
+| `scanners` passed | 05:50:26 |
+| `integration_test` passed | 05:52:07 |
+| `build_image` passed: the image is in ECR | 05:53:47 |
+| `container_scan` failed twice; Jev escalated | 05:54:23 / 05:55:11 / 05:55:44 |
+
+What went wrong, and the fix:
+
+- A generated scan stage depended on a sibling stage's private artifact instead of the
+  contract's output. The image scan is now a contract script, `ci/image_scan.sh` (AWS): it pulls
+  `<repository>:<run id>` from ECR (building it through the container contract if it is missing),
+  runs trivy with unfixable findings ignored and the catalog's severity, prints each fixable
+  finding, and fails only on those. On CodeBuild a `container_scan` or `image_scan` stage is floored
+  to `bash ci/image_scan.sh`, and its own archive handling, image load, trivy or grype calls, and
+  script are dropped; the prompt says the image is in ECR and no stage leaves an archive.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, the image in ECR, and eight CodeBuild builds (six passed, two failed). The GitHub job was
+cancelled at 05:57.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

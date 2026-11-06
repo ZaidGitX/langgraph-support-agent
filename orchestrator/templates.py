@@ -179,11 +179,12 @@ CONTRACT_SCRIPTS = {
     "release": "release.sh",
     "deploy": "deploy.sh",
     "smoke": "smoke.sh",
+    "image_scan": "image_scan.sh",
 }
 # Contract scripts that run everywhere (python, node, docker on the agent) versus the ones that
 # speak to AWS (ECR, CloudFormation, ECS).
 CONTRACT_PLATFORM_NEUTRAL = ("build", "test", "scanners", "package")
-CONTRACT_AWS = ("container", "release", "deploy", "smoke", "dast")
+CONTRACT_AWS = ("container", "release", "deploy", "smoke", "dast", "image_scan")
 
 
 def contract_images() -> dict[str, str]:

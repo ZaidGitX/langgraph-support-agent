@@ -265,7 +265,7 @@ class PipelineSuite(BaseModel):
 
     platform: str
     runner: str
-    artifacts: list[GeneratedArtifact] = Field(min_length=1, max_length=14)
+    artifacts: list[GeneratedArtifact] = Field(min_length=1, max_length=24)
     notes: str = ""
 
 
