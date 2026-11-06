@@ -289,3 +289,13 @@ note, not a failure), and `role_policy` grants `iam:CreateServiceLinkedRole` on 
 service-linked role (condition `iam:AWSServiceName: ecs.amazonaws.com`) plus `iam:GetRolePolicy`,
 `iam:ListRolePolicies`, `iam:ListAttachedRolePolicies` on the app's roles. Tests:
 `tests/test_run21_ecs_service_linked_role.py`.
+
+**Live run 22 (2026-11-06).** Nine stages passed, the stack and the ECS service were created, and
+every task stopped at once: the task definition bound each secret as `ValueFrom: "app/NAME"`,
+which ECS reads as an SSM Parameter Store name (`not authorized to perform: ssm:GetParameters`).
+Rules now: `suite._container_secret_lines` binds by the Secrets Manager ARN without the random
+suffix (`!Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:app/NAME"`);
+`redaction.ASSIGNMENT_PATTERN` treats a key preceded by `:` or `/` (an ARN segment) as a
+reference; the two human-gate autopilot tests wait for the gate's event (`_gate_event`) instead
+of reading the last event (the CodeBuild host lost a test attempt to that race again). Tests:
+`tests/test_run22_task_secrets.py`.

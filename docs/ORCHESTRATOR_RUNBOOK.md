@@ -883,6 +883,59 @@ Account state after the run: no stack (both creates removed themselves), the ima
 update, the three secret values, nine CodeBuild builds (seven passed, two failed), and two
 self-removed stacks.
 
+### Live run 22 (2026-11-06, 10:05–11:07 UTC, workflow run 42199905348, run 48e6b612): nine stages passed, the stack and the ECS service were created, and the task never started because its secrets were bound as SSM parameter names
+
+Started by the push of 8406fa6 at 10:05:06 after a one-call probe of the OpenAI key. Questions
+answered by the profile at 10:07:58, the suite written from 10:10:32, autopilot approved at
+10:17:44 (confidence 1.00). Provisioning created the account's ECS service-linked role
+(`created: service-linked role AWSServiceRoleForECS`), injection applied the three names. Then:
+`build`; `sca`, `scanners` and `test` (the test stage's first attempt lost one of the
+repository's own tests to the phase-before-event race, the retry passed at 10:23:40);
+`integration_test`; `package`; `build_image`; `container_scan`; `push_image` (10:36:16). The deploy
+contract created the stack: cluster, log group, security group, task execution role (the
+corrected name), task definition, and the ECS service, which started its first task at 10:38.
+Every task stopped at once with `ResourceInitializationError: unable to pull secrets or registry
+auth … unable to retrieve secrets from ssm … not authorized to perform: ssm:GetParameters`.
+CloudFormation kept waiting for the service to stabilise, the orchestrator stopped the build at
+its 30-minute cap, Jev escalated at 11:07:12, and the orchestrator session cancelled the idle
+workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of 8406fa6; workflow started | 10:05:06 |
+| Questions answered by the profile | 10:07:58 |
+| Suite done; autopilot approved at 1.00; service-linked role created | 10:17:44 |
+| `build` passed; `sca`, `scanners`, `test` dispatched | 10:19:19 |
+| `test` failed once (test race), passed on the retry | 10:22:10 / 10:23:40 |
+| `integration_test`, `package`, `build_image`, `container_scan`, `push_image` passed | 10:27–10:36 |
+| Stack creating; ECS service created; first task started | 10:38 |
+| `deploy_dev` stopped by the orchestrator at the 30-minute cap | 11:06:32 |
+| Jev escalated | 11:07:12 |
+
+What went wrong, and the fix:
+
+- The task definition bound each secret as `ValueFrom: "langgraph-support-app/NAME"`. ECS reads a
+  bare name as an SSM Parameter Store name; only an ARN selects Secrets Manager. `ValueFrom` is
+  now the secret's Secrets Manager ARN (`!Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:langgraph-support-app/NAME"`,
+  without the random suffix, which Secrets Manager resolves). The execution role's
+  `secretsmanager:GetSecretValue` statement already covered these ARNs. The redaction sweep
+  caught the ARN's `:secret:` segment as a false "assignment" before it reached a run; a key
+  preceded by `:` or `/` is a reference now. Tests: `tests/test_run22_task_secrets.py`.
+- The `test` stage's first attempt failed on `test_low_confidence_keeps_the_approval_gate_human`:
+  the session's phase flips to `approval` before the autopilot event is appended, and the
+  CodeBuild host read the snapshot in between (live run 12 lost an attempt to the sibling test
+  the same way). Both human-gate tests now wait for the gate's event (`_gate_event`).
+- The stack stayed in CREATE_IN_PROGRESS while CloudFormation waited for the service; with
+  `--on-failure DELETE` it removes itself once CloudFormation gives up. A stack still being created
+  or deleted when the next run's deploy starts is reported by the contract and must be removed by
+  the person first.
+
+Account state after the run: the stack `langgraph-support-app-dev` was CREATE_IN_PROGRESS at
+11:07 (CloudFormation waiting on the service; it deletes itself on failure), the ECS service-linked
+role exists, the image for run 48e6b612 is in ECR. The writes were the source upload, the project
+update, the service-linked role, the three secret values, twelve CodeBuild builds (ten passed, one
+failed, one stopped at the cap), and the stack.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

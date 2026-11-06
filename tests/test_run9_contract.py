@@ -137,7 +137,7 @@ def test_the_task_definition_gets_the_app_secrets_it_can_have(monkeypatch):
     # Presence comes from the host (.env is reloaded by is_present): pin it for the test.
     monkeypatch.setattr(suite.credentials, "is_present", lambda name, env=None: name == "OPENAI_API_KEY")
     lines = suite._container_secret_lines("aws")
-    assert "Secrets:" in lines and f'ValueFrom: "{templates.APP_NAME}/OPENAI_API_KEY"' in lines and "TYPESAFE" not in lines
+    assert "Secrets:" in lines and f'ValueFrom: !Sub "arn:aws:secretsmanager:${{AWS::Region}}:${{AWS::AccountId}}:secret:{templates.APP_NAME}/OPENAI_API_KEY"' in lines and "TYPESAFE" not in lines
     rendered = suite.render_skeletons("aws", STAGES, ENV, run_id="r9", placeholders=["AWS_REGION"])["deploy/ecs-stack.yaml"]
     assert "RoleName: !Sub \"${AppName}-${Tier}-task-execution\"" in rendered and "secretsmanager:GetSecretValue" in rendered
     assert f"{templates.APP_NAME}/OPENAI_API_KEY" in rendered

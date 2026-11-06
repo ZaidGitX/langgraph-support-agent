@@ -295,12 +295,20 @@ APP_TASK_SECRETS = ("OPENAI_API_KEY", "TYPESAFE_API_KEY", "LANGSMITH_API_KEY")
 
 
 def _container_secret_lines(platform: str) -> str:
-    """The task definition's ``Secrets`` block for the app secrets that can be injected, or ""."""
+    """The task definition's ``Secrets`` block for the app secrets that can be injected, or "".
+
+    ``ValueFrom`` is the Secrets Manager ARN (without the random suffix, which Secrets Manager
+    resolves): ECS reads a bare name as an SSM parameter, and live run 22's task never started
+    ("not authorized to perform: ssm:GetParameters").
+    """
     names = injectable_secrets(list(APP_TASK_SECRETS), platform)
     if not names:
         return ""
     lines = ["          Secrets:"]
-    lines.extend(f"            - {{Name: {name}, ValueFrom: \"{templates.APP_NAME}/{name}\"}}" for name in names)
+    lines.extend(
+        f"            - {{Name: {name}, ValueFrom: !Sub \"arn:aws:secretsmanager:${{AWS::Region}}:${{AWS::AccountId}}:secret:{templates.APP_NAME}/{name}\"}}"
+        for name in names
+    )
     return "\n".join(lines)
 
 

@@ -46,6 +46,17 @@ def _wait(service: SessionService, phases: set[str], timeout: float = 15) -> dic
     raise AssertionError(f"timed out in phase {last and last['phase']}: {last and last.get('autopilot')}")
 
 
+def _gate_event(service: SessionService, view: dict, gate: str, timeout: float = 10) -> dict:
+    """The autopilot event for ``gate``. The phase flips before the event is appended; on a slow
+    CodeBuild host the first snapshot came without it (live runs 12 and 22 each lost a test stage
+    attempt to this race)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline and not any(event.get("gate") == gate for event in view["autopilot"]["events"]):
+        time.sleep(0.05)
+        view = service.snapshot()
+    return next(event for event in reversed(view["autopilot"]["events"]) if event.get("gate") == gate)
+
+
 def test_profile_answers_by_id_defaults_and_topic(tmp_path):
     _write_profile(tmp_path)
     loaded = profile.load(tmp_path)
@@ -132,7 +143,7 @@ def test_low_confidence_keeps_the_approval_gate_human(tmp_path):
     try:
         service.start()
         view = _wait(service, {"approval"})
-        last = view["autopilot"]["events"][-1]
+        last = _gate_event(service, view, "pipeline_approval")
         assert last["gate"] == "pipeline_approval" and last["action"] == "human" and "0.20" in last["detail"]
     finally:
         service.close()
@@ -144,13 +155,7 @@ def test_a_policy_error_keeps_the_approval_gate_human(tmp_path):
     try:
         service.start()
         view = _wait(service, {"approval"})
-        # The phase flips before the autopilot event is appended; on a slow CodeBuild host the
-        # event arrived after the first snapshot (live run 12's test stage failed once on this).
-        deadline = time.time() + 10
-        while time.time() < deadline and not any(event.get("gate") == "pipeline_approval" for event in view["autopilot"]["events"]):
-            time.sleep(0.05)
-            view = service.snapshot()
-        last = next(event for event in reversed(view["autopilot"]["events"]) if event.get("gate") == "pipeline_approval")
+        last = _gate_event(service, view, "pipeline_approval")
         assert last["action"] == "human" and ("policy" in last["detail"] or "accept" in last["detail"])
     finally:
         service.close()

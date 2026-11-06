@@ -38,7 +38,9 @@ TOKEN_PATTERNS = [
 # A shell default expansion such as "${HAWK_API_KEY:-}" or ': "${SNYK_TOKEN:=}"' is a reference
 # by name, not an assigned value (live run 20's sweep: the stored dast.sh had lost its "-}" to the
 # mark, which would have been a bad substitution at run time).
-ASSIGNMENT_PATTERN = r"(?i)((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)(?!credentials\(|\$|\{\{|secrets\.|[-=?+}])[^\s\"',;]+"
+# An ARN segment such as ":secret:app/NAME" (live run 22's task secrets) is a reference too, so a
+# key preceded by ":" or "/" is not an assignment.
+ASSIGNMENT_PATTERN = r"(?i)(?<![:/])((?:api[_-]?key|token|secret|password|passwd)\s*[=:]\s*)(?!credentials\(|\$|\{\{|secrets\.|[-=?+}])[^\s\"',;]+"
 
 FILE_SCAN_PATTERNS = [
     r"(?<![A-Za-z0-9_\-])sk-[A-Za-z0-9]{20,}",
