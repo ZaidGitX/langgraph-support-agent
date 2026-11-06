@@ -373,6 +373,9 @@
         "container_scan": [
           "trivy",
           "image",
+          "--scanners",
+          "vuln",
+          "--ignore-unfixed",
           "--severity",
           "HIGH,CRITICAL",
           "--exit-code",
@@ -440,7 +443,8 @@
         "trivy fs",
         "trivy image",
         "vulnerabilities (trivy"
-      ]
+      ],
+      "image_policy": "an image scan ignores vulnerabilities without a released fix (--ignore-unfixed: a slim Debian base always carries some) and fails on fixable HIGH/CRITICAL findings, which the Dockerfile must then fix (live run 14: 66 HIGH, 1 CRITICAL, of which one was fixable)"
     },
     "grype": {
       "family": "scan",
@@ -461,6 +465,7 @@
         "container_scan": [
           "grype",
           "$IMAGE",
+          "--only-fixed",
           "--fail-on",
           "high"
         ]

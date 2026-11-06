@@ -523,6 +523,43 @@ What went wrong, and the fix:
 Nothing was deployed; the writes were the source upload, the project update, the three secret
 values, and six CodeBuild builds (four passed, two failed). The GitHub job was cancelled at 00:45.
 
+### Live run 14 (2026-11-06, 00:58–01:22 UTC, workflow run 42140636029, run c9c9bf43): seven stages passed on CodeBuild up to the image wave; the image scan failed the built image on unfixable Debian findings
+
+Started by the push of b91d631 after a one-call probe of the OpenAI key. Questions answered at
+01:01:02, nine generated stages and the suite (311 s) accepted, autopilot approved at 01:08:34
+(confidence 0.98), provisioning and injection applied. Every stage up to the image wave passed at
+the first attempt: `build` 01:10:04, `test` and `sca` 01:11:44 (the scoped contract:
+`SCAN_TOOLS="pip-audit"`), `scanners` 01:12:59, `integration_test` 01:14:38, `infra_plan` and
+`build_image` 01:17:42 (the plan-mode deploy contract validated the stack and resolved every
+parameter; the image was built and pushed to ECR as `:<run id>`). `container_scan` then ran
+`trivy image --severity HIGH,CRITICAL --exit-code 1` on that image: 67 findings, of which 66 were
+Debian packages of the `python:3.12-slim` base with no released fix (65 HIGH, 1 CRITICAL) and one
+was fixable (`setuptools 70.3.0`, CVE-2025-47273, fixed in 78.1.1). Jev escalated at 01:19:51
+without a retry; the orchestrator cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 01:01:02 |
+| Suite finished (311 s); autopilot approved at 0.98 | 01:08:34 |
+| `build` passed | 01:10:04 |
+| `test`, `sca` passed | 01:11:44 |
+| `scanners` passed | 01:12:59 |
+| `integration_test` passed | 01:14:38 |
+| `infra_plan` (plan mode) and `build_image` passed | 01:17:42 |
+| `container_scan` failed on the image; Jev escalated | 01:19:15 / 01:19:51 |
+
+What went wrong, and the fix:
+
+- A slim Debian base always carries vulnerabilities with no released fix, so a scan that fails
+  on them can never pass. The catalog's image scan now ignores unfixable findings and fails on
+  fixable HIGH/CRITICAL ones (`trivy image --ignore-unfixed`, `grype --only-fixed`), the prompt
+  says so, and the one fixable finding is fixed: the Dockerfile upgrades `setuptools` past
+  78.1.1 before installing the requirements.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, the image in ECR, and eight CodeBuild builds (seven passed, one failed). The GitHub job
+was cancelled at 01:22.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
