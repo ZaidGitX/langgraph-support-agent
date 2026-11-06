@@ -533,28 +533,32 @@ def _harden(item):
     return item if content == item.content else item.model_copy(update={"content": content})
 
 
-def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str], *, platform: str = "", stages: list[dict] | None = None, answers: dict | None = None) -> PipelineSuite:
+def with_manifest(suite_obj: PipelineSuite, environment: dict, placeholders: list[str], *, platform: str = "", stages: list[dict] | None = None, answers: dict | None = None, run_id: str = "") -> PipelineSuite:
     """Append the env manifest (names only) unless Astra already wrote one; relocate a file
     written outside the allowed prefixes; harden every file; re-assert the orchestrator's
     contract files and make sure every fixed stage's file runs its contract script."""
     suite_obj.artifacts = [_harden(generator.relocate(item, SUITE_STAGE)) for item in suite_obj.artifacts]
     if platform in SUITE_PLATFORMS:
-        assert_contract(suite_obj, platform, stages or [], environment, placeholders, answers)
+        assert_contract(suite_obj, platform, stages or [], environment, placeholders, answers, run_id=run_id)
     if not any(item.kind == "env_example" for item in suite_obj.artifacts):
         suite_obj.artifacts.append(generator.env_manifest({"name": SUITE_STAGE, "environment": environment}, placeholders))
     return suite_obj
 
 
-def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict], environment: dict, placeholders: list[str], answers: dict | None = None) -> list[str]:
+def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict], environment: dict, placeholders: list[str], answers: dict | None = None, *, run_id: str = "") -> list[str]:
     """The contract scripts (and on AWS the stack and the project document) are the
     orchestrator's: put back any the model changed or dropped, and make sure each fixed stage's
-    file calls its script. Returns what was restored (paths) or appended (``<path>: <command>``)."""
+    file calls its script. Returns what was restored (paths) or appended (``<path>: <command>``).
+
+    ``run_id`` is the run's: the project document names the source upload by it (live run 19
+    rendered it as "local" and every build failed at DOWNLOAD_SOURCE on a key that did not exist)."""
     restored: list[str] = []
     wanted = dict(contract_files(platform))
+    run_id = str(run_id or environment.get("run_id") or (answers or {}).get("run_id") or "local")
     if platform == "aws":
         base_stage = {"name": SUITE_STAGE, "family": "custom", "purpose": "the whole pipeline", "environment": environment}
         wanted["deploy/ecs-stack.yaml"] = templates.render_template(
-            "cloudformation", base_stage, environment, runner="aws_codebuild", run_id=str(environment.get("run_id") or "local"),
+            "cloudformation", base_stage, environment, runner="aws_codebuild", run_id=run_id,
             placeholders=placeholders,
             extra={"CONTAINER_ENV_LINES": _container_env_lines(placeholders), "CONTAINER_SECRET_LINES": _container_secret_lines(platform)},
         )
@@ -562,7 +566,7 @@ def assert_contract(suite_obj: PipelineSuite, platform: str, stages: list[dict],
         # names and dropped AWS_ECR_REPOSITORY, AWS_CFN_STACK, AWS_ECS_CLUSTER, and
         # AWS_ECS_SERVICE, so the skeleton-only build_image buildspec found no repository.
         wanted["deploy/codebuild-project.json"] = templates.render_template(
-            "codebuild_project", base_stage, environment, runner="aws_codebuild", run_id=str(environment.get("run_id") or "local"), placeholders=placeholders,
+            "codebuild_project", base_stage, environment, runner="aws_codebuild", run_id=run_id, placeholders=placeholders,
         )
     by_path = {item.path: item for item in suite_obj.artifacts}
     for path, content in wanted.items():
@@ -675,7 +679,7 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
     context = context_for(state, provider)
     fixed = suite_stages(state.get("pipeline") or {})
     suite = planner.generate_suite(context)
-    suite = with_manifest(suite, context["environment"], context["placeholders"], platform=platform, stages=fixed, answers=context["answers"])
+    suite = with_manifest(suite, context["environment"], context["placeholders"], platform=platform, stages=fixed, answers=context["answers"], run_id=run_id)
     result = check(suite)
     revisions_left = max_revisions
     verdict: ArtifactReview = review(result, revisions_left, [item.path for item in suite.artifacts])
@@ -683,7 +687,7 @@ def generate(state: dict, planner, provider, review, *, max_revisions: int = 1) 
         revisions_left -= 1
         try:
             revised = planner.generate_suite(context_for(state, provider, policy_findings=[item.model_dump() for item in result.findings]))
-            suite = with_manifest(revised, context["environment"], context["placeholders"], platform=platform, stages=fixed, answers=context["answers"])
+            suite = with_manifest(revised, context["environment"], context["placeholders"], platform=platform, stages=fixed, answers=context["answers"], run_id=run_id)
         except AstraQuotaError:
             raise
         except (RuntimeError, ValueError, TypeError, OSError):

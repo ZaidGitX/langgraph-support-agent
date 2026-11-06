@@ -254,3 +254,13 @@ RUN_ID, PLATFORM, TIER, APP_NAME, and each AWS_* config name as a `$NAME` placeh
 `apply` expands from the host (after `ensure_platform` exported them) and `resolve_build_env`
 trims of unresolved entries (JSON because `AWS_SUBNET_IDS` holds commas); `SUITE_SYSTEM` says the
 project document is the orchestrator's. Tests: `tests/test_run18_build_env.py`.
+
+**Live run 19 (2026-11-06).** The run 18 fix held (every build carried the thirteen names), but
+the restored project document had been rendered with `environment["run_id"]`, which the suite
+context does not carry: its source location said `orchestrator/local/source.zip` while the upload
+went to the run's key, and both builds failed at DOWNLOAD_SOURCE. Rules now: `with_manifest` and
+`assert_contract` take `run_id` (`suite.generate` passes the state's; the environment, then the
+answers, are fallbacks), and `AwsProvider.pin_project_document` rewrites the rendered document at
+provision from the run and the host (project name, the exact upload key, `CODEBUILD_ENV_NAMES`
+values, a name without a value left out), so the stored document and the upload cannot disagree.
+Tests: `tests/test_run19_source_key.py`.

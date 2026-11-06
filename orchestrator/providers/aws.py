@@ -432,8 +432,40 @@ class AwsProvider(BaseProvider):
             # A config name the account could not supply (no default VPC, say) must reach the
             # build as an empty value, not as the literal "$AWS_VPC_ID" the gap marker leaves.
             expanded = re.sub(r'"\$\{?(AWS_[A-Z0-9_]+)\}?"', '""', expanded)
-            rendered.write_text(expanded, encoding="utf-8")
+            rendered.write_text(self.pin_project_document(expanded, str(run_id), tier=str((answers or {}).get("env_target") or "dev")), encoding="utf-8")
         return f"source.zip holds {count} checkout files plus {len(packed)} generated file(s)"
+
+    @staticmethod
+    def pin_project_document(text: str, run_id: str, *, tier: str = "dev") -> str:
+        """The parts of the project document that are the orchestrator's by construction, set
+        from the run and the host whatever the stored file says: the project name, the source
+        location (the key ``provision_commands`` uploads to; live run 19 had "local" there and
+        every build failed at DOWNLOAD_SOURCE), and the environment values the builds read
+        (``CODEBUILD_ENV_NAMES`` from the host, a name without a value left out). A document
+        that is not JSON is returned as it is for CodeBuild to reject."""
+        try:
+            document = json.loads(text)
+        except json.JSONDecodeError:
+            return text
+        if not isinstance(document, dict):
+            return text
+        project = os.environ.get("AWS_CODEBUILD_PROJECT", "").strip() or f"{APP}-orchestrator"
+        bucket = os.environ.get("AWS_S3_BUCKET", "").strip()
+        document["name"] = project
+        source = document.get("source") if isinstance(document.get("source"), dict) else {}
+        source["type"] = "S3"
+        if bucket:
+            source["location"] = f"{bucket}/orchestrator/{run_id}/source.zip"
+        document["source"] = source
+        environment = document.get("environment") if isinstance(document.get("environment"), dict) else {}
+        variables = []
+        for name in CODEBUILD_ENV_NAMES:
+            value = APP if name == "APP_NAME" else tier if name == "TIER" else os.environ.get(name, "").strip()
+            if value:
+                variables.append({"name": name, "value": value, "type": "PLAINTEXT"})
+        environment["environmentVariables"] = variables
+        document["environment"] = environment
+        return json.dumps(document, indent=2) + "\n"
 
     def inject_commands(self, names: list[str], answers: dict) -> list[list[str]]:
         region = ["--region", "$AWS_REGION"]

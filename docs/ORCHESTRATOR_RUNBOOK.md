@@ -739,6 +739,45 @@ What went wrong, and the fix:
 Nothing was deployed; the writes were the source upload, the project update, the three secret
 values, and seven CodeBuild builds (five passed, two failed).
 
+### Live run 19 (2026-11-06, 07:03–07:21 UTC, workflow run 42178307994, run 08b110f6): the run 18 fix held, and its own project document named a source upload that did not exist
+
+Started by the push of ed47476 at 07:03:02 after a one-call probe of the OpenAI key. Questions
+answered by the profile at 07:06:03, the stage workers done by 07:08:44, the suite written in 643 s
+(07:08:28 to 07:19:11, the longest yet), autopilot approved at 07:19:11 (confidence 0.98),
+provisioning (bucket, repository, role, and network re-checked; source.zip with 271 checkout files
+plus 32 generated; project updated) and injection (three names) applied. `build` failed twice
+(07:19:53, 07:20:27) at DOWNLOAD_SOURCE: `error while downloading key orchestrator/local/source.zip
+… NoSuchKey`. Jev escalated at 07:20:56; the orchestrator session cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of ed47476; workflow started | 07:03:02 |
+| Questions answered by the profile | 07:06:03 |
+| Suite generation started | 07:08:28 |
+| Suite done; autopilot approved at 0.98 | 07:19:11 |
+| `build` failed at DOWNLOAD_SOURCE | 07:19:53 |
+| `build` failed again | 07:20:27 |
+| Jev escalated | 07:20:56 |
+
+What went wrong, and the fix:
+
+- The run 18 fix did what it was meant to: `codebuild batch-get-builds` shows every build of this
+  run carried the thirteen names (RUN_ID, PLATFORM, TIER, APP_NAME, and the nine AWS_* names).
+- Its own regression: `suite.assert_contract` rendered the restored project document with
+  `environment["run_id"]`, which the suite context does not carry, so the template's `$RUN_ID`
+  became `local` and the project's source location pointed at `orchestrator/local/source.zip`
+  while provisioning uploaded to `orchestrator/08b110f6…/source.zip`. The model-written document of
+  the earlier runs had kept the skeleton's real id, which is why this never surfaced before.
+- `with_manifest` and `assert_contract` take the run's id (`suite.generate` passes it; the
+  environment, then the answers, are the fallbacks), and provisioning pins the rendered document
+  (`AwsProvider.pin_project_document`): the name is the project, the source is the exact key the
+  upload uses, and the environment values come from the host for `CODEBUILD_ENV_NAMES` (a name
+  without a value is left out). The stored document and the uploaded key cannot disagree now.
+  Tests: `tests/test_run19_source_key.py`.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and two CodeBuild builds (both failed before any command ran).
+
 ## Rehearsal (offline, before the live run)
 
 ```bash
