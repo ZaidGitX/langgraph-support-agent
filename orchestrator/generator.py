@@ -258,14 +258,27 @@ def relocate(artifact: GeneratedArtifact, stage_name: str) -> GeneratedArtifact:
 # untouched skeleton). A stage of these families gets the orchestrator's contract script when
 # its buildspec is missing, still a placeholder, or does not do the family's job.
 _FLOOR_BY_FAMILY = {"deploy": "deploy", "verify": "smoke", "container": "container"}
-_FLOOR_MARKERS = {"deploy": ("cloudformation", "ecs"), "smoke": ("curl", "http", "urlopen", "requests"), "container": ("docker build", "docker buildx")}
+# What a floored stage must call, and what counts as already doing the job. A stack mutation is
+# the contract's alone: live run 12's infra_plan ran its own change set without the stack's
+# parameters, so for deploy and plan stages only the contract call counts.
+_FLOOR_COMMANDS = {
+    "deploy": "bash ci/deploy.sh",
+    "deploy_plan": "DEPLOY_MODE=plan bash ci/deploy.sh",
+    "smoke": "bash ci/smoke.sh",
+    "container": "bash ci/container.sh",
+}
+_FLOOR_MARKERS = {"deploy": ("ci/deploy.sh",), "deploy_plan": ("ci/deploy.sh",), "smoke": ("curl", "http", "urlopen", "requests"), "container": ("docker build", "docker buildx")}
+_STACK_MUTATION = re.compile(r"\baws\s+cloudformation\s+(deploy|create-stack|update-stack|create-change-set|execute-change-set)\b")
 _PLACEHOLDER_MARK = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
 
 
 def floor_for(stage: dict) -> str | None:
-    """The contract script key a generated stage falls back to, or None."""
+    """The contract command key a generated stage falls back to, or None. An infrastructure plan
+    stage plans with the deploy contract (nothing created); infra_apply deploys with it."""
     family = str(stage.get("family") or "")
     name = str(stage.get("name") or "").lower()
+    if "infra" in name or name.endswith("_plan") or name.startswith("plan_"):
+        return "deploy" if "apply" in name else "deploy_plan"
     if family in _FLOOR_BY_FAMILY:
         return _FLOOR_BY_FAMILY[family]
     if "deploy" in name:
@@ -285,7 +298,7 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
     key = floor_for(stage)
     if not key:
         return artifacts
-    command = f"bash {templates.contract_path(key)}"
+    command = _FLOOR_COMMANDS[key]
     markers = _FLOOR_MARKERS[key]
     specs = [item for item in artifacts if item.kind == "buildspec"]
     others = [item for item in artifacts if item.kind != "buildspec"]
@@ -301,14 +314,41 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
         lowered = content.lower()
         placeholder = bool(_PLACEHOLDER_MARK.search(content))
         does_job = any(marker in lowered for marker in markers) or command in content
-        if placeholder or not does_job:
+        mutates = key in ("deploy", "deploy_plan") and bool(_STACK_MUTATION.search(content))
+        if placeholder or not does_job or mutates:
             lines = [line for line in content.splitlines() if not _PLACEHOLDER_MARK.search(line)]
             content = "\n".join(lines).rstrip("\n") + "\n"
+            if mutates:
+                content = _drop_stack_mutations(content)
             if command not in content:
                 content = _append_build_command(content, command)
             spec = spec.model_copy(update={"content": content, "purpose": f"{spec.purpose} (orchestrator floor: {command})".strip()})
         fixed.append(spec)
     return others + fixed
+
+
+def _drop_stack_mutations(content: str) -> str:
+    """Remove buildspec commands that create, update, or change-set the stack themselves; the
+    contract script does that with every parameter resolved."""
+    import yaml
+
+    try:
+        document = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return content
+    if not isinstance(document, dict) or not isinstance(document.get("phases"), dict):
+        return content
+    changed = False
+    for phase in document["phases"].values():
+        if not isinstance(phase, dict) or not isinstance(phase.get("commands"), list):
+            continue
+        kept = [item for item in phase["commands"] if not (isinstance(item, str) and _STACK_MUTATION.search(item))]
+        if len(kept) != len(phase["commands"]):
+            phase["commands"] = kept
+            changed = True
+    if not changed:
+        return content
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
 def _append_build_command(content: str, command: str) -> str:

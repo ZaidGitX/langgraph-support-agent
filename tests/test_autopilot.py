@@ -144,7 +144,13 @@ def test_a_policy_error_keeps_the_approval_gate_human(tmp_path):
     try:
         service.start()
         view = _wait(service, {"approval"})
-        last = view["autopilot"]["events"][-1]
+        # The phase flips before the autopilot event is appended; on a slow CodeBuild host the
+        # event arrived after the first snapshot (live run 12's test stage failed once on this).
+        deadline = time.time() + 10
+        while time.time() < deadline and not any(event.get("gate") == "pipeline_approval" for event in view["autopilot"]["events"]):
+            time.sleep(0.05)
+            view = service.snapshot()
+        last = next(event for event in reversed(view["autopilot"]["events"]) if event.get("gate") == "pipeline_approval")
         assert last["action"] == "human" and ("policy" in last["detail"] or "accept" in last["detail"])
     finally:
         service.close()

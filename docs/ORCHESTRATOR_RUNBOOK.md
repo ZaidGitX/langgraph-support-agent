@@ -439,6 +439,49 @@ What went wrong, and the fix:
 Nothing was deployed; the writes were the source upload, the project update, the three secret
 values, and six CodeBuild builds (two passed, four failed). The GitHub job was cancelled at 22:17.
 
+### Live run 12 (2026-11-05 23:41 – 2026-11-06 00:11 UTC, workflow run 42131461024, run 6250c14f): build, test, integration_test, and the scanners menu passed on CodeBuild; the generated infra_plan stage failed on its own change set
+
+Started by the push of 1bf53f6 after a one-call probe of the OpenAI key. Questions answered at
+23:45:18, plan `generated_ecs_dev_delivery-1` at 23:46:28 with nine generated stages, generation
+23:46–00:02 (the suite in 440 s; `infra_apply` took 932 s because its high-effort call timed out
+and was retried at the next lower effort), 44 files, every review accept, policy clean, autopilot
+approved at 00:02:28 (confidence 0.98), provisioning and injection applied. Then the platform
+waves: `build` passed at 00:04:55; `integration_test` passed at 00:07:31 (the exit-5 rule held);
+`scanners` passed at 00:07:52, the first pass of the scan menu on CodeBuild (semgrep, pip-audit,
+Snyk, trivy, gitleaks, with Sonar and CodeQL skipped as not selected); `test` failed once on a
+timing-sensitive test and passed on Jev's retry; `infra_plan` failed twice: the worker's buildspec
+ran its own `aws cloudformation deploy --no-execute-changeset` against the orchestrator's stack
+without `--parameter-overrides` ("Parameters: [VpcId, Image, SubnetIds] must have values"). Jev
+escalated at 00:10:50 (confidence 0.53) before the deploy wave; the orchestrator cancelled the idle
+workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 23:45:18 |
+| Generation finished (44 files); autopilot approved at 0.98 | 00:02:28 |
+| `build` passed on CodeBuild | 00:04:55 |
+| `infra_plan` and `test` failed; `integration_test` passed | 00:07:25–00:07:31 |
+| `scanners` passed: the scan menu's first pass on the platform | 00:07:52 |
+| Retry: `test` passed, `infra_plan` failed again; Jev escalated | 00:10:19 / 00:10:50 |
+
+What went wrong, and the fix:
+
+- A model-written stack mutation is error-prone (run 8 invented a parameter, run 12 omitted
+  them all), and the contract already resolves every parameter. `ci/deploy.sh` now has
+  `DEPLOY_MODE=plan`: it validates the template, resolves VPC, subnets, image, and names exactly
+  as the deploy would, reports the stack's and the image's state, and creates nothing. On
+  CodeBuild an `infra_plan` (or any `*_plan`) stage is floored to `DEPLOY_MODE=plan bash
+  ci/deploy.sh`, `infra_apply` and deploy stages to `bash ci/deploy.sh`, and any `cloudformation
+  deploy / create-stack / update-stack / change-set` command the model wrote beside them is
+  removed (`generator.platform_floor`, `_STACK_MUTATION`); the prompt says the same.
+- `tests/test_autopilot.py::test_a_policy_error_keeps_the_approval_gate_human` read the autopilot
+  event list the instant the phase flipped; on the CodeBuild host the event landed a moment later.
+  The test now waits for the approval-gate event.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and eight CodeBuild builds (five passed, three failed). The GitHub job was cancelled at
+00:12.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

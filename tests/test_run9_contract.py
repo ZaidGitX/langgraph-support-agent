@@ -97,9 +97,13 @@ def test_generated_deploy_verify_and_image_stages_get_a_floor_on_codebuild():
     created = generator.platform_floor([GeneratedArtifact(path="ci/smoke.generated.py", kind="script", purpose="p", content="print('x')\n")], verify_stage)
     spec = next(item for item in created if item.kind == "buildspec")
     assert spec.path == "ci/buildspec-post_deploy_smoke.yml" and "bash ci/smoke.sh" in spec.content and not policy.placeholder_findings(spec)
-    # A real buildspec that does the family's job is left alone; one that does not gets the call appended.
+    # A deploy buildspec that mutates the stack itself loses that command and gets the contract call
+    # (live run 12: the model's change set lacked every parameter); one that does nothing gets the call appended.
     real = "version: 0.2\nphases:\n  build:\n    commands:\n      - aws cloudformation deploy --stack-name x --template-file deploy/ecs-stack.yaml\n"
-    assert generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="p", content=real)], deploy_stage)[0].content == real
+    taken_over = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="p", content=real)], deploy_stage)[0].content
+    assert "bash ci/deploy.sh" in taken_over and "cloudformation deploy" not in taken_over
+    own = "version: 0.2\nphases:\n  build:\n    commands:\n      - bash ci/deploy.sh\n"
+    assert generator.platform_floor([GeneratedArtifact(path="ci/buildspec-deploy_dev.yml", kind="buildspec", purpose="p", content=own)], deploy_stage)[0].content == own
     lazy = "version: 0.2\nphases:\n  build:\n    commands:\n      - echo deploying\n"
     appended = generator.platform_floor([GeneratedArtifact(path="ci/buildspec-build_image.yml", kind="buildspec", purpose="p", content=lazy)], {"name": "build_image", "family": "container", "runner": "aws_codebuild", "environment": ENV})
     assert "bash ci/container.sh" in appended[0].content and "echo deploying" in appended[0].content

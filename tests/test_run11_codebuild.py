@@ -52,7 +52,7 @@ def test_every_buildspec_runs_bash():
 def test_a_test_level_with_no_tests_is_skipped_by_prompt_and_catalog():
     rows = {row["tool"]: row for row in scanners.catalog_for_prompt()}
     assert rows["pytest"]["exit_codes"]["5"].startswith("no tests collected")
-    for word in ("exit code 5", "env.shell: bash", "non-root USER", "wildcard Principal", "validate-template"):
+    for word in ("exit code 5", "env.shell: bash", "non-root USER", "wildcard Principal", "DEPLOY_MODE=plan"):
         assert word in llm.GENERATE_SYSTEM, word
 
 

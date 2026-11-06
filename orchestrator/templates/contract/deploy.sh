@@ -7,6 +7,9 @@ set -euo pipefail
 #   2. the run's image must exist in ECR, else build it  5. wait until the service is stable
 #   3. VPC and subnets: given, else the default VPC       6. find the task's public IP, check /status,
 #                                                           publish the URL for smoke, dast, and UAT
+# DEPLOY_MODE=plan (an infra_plan stage) stops after step 3: it validates the template, resolves
+# every parameter the real deploy would pass, reports whether the stack and the image exist, and
+# creates nothing (live run 12's infra_plan ran a change set without the parameters and failed).
 # Every name comes from the environment the CodeBuild project supplies; credentials are the
 # service role's. Nothing here reads or prints a secret value.
 set -euo pipefail
@@ -14,6 +17,7 @@ STAGE="deploy"
 : "${RUN_ID:=local}"
 : "${TIER:=dev}"
 : "${PLATFORM:=aws}"
+: "${DEPLOY_MODE:=apply}"
 APP_NAME="__APP_NAME__"
 PORT="__PORT__"
 case "$TIER" in production|prod) echo "No path past UAT."; exit 2;; esac
@@ -30,10 +34,15 @@ image="$account.dkr.ecr.$AWS_REGION.amazonaws.com/$AWS_ECR_REPOSITORY:$RUN_ID"
 template="deploy/ecs-stack.yaml"
 test -f "$template"
 
-# 2. The image for this run; a container stage normally pushed it, else build it here.
+# 2. The image for this run; a container stage normally pushed it, else build it here (apply only).
+image_in_ecr=true
 if ! aws ecr describe-images --repository-name "$AWS_ECR_REPOSITORY" --image-ids imageTag="$RUN_ID" --region "$AWS_REGION" >/dev/null 2>&1; then
-  echo "image $image is not in ECR yet; building it in this stage"
-  bash ci/container.sh
+  image_in_ecr=false
+  if [ "$DEPLOY_MODE" != "plan" ]; then
+    echo "image $image is not in ECR yet; building it in this stage"
+    bash ci/container.sh
+    image_in_ecr=true
+  fi
 fi
 
 # 3. Networking: the names the project supplies, else the account's default VPC.
@@ -57,6 +66,17 @@ if [ -z "$subnets" ] || [ "$subnets" = "None" ]; then
   exit 1
 fi
 echo "stack $STACK in $vpc on $subnets with $image"
+
+if [ "$DEPLOY_MODE" = "plan" ]; then
+  # The plan: a valid template, every parameter resolved, the stack's and the image's state. No
+  # change set is created, so nothing is left behind for the real deploy to trip on.
+  aws cloudformation validate-template --template-body "file://$template" --region "$AWS_REGION" \
+    --query 'Parameters[].ParameterKey' --output text | tr '\t' ' ' | sed 's/^/template parameters: /'
+  stack_status="$(aws cloudformation describe-stacks --stack-name "$STACK" --query 'Stacks[0].StackStatus' --output text --region "$AWS_REGION" 2>/dev/null || echo ABSENT)"
+  echo "plan: stack $STACK is $stack_status; deploy would pass AppName=$APP_NAME Tier=$TIER VpcId=$vpc SubnetIds=$subnets Image=$image ContainerPort=$PORT"
+  summary passed ",\"mode\":\"plan\",\"stack\":\"$STACK\",\"stack_status\":\"$stack_status\",\"image\":\"$image\",\"image_in_ecr\":$image_in_ecr,\"vpc\":\"$vpc\""
+  exit 0
+fi
 
 # 4. Create or update the stack; the change set is executed for every allowed tier.
 aws cloudformation deploy --stack-name "$STACK" --template-file "$template" \
