@@ -25,3 +25,5 @@ def test_the_image_upgrades_setuptools_past_the_known_vulnerability():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert '"setuptools>=78.1.1"' in dockerfile  # CVE-2025-47273: the one fixable finding of live run 14
     assert dockerfile.index('"setuptools>=78.1.1"') < dockerfile.index("-r requirements-dev.txt")
+    # pip's vendored SBOM declares setuptools 70.3.0 (its pkg_resources); the deployed image drops pip.
+    assert 'if [ "$WITH_CLOUD_CLIS" = "0" ]; then pip uninstall -y pip' in dockerfile

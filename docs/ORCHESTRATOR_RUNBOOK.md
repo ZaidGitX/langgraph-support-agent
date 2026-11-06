@@ -578,7 +578,17 @@ support app in ECS never starts an orchestrator run of its own. The CodeBuild ro
 cross-checked against every resource the stack creates (cluster, log group under `/ecs/<app>-*`,
 the `<app>-<tier>-task-execution` role with PassRole, security group with ingress only, task
 definition, service) and needs no change. The image was built locally from the updated
-Dockerfile and scanned with the catalog's image policy before the push.
+Dockerfile and scanned with the catalog's image policy before the push. That scan found one more
+fixable finding that no installed package explains: pip 26's vendored SBOM
+(`pip/_vendor/bom.cdx.json`) declares the setuptools 70.3.0 it vendors `pkg_resources` from, and
+image scanners report it as CVE-2025-47273. The deployed image (`WITH_CLOUD_CLIS=0`) is the
+support app alone, so it drops pip after the install; the orchestrator image keeps pip for
+pip-audit. The deployed image also installs only `requirements.txt` (the orchestrator image keeps
+the dev tools it runs locally), because ruff's packaged SBOM names the setuptools it was built
+with and the older trivy read that as an installed package. The catalog's trivy is pinned to
+0.76.2 (the 0.58.0 pin also failed to parse the current policy bundle), and with it the
+production-shape image scans clean at HIGH/CRITICAL with unfixable findings ignored, and the
+repository itself scans clean apart from the local `.env`, which never travels in the upload.
 
 ## Rehearsal (offline, before the live run)
 

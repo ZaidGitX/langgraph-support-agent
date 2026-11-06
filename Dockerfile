@@ -40,13 +40,17 @@ RUN if [ "$WITH_CLOUD_CLIS" = "1" ]; then \
       apt-get install -y --no-install-recommends google-cloud-cli; \
       rm -rf /var/lib/apt/lists/*; \
       python -m venv /opt/azure-cli; \
-      /opt/azure-cli/bin/pip install --no-cache-dir --quiet azure-cli; \
+      /opt/azure-cli/bin/pip install --no-cache-dir --quiet azure-cli "setuptools>=78.1.1"; \
       ln -s /opt/azure-cli/bin/az /usr/local/bin/az; \
     fi
 
 COPY requirements.txt requirements-dev.txt ./
+# The orchestrator image (WITH_CLOUD_CLIS=1) carries the dev tools it runs locally (pytest,
+# pip-audit, ruff); the deployed support app (WITH_CLOUD_CLIS=0) carries its runtime only, so an
+# image scan judges the application and not its tooling (ruff's packaged SBOM, for one, names
+# the setuptools it was built with and scanners report it as installed; found before live run 15).
 RUN pip install --no-cache-dir --upgrade pip "setuptools>=78.1.1" wheel \
-    && pip install --no-cache-dir -r requirements-dev.txt
+    && if [ "$WITH_CLOUD_CLIS" = "1" ]; then pip install --no-cache-dir -r requirements-dev.txt; else pip install --no-cache-dir -r requirements.txt; fi
 
 COPY app ./app
 COPY mcp_server ./mcp_server
@@ -60,6 +64,12 @@ COPY stackhawk.yml ./
 COPY frontend/package.json ./frontend/package.json
 COPY .github ./.github
 COPY --from=frontend /src/dist ./frontend/dist
+
+# The deployed image (WITH_CLOUD_CLIS=0) is the support app alone: pip is a build-time tool there,
+# and pip 26's vendored SBOM (pip/_vendor/bom.cdx.json) declares the setuptools 70.3.0 it vendors
+# pkg_resources from, which image scanners report as CVE-2025-47273 although no such package is
+# installed (found before live run 15). The orchestrator image keeps pip for pip-audit.
+RUN if [ "$WITH_CLOUD_CLIS" = "0" ]; then pip uninstall -y pip && rm -rf /root/.cache/pip; fi
 
 RUN useradd --create-home appuser \
     && mkdir -p /app/var /app/dist \

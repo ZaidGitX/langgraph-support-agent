@@ -367,7 +367,7 @@
         "scanners"
       ],
       "cli": "trivy",
-      "docker_image": "ghcr.io/aquasecurity/trivy:0.58.0",
+      "docker_image": "ghcr.io/aquasecurity/trivy:0.76.2",
       "install": "brew install trivy, or the GHCR image (Docker Hub anonymous pulls are rate limited on shared CI addresses)",
       "argv": {
         "container_scan": [
@@ -410,7 +410,7 @@
           "$ROOT:/src",
           "-w",
           "/src",
-          "ghcr.io/aquasecurity/trivy:0.58.0",
+          "ghcr.io/aquasecurity/trivy:0.76.2",
           "fs",
           "--scanners",
           "vuln,misconfig,secret",

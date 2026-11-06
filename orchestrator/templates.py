@@ -194,7 +194,7 @@ def contract_images() -> dict[str, str]:
         return scanners.docker_image(key) or default
 
     return {
-        "TRIVY_IMAGE": image("trivy", "ghcr.io/aquasecurity/trivy:0.58.0"),
+        "TRIVY_IMAGE": image("trivy", "ghcr.io/aquasecurity/trivy:0.76.2"),
         "GITLEAKS_IMAGE": image("gitleaks", "ghcr.io/gitleaks/gitleaks:latest"),
         "SONAR_IMAGE": image("sonar", "sonarsource/sonar-scanner-cli:latest"),
         "ZAP_IMAGE": image("zap", "ghcr.io/zaproxy/zaproxy:stable"),
