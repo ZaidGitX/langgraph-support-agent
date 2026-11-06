@@ -952,6 +952,47 @@ service creation were checked from the laptop before the next push. No new defec
 Still first-time live in run 23: the Fargate task pulling the image and the secrets on AWS, the
 service reaching steady state, ZAP's run time inside CodeBuild, UAT after a real deploy.
 
+### Live run 23 (2026-11-06, 22:59–23:15 UTC, workflow run 42308772610, run a10bfa86): the build contract passed and the fixed build stage failed on a check the model wrote beside it
+
+Started by the push of a72f9d5 at 22:59:54 after a one-call probe of the OpenAI key (an earlier
+attempt at 11:30 had stopped at the probe: the account had no credits; nothing was pushed).
+Questions answered by the profile at 23:03:10, the suite written from 23:05, autopilot approved at
+23:10:59 (confidence 0.98), provisioning and injection applied. `build` failed twice (23:12:19,
+23:14): its BUILD phase, `bash ci/build.sh`, SUCCEEDED, and the stage still failed in POST_BUILD on
+a block Astra had written beside the contract call, `if [ -s var/build/summary.json ] … else exit 1`,
+a file the contract never writes (it prints its summary). Jev escalated; the orchestrator session
+cancelled the idle workflow job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of a72f9d5; workflow started | 22:59:54 |
+| Questions answered by the profile | 23:03:10 |
+| Suite done; autopilot approved at 0.98 | 23:10:59 |
+| `build` contract passed, stage failed in post_build | 23:12:19 |
+| retry failed the same way; Jev escalated | 23:14 |
+
+What went wrong, and the fix:
+
+- Since live run 17 a floored generated stage's buildspec has been the orchestrator's skeleton
+  calling the contract and nothing else; the fixed stages' buildspecs (build, test, scanners,
+  package) stayed the model's, with only the contract call re-asserted, because they had passed
+  twelve runs in a row. This run the model added a post_build check to the build stage's buildspec.
+  The rule is general now: on CodeBuild every stage's buildspec is the orchestrator's skeleton
+  calling the stage's contract, whatever the model returned. `suite.assert_contract` replaces each
+  fixed stage's buildspec with the rendered skeleton (`_aws_stage_skeleton`, the same text
+  `render_skeletons` hands Astra; a missing one is created), and `generator.floor_for` floors
+  every generated stage with a contract: families test, build, package, release join deploy,
+  verify, and container; a scan stage with a provider the scanners contract knows runs only that
+  provider (`SCAN_TOOLS="<provider>" bash ci/scanners.sh`); the image stages keep theirs. The
+  model's own scripts stay with the run as evidence and no longer run on CodeBuild. Both prompts
+  say so. Tests: `tests/test_run23_contract_only_everywhere.py`.
+- What the model still shapes on AWS: the stage list and DAG Jev approves, the env manifest
+  (names only), and the UAT stage on the host. The project document, the stack, every contract
+  script, and every buildspec are the orchestrator's.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and two CodeBuild builds (both failed after a passing contract).
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

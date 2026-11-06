@@ -15,7 +15,12 @@ from orchestrator.providers.azure import AzureProvider
 from orchestrator.providers.gcp import GcpProvider
 from orchestrator.providers.github_actions import GithubActionsProvider
 from orchestrator.providers.jenkins import JenkinsProvider
-from orchestrator.schemas import CandidatePipeline, PlanProposal, StageSpec
+from orchestrator.schemas import (
+    CandidatePipeline,
+    GeneratedArtifact,
+    PlanProposal,
+    StageSpec,
+)
 from orchestrator.state import initial_state
 from tests.test_orchestrator import FakeAstra, FakeJev, _echo
 
@@ -75,7 +80,8 @@ class BadSuitePlatformStageAstra(PlatformStageAstra):
 
     def generate_suite(self, payload: dict):
         built = super().generate_suite(payload)
-        built.artifacts[0].content += f"\npython -m orchestrator.local_ops deploy --target {FORBIDDEN_TARGET}\n"
+        # In a file of the model's own: since live run 23 every buildspec is restored to the skeleton.
+        built.artifacts.append(GeneratedArtifact(path="ci/promote.sh", kind="shell", purpose="model", content=f"#!/usr/bin/env bash\nset -euo pipefail\npython -m orchestrator.local_ops deploy --target {FORBIDDEN_TARGET}\n"))
         return built
 
 
@@ -179,8 +185,9 @@ def test_suite_rejection_falls_back_to_the_local_host(tmp_path, monkeypatch):
         def generate_suite(self, payload: dict):
             built = super().generate_suite(payload)
             # A deploy line that names the forbidden target, built at runtime so the word never
-            # sits in this file as a target.
-            built.artifacts[0].content += f"\npython -m orchestrator.local_ops deploy --target {FORBIDDEN_TARGET}\n"
+            # sits in this file as a target; in a file of the model's own, since live run 23
+            # every buildspec is restored to the skeleton.
+            built.artifacts.append(GeneratedArtifact(path="ci/promote.sh", kind="shell", purpose="model", content=f"#!/usr/bin/env bash\nset -euo pipefail\npython -m orchestrator.local_ops deploy --target {FORBIDDEN_TARGET}\n"))
             return built
 
     values = _run(tmp_path, "aws", monkeypatch, astra=BadSuiteAstra())

@@ -299,3 +299,15 @@ suffix (`!Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:ap
 reference; the two human-gate autopilot tests wait for the gate's event (`_gate_event`) instead
 of reading the last event (the CodeBuild host lost a test attempt to that race again). Tests:
 `tests/test_run22_task_secrets.py`.
+
+**Live run 23 (2026-11-06).** The build contract passed and the fixed build stage failed twice
+in POST_BUILD on a check the model wrote beside the call (a summary file the contract never
+writes). Rule now, general: on CodeBuild every stage's buildspec is the orchestrator's skeleton
+calling the stage's contract, whatever the model returned. `suite.assert_contract` replaces each
+fixed stage's buildspec with `_aws_stage_skeleton` (the text `render_skeletons` hands Astra; a
+missing one is created; the generated-at header is ignored when comparing); `generator.floor_for`
+floors every generated stage with a contract (families test, build, package, release, deploy,
+verify, container; a scan stage with a provider the scanners contract knows runs
+`SCAN_TOOLS="<provider>" bash ci/scanners.sh` via `floor_command`; image stages keep theirs).
+The model's scripts stay as evidence and do not run on CodeBuild. Tests:
+`tests/test_run23_contract_only_everywhere.py`.

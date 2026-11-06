@@ -81,7 +81,7 @@ def test_the_orchestrator_puts_back_contract_files_the_model_changed_or_dropped(
     assert by_path["ci/scanners.sh"].content == templates.contract_script("scanners")
     assert by_path["ci/deploy.sh"].content == templates.contract_script("deploy")
     assert "deploy/ecs-stack.yaml" in by_path and "ci/smoke.sh" in by_path
-    assert "bash ci/build.sh" in by_path["ci/buildspec-build.yml"].content and "echo compiled" in by_path["ci/buildspec-build.yml"].content
+    assert "bash ci/build.sh" in by_path["ci/buildspec-build.yml"].content and "echo compiled" not in by_path["ci/buildspec-build.yml"].content  # live run 23: the skeleton, nothing beside the call
     assert suite.check(fixed).ok
 
 

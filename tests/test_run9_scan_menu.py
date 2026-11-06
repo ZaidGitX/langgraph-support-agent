@@ -110,7 +110,7 @@ def test_assert_contract_restores_the_call_with_the_selection():
     )
     fixed = suite.with_manifest(model, {"tier": "dev", "platform": "aws"}, ["AWS_REGION"], platform="aws", stages=STAGES, answers=ANSWERS)
     content = {item.path: item.content for item in fixed.artifacts}["ci/buildspec-scanners.yml"]
-    assert SELECTED_CALL in content and "echo scanned" in content
+    assert SELECTED_CALL in content and "echo scanned" not in content  # live run 23: the skeleton, nothing beside the call
 
 
 def test_astra_contexts_carry_the_menu(tmp_path):

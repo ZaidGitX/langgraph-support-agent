@@ -257,7 +257,10 @@ def relocate(artifact: GeneratedArtifact, stage_name: str) -> GeneratedArtifact:
 # Generated-stage floors on AWS CodeBuild (live run 8: the deploy stage came back as the
 # untouched skeleton). A stage of these families gets the orchestrator's contract script when
 # its buildspec is missing, still a placeholder, or does not do the family's job.
-_FLOOR_BY_FAMILY = {"deploy": "deploy", "verify": "smoke", "container": "container"}
+# Live run 23: the fixed build stage's contract passed and the stage still failed on a post_build
+# check the model wrote beside it, so the rule is general now: on CodeBuild every stage with a
+# contract runs the skeleton calling that contract, and nothing else.
+_FLOOR_BY_FAMILY = {"deploy": "deploy", "verify": "smoke", "container": "container", "test": "test", "build": "build", "package": "package", "release": "release"}
 # What a floored stage runs on CodeBuild: the contract, and only the contract. Live runs 12 to 17
 # each failed on a model-written line next to a correct contract call (a change set without
 # parameters, a second scanners run, an archive no stage produces, a quote YAML rejects, a guard
@@ -270,7 +273,21 @@ _FLOOR_COMMANDS = {
     "dast": "bash ci/dast.sh",
     "container": "bash ci/container.sh",
     "image_scan": "bash ci/image_scan.sh",
+    "build": "bash ci/build.sh",
+    "test": "bash ci/test.sh",
+    "package": "bash ci/package.sh",
+    "release": "bash ci/release.sh",
+    "scanners": "bash ci/scanners.sh",
 }
+
+
+def floor_command(stage: dict, key: str) -> str:
+    """The contract call a floored stage runs; a scan stage runs only its own provider."""
+    command = _FLOOR_COMMANDS[key]
+    if key == "scanners":
+        provider = str(stage.get("provider") or "").strip().lower().replace("-", "_")
+        return f'SCAN_TOOLS="{provider.replace("_", "-")}" {command}'
+    return command
 _PLACEHOLDER_MARK = re.compile(r"echo \"stage [A-Za-z0-9_$-]+ placeholder\"")
 
 
@@ -286,14 +303,18 @@ def floor_for(stage: dict) -> str | None:
     provider = str(stage.get("provider") or "").lower()
     if "container_scan" in name or "image_scan" in name or (family == "scan" and provider in ("trivy", "grype") and "image" in name):
         return "image_scan"
+    if "build_image" in name or "push_image" in name or name.endswith("_image"):
+        return "container"
+    if "smoke" in name:
+        return "smoke"
+    if family == "scan":
+        # A scan stage with a provider the scanners contract knows runs only that provider
+        # (live run 13); one the contract does not know keeps the model's file.
+        return "scanners" if provider.replace("-", "_") in scanners.SCAN_STAGE_TOOLS else None
     if family in _FLOOR_BY_FAMILY:
         return _FLOOR_BY_FAMILY[family]
     if "deploy" in name:
         return "deploy"
-    if "smoke" in name:
-        return "smoke"
-    if "build_image" in name or "push_image" in name or name.endswith("_image"):
-        return "container"
     return None
 
 
@@ -308,7 +329,7 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict, run_id: str 
     key = floor_for(stage)
     if not key:
         return artifacts
-    command = _FLOOR_COMMANDS[key]
+    command = floor_command(stage, key)
     environment = dict(stage.get("environment") or {})
     skeleton = _skeleton_with(stage, environment, command, run_id)
     others = [item for item in artifacts if item.kind != "buildspec"]

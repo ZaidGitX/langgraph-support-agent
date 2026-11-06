@@ -37,7 +37,7 @@ def test_image_scan_contract_renders_and_pulls_the_run_image(tmp_path):
 def test_an_image_scan_stage_is_floored_to_the_contract():
     assert generator.floor_for({"name": "container_scan", "family": "scan", "provider": "trivy"}) == "image_scan"
     assert generator.floor_for({"name": "image_scan", "family": "scan"}) == "image_scan"
-    assert generator.floor_for({"name": "sca", "family": "scan", "provider": "pip_audit"}) is None
+    assert generator.floor_for({"name": "sca", "family": "scan", "provider": "pip_audit"}) == "scanners"  # since live run 23: scoped to its provider
     stage = {"name": "container_scan", "family": "scan", "provider": "trivy", "runner": "aws_codebuild", "environment": ENV}
     model = GeneratedArtifact(path="ci/buildspec-container_scan.yml", kind="buildspec", purpose="model", content=(
         "version: 0.2\nenv:\n  shell: bash\nphases:\n  build:\n    commands:\n"
