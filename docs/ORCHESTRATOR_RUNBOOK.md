@@ -590,6 +590,41 @@ with and the older trivy read that as an installed package. The catalog's trivy 
 production-shape image scans clean at HIGH/CRITICAL with unfixable findings ignored, and the
 repository itself scans clean apart from the local `.env`, which never travels in the upload.
 
+### Live run 15 (2026-11-06, 05:04–05:21 UTC, workflow run 42166244542, run 71f56e32): five stages passed at the first attempt; the image stage's buildspec was not valid YAML
+
+Started by the push of ffc3bbd after a one-call probe of the OpenAI key. Questions answered at
+05:07:11, nine generated stages and the suite (234 s) accepted, autopilot approved at 05:13:14
+(confidence 0.98), provisioning and injection applied. `build` passed at 05:14:42,
+`integration_test`, `sca`, and `test` at 05:16:22, `scanners` at 05:17:14, all at the first
+attempt. `build_image` failed twice at CodeBuild's DOWNLOAD_SOURCE phase ("YAML_FILE_ERROR: did
+not find expected '-' indicator at line 27"): the worker's buildspec called the container
+contract correctly but carried a shell quote escape (`'\''`) inside a YAML single-quoted scalar,
+which YAML does not allow. Jev escalated at 05:18:42; the orchestrator cancelled the idle workflow
+job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Questions answered by the profile | 05:07:11 |
+| Suite finished (234 s); autopilot approved at 0.98 | 05:13:14 |
+| `build` passed | 05:14:42 |
+| `integration_test`, `sca`, `test` passed | 05:16:22 |
+| `scanners` passed | 05:17:14 |
+| `build_image` rejected by CodeBuild twice; Jev escalated | 05:17:40 / 05:18:08 / 05:18:42 |
+
+What went wrong, and the fix:
+
+- Nothing parsed the YAML artifacts before they were approved; a buildspec, workflow, Cloud Build,
+  Azure Pipelines, Compose, or CloudFormation file that does not parse is now a policy error
+  (`yaml.invalid`, with the parser's line, in both policy copies; CloudFormation's own tags are
+  accepted), so Jev sends it back for a revision before approval and the generation prompt's rule
+  list says how to quote. On CodeBuild, a floored stage (container, deploy, plan, smoke, dast) whose
+  buildspec still does not parse is replaced by the orchestrator's skeleton with the contract
+  call, so the stage runs its contract whatever the model wrote.
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and seven CodeBuild builds (five passed, two rejected before running). The GitHub job was
+cancelled at 05:21.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

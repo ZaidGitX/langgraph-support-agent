@@ -113,7 +113,8 @@ RULES: list[tuple[str, str, str, str, tuple[str, ...]]] = [
 ]
 
 CODE_RULE_IDS = ("trigger.not_dispatch", "trigger.missing_dispatch", "perms.missing", "secret.unknown_name",
-                 "shell.no_strict", "size.too_large", "path.outside", "path.workflow_name")
+                 "shell.no_strict", "size.too_large", "path.outside", "path.workflow_name",
+                 "yaml.invalid")  # the orchestrator parses every YAML artifact (live run 15); hooks run without PyYAML
 
 ASK_PATTERNS: list[tuple[str, str]] = [
     ("cloud.aws_mutate", r"\baws\s+(codebuild\s+start-build|ecs\s+(update|create|run)-\S+|ecr\s+(create|put|batch-delete)\S*|cloudformation\s+(create|update|deploy)\S*|s3\s+(cp|sync|mb)\b|lambda\s+(create|update)\S*|iam\s+(create|put|attach)\S*|sts\s+assume-role|logs\s+(create|put)\S*)"),

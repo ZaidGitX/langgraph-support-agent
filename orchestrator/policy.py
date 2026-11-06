@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import re
 
+import yaml
+
 from . import credentials
 from .schemas import ArtifactSet, GeneratedArtifact, PolicyFinding, PolicyResult
 
@@ -102,8 +104,41 @@ RULES: list[tuple[str, str, str, str, tuple[str, ...]]] = [
 
 CODE_RULE_IDS = (
     "trigger.not_dispatch", "trigger.missing_dispatch", "perms.missing", "secret.unknown_name",
-    "shell.no_strict", "size.too_large", "path.outside", "path.workflow_name",
+    "shell.no_strict", "size.too_large", "path.outside", "path.workflow_name", "yaml.invalid",
 )
+# Kinds whose content a platform parses as YAML before it runs anything. Live run 15's build_image
+# buildspec carried a shell quote escape ('\'') inside a YAML single-quoted scalar; CodeBuild
+# rejected it at DOWNLOAD_SOURCE twice and the run escalated without a single command running.
+YAML_KINDS = ("buildspec", "github_workflow", "cloudbuild", "azure_pipeline", "compose", "cloudformation")
+
+
+class _AnyTagLoader(yaml.SafeLoader):
+    """SafeLoader that accepts the custom tags of CloudFormation (!Sub, !Ref, !If, !GetAtt)."""
+
+
+def _any_tag(loader, _suffix, node):
+    if isinstance(node, yaml.ScalarNode):
+        return loader.construct_scalar(node)
+    if isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    return loader.construct_mapping(node)
+
+
+_AnyTagLoader.add_multi_constructor("!", _any_tag)
+
+
+def yaml_findings(text: str, kind: str) -> list[PolicyFinding]:
+    """One error when a YAML artifact does not parse, with the parser's line."""
+    if kind not in YAML_KINDS:
+        return []
+    try:
+        yaml.load(text, Loader=_AnyTagLoader)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        line = (mark.line + 1) if mark is not None else 1
+        problem = getattr(exc, "problem", None) or str(exc).splitlines()[0]
+        return [_finding("yaml.invalid", "error", f"the file is not valid YAML: {problem}", line)]
+    return []
 CASE_SENSITIVE_RULES = {"secret.assignment", "secret.literal"}
 # By-reference bindings a platform needs: Jenkins credentials('NAME'), CodeBuild secrets-manager
 # "<secret-id>:<KEY>" and parameter-store "/path" references, Azure $(NAME). None is a value.
@@ -246,6 +281,7 @@ def check_text(text: str, *, kind: str = "shell", path: str = "") -> PolicyResul
         head = "\n".join(lines[:5])
         if "set -euo pipefail" not in head and "set -eu" not in head:
             findings.append(_finding("shell.no_strict", "warn", "script does not start with set -euo pipefail", 1))
+    findings.extend(yaml_findings(text, kind))
     if len(text.encode("utf-8")) > MAX_ARTIFACT_BYTES:
         findings.append(_finding("size.too_large", "error", "artifact is over 32 KB", 1))
     return PolicyResult(ok=not any(item.severity == "error" for item in findings), findings=findings)
@@ -378,6 +414,7 @@ def rules_summary() -> list[str]:
             "size.too_large (error): an artifact is at most 32 KB",
             f"path.outside (error): artifact paths are relative and start with one of {ALLOWED_PATH_PREFIXES}",
             "path.workflow_name (error): generated workflows are named .github/workflows/gen-<stage>.yml",
+            "yaml.invalid (error): a buildspec, workflow, Cloud Build, Azure Pipelines, Compose, or CloudFormation file parses as YAML (a shell quote inside a single-quoted YAML scalar is written as two quotes, never as a backslash escape)",
         ]
     )
     return lines

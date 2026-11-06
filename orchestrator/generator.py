@@ -323,15 +323,18 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
     strip = (*_FLOOR_STRIP.get(key, ()), _OWN_SCRIPT)
     specs = [item for item in artifacts if item.kind == "buildspec"]
     others = [item for item in artifacts if item.kind != "buildspec"]
+    environment = dict(stage.get("environment") or {})
     if not specs:
-        environment = dict(stage.get("environment") or {})
-        skeleton = templates.render_template("buildspec", stage, environment, runner="aws_codebuild", run_id="", placeholders=[])
-        skeleton = re.sub(r'^(\s*)- echo "stage [^"]* placeholder"[ \t]*$', lambda m: f"{m.group(1)}- {command}", skeleton, flags=re.MULTILINE)
         specs = [GeneratedArtifact(path=templates.artifact_path("buildspec", str(stage.get("name")), environment), kind="buildspec",
-                                   purpose=f"orchestrator floor: {command}", content=skeleton, secrets_referenced=[])]
+                                   purpose=f"orchestrator floor: {command}", content=_skeleton_with(stage, environment, command), secrets_referenced=[])]
     fixed: list[GeneratedArtifact] = []
     for spec in specs:
         content = spec.content
+        if policy.yaml_findings(content, "buildspec"):
+            # CodeBuild rejects a buildspec that does not parse before any command runs (live run
+            # 15); the orchestrator's skeleton with the contract call replaces it.
+            fixed.append(spec.model_copy(update={"content": _skeleton_with(stage, environment, command), "purpose": f"{spec.purpose} (orchestrator floor: invalid YAML replaced by {command})".strip()}))
+            continue
         lowered = content.lower()
         placeholder = bool(_PLACEHOLDER_MARK.search(content))
         does_job = any(marker in lowered for marker in markers) or command in content
@@ -346,6 +349,12 @@ def platform_floor(artifacts: list[GeneratedArtifact], stage: dict) -> list[Gene
             spec = spec.model_copy(update={"content": content, "purpose": f"{spec.purpose} (orchestrator floor: {command})".strip()})
         fixed.append(spec)
     return others + fixed
+
+
+def _skeleton_with(stage: dict, environment: dict, command: str) -> str:
+    """The orchestrator's buildspec skeleton with the contract call in place of the placeholder."""
+    skeleton = templates.render_template("buildspec", stage, environment, runner="aws_codebuild", run_id="", placeholders=[])
+    return re.sub(r'^(\s*)- echo "stage [^"]* placeholder"[ \t]*$', lambda m: f"{m.group(1)}- {command}", skeleton, flags=re.MULTILINE)
 
 
 def _drop_commands(content: str, patterns: tuple) -> str:
