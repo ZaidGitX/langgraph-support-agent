@@ -320,3 +320,14 @@ tooling, and the base RUN upgrades Debian packages to the current fixes. Verify 
 change the way the contract scans: build with `WITH_CLOUD_CLIS=0`, trivy 0.76.2
 `--scanners vuln --ignore-unfixed --severity HIGH,CRITICAL`, then boot it as the task would.
 Tests: `tests/test_run24_runtime_image.py`.
+
+**Live run 25 (2026-11-07): the first clean run.** Push 945c2a0, workflow 42338935411, run
+d44ee711. Autopilot approved at 1.00; all ten stages passed at the first attempt from the
+orchestrator's skeletons and contracts (build, scanners, test, integration_test, build_image,
+container_scan, deploy_dev, post_deploy_smoke, dast, uat); the dev stack, cluster, and service
+were created and the task served `/status`; the person signed off UAT in the dashboard; the
+report's status is `passed`. The report is kept at `docs/live-runs/run25-report.md`; the runbook
+has the timeline. What proved decisive across runs 9 to 25: on AWS the model shapes the plan and
+the DAG only; the project document, the stack, every contract script, and every buildspec are the
+orchestrator's, the contracts carry the run's names from the host, and the deployed image carries
+only the application.

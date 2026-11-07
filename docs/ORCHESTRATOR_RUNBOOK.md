@@ -1035,6 +1035,48 @@ Nothing was deployed; the writes were the source upload, the project update, the
 values, and seven CodeBuild builds (five passed, two failed). The account holds the images, the
 service-linked role, and no stack.
 
+### Live run 25 (2026-11-07, 04:32–05:20 UTC, workflow run 42338935411, run d44ee711): the first clean run, push to deployed dev service to human UAT sign-off
+
+Started by the push of 945c2a0 at 04:32:56 after a one-call probe of the OpenAI key. Questions
+answered by the profile at 04:36:17, the suite written in about four minutes, autopilot approved at
+04:41:37 (confidence 1.00), provisioning and injection applied (five names). Then every stage at its
+first attempt, each from the orchestrator's skeleton calling its contract: `build` 04:44:05, `test`
+and `scanners` 04:46, `integration_test` 04:49:02, `build_image` 04:51:55, `container_scan` 04:54:18
+(the slimmer image scanned clean), `deploy_dev` 04:58:02 (stack `langgraph-support-app-dev`
+CREATE_COMPLETE, the ECS service at steady state, no task stopped, the contract's `/status` probe
+answered), `post_deploy_smoke` 04:59:53, `dast` 05:02:26 (ZAP baseline against the public URL). The
+UAT gate opened at 05:02:29 and stayed human; the person signed off in the dashboard at 05:19:33;
+the report was written with status `passed` at 05:20:01 and the results were viewed. The deployed
+app answered at `http://98.82.28.19:8000` (`/status` JSON, `GET /` the frontend). The orchestrator's
+own report is in `docs/live-runs/run25-report.md`.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of 945c2a0; workflow started | 04:32:56 |
+| Questions answered by the profile | 04:36:17 |
+| Suite done; autopilot approved at 1.00 | 04:41:37 |
+| `build` passed | 04:44:05 |
+| `test`, `scanners` passed | 04:46:28, 04:46:39 |
+| `integration_test` passed | 04:49:02 |
+| `build_image` passed | 04:51:55 |
+| `container_scan` passed | 04:54:18 |
+| `deploy_dev` passed | 04:58:02 |
+| `post_deploy_smoke` passed | 04:59:53 |
+| `dast` passed | 05:02:26 |
+| UAT gate opened; signed off by the person | 05:02:29; 05:19:33 |
+| Report `passed`; results viewed | 05:20:01 |
+
+What made the difference, compared with runs 9 to 24: the model shapes the plan and the DAG, and on
+AWS nothing else. The project document, the stack, every contract script, and every buildspec are
+the orchestrator's; the contracts carry the run's names from the host; the deployed image carries
+only the application. Twenty-five runs, each failing on the first path never reached before, left a
+deterministic path from a push to a deployed service.
+
+Account state after the run: the dev stack, cluster, service, and one Fargate task (billing until
+teardown), the images in ECR, the five secrets, the service-linked role, the bucket, the project,
+and the CodeBuild role. Teardown: `scripts/aws_teardown.sh --apply` removes the run's objects and
+the stack; `--all` also the bootstrap resources and the secrets.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

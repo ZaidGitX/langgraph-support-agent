@@ -158,7 +158,7 @@ numbering. Specs: `references/13-…` to `16-…`.
 | 9 | Platform suites (Astra translates the fixed workflows per platform), `ORCHESTRATOR_DISPATCH=platform` for fixed stages, `provision` and `inject_secrets` per provider | suite tests per platform; provisioning and injection argv in plan mode |
 | 10 | `orchestrator.yaml` autopilot profile (questions and approval auto-answered; UAT stays human), push webhook with HMAC, remote poller, workspaces, run queue | autopilot and webhook tests pass; a second push waits |
 | 11 | Live dashboard: streamed node updates, events and SSE endpoints, stepper, timeline, run board, tabs | mid-run tiles flip to running in a test; SSR smoke; `npm run build` |
-| 12 | AWS live proof with the user's account (carded first), rehearsal scenarios, docs, skill | `scripts/rehearse_demo.py` ALL PASS; runbook records the live run |
+| 12 | AWS live proof with the user's account (carded first), rehearsal scenarios, docs, skill | `scripts/rehearse_demo.py` ALL PASS; runbook records the live run. Done 2026-11-07: live run 25 passed every stage from a push to a deployed ECS Fargate dev service and a human UAT sign-off (`docs/live-runs/run25-report.md`; `references/14-suites-provisioning-injection.md` has the lessons of runs 9 to 25) |
 
 `scripts/sprint3_progress.py` infers the current phase from the files and tests present. If
 the user names a phase or component in `$ARGUMENTS`, start there but verify earlier phases'
