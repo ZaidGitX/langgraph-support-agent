@@ -311,3 +311,12 @@ verify, container; a scan stage with a provider the scanners contract knows runs
 `SCAN_TOOLS="<provider>" bash ci/scanners.sh` via `floor_command`; image stages keep theirs).
 The model's scripts stay as evidence and do not run on CodeBuild. Tests:
 `tests/test_run23_contract_only_everywhere.py`.
+
+**Live run 24 (2026-11-06).** Every CodeBuild stage ran its contract from the skeleton and five
+passed at the first attempt; the image scan failed the deployed image on a fixable HIGH finding
+published that day inside the GitHub CLI binary. Rules now: the Dockerfile installs `gh` only in
+the `WITH_CLOUD_CLIS=1` block (the orchestrator image), so the deployed image carries no CI
+tooling, and the base RUN upgrades Debian packages to the current fixes. Verify a Dockerfile
+change the way the contract scans: build with `WITH_CLOUD_CLIS=0`, trivy 0.76.2
+`--scanners vuln --ignore-unfixed --severity HIGH,CRITICAL`, then boot it as the task would.
+Tests: `tests/test_run24_runtime_image.py`.

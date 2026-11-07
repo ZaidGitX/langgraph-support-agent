@@ -993,6 +993,48 @@ What went wrong, and the fix:
 Nothing was deployed; the writes were the source upload, the project update, the three secret
 values, and two CodeBuild builds (both failed after a passing contract).
 
+### Live run 24 (2026-11-06, 23:26–23:54 UTC, workflow run 42311910506, run 357f104a): every stage ran its contract from the skeleton; the image scan failed the deployed image on a finding published that day
+
+Started by the push of a5ebe4a at 23:26:25 after a one-call probe of the OpenAI key. Questions
+answered by the profile at 23:30:15, the suite written from 23:31:34, autopilot approved at
+23:36:31 (confidence 1.00), provisioning and injection applied. With every CodeBuild buildspec
+the orchestrator's skeleton, `build`, `scanners`, `test`, `integration_test` (now the test
+contract), and `build_image` passed at their first attempt. `container_scan` failed twice
+(23:50, 23:51): the image-scan contract found one fixable HIGH vulnerability in the deployed
+image, `usr/bin/gh golang.org/x/net v0.60.0 -> 0.62.0 HIGH CVE-2026-78661`, inside the GitHub
+CLI binary. The same image had scanned clean at 10:31 UTC in run 22; the advisory is from the
+hours between. Jev escalated at 23:51:59; the orchestrator session cancelled the idle workflow
+job.
+
+| Moment | Time (UTC) |
+| --- | --- |
+| Push of a5ebe4a; workflow started | 23:26:25 |
+| Questions answered by the profile | 23:30:15 |
+| Suite done; autopilot approved at 1.00 | 23:36:31 |
+| `build` passed | 23:38:48 |
+| `scanners`, `test`, `integration_test` passed | 23:43:45 |
+| `build_image` passed | 23:46:50 |
+| `container_scan` failed (one fixable HIGH finding in gh) | 23:50 |
+| retry failed the same way; Jev escalated | 23:51:59 |
+
+What went wrong, and the fix:
+
+- The gate did its job on a true finding; the defect is in the deployed image's contents. The
+  support app never runs the GitHub CLI; the orchestrator image does (GitHub dispatch, device-code
+  login). `gh` and its apt repository now install only inside the `WITH_CLOUD_CLIS=1` block, so
+  the deployed image (`WITH_CLOUD_CLIS=0`) carries no CI tooling at all. The base image's Debian
+  packages are brought to the current security fixes at build time (`apt-get upgrade`), so a fix
+  published after the base image was cut does not fail the scan either. Tests:
+  `tests/test_run24_runtime_image.py`.
+- Verified from the laptop before the next run: the deployed image rebuilt exactly as CodeBuild
+  builds it (`WITH_CLOUD_CLIS=0`) has no `gh`, scans clean with the contract's own trivy
+  invocation (0.76.2, `--scanners vuln --ignore-unfixed --severity HIGH,CRITICAL`: zero findings),
+  and boots as the task would (non-root, `/status`, `/api/support/status`, `GET /` all 200).
+
+Nothing was deployed; the writes were the source upload, the project update, the three secret
+values, and seven CodeBuild builds (five passed, two failed). The account holds the images, the
+service-linked role, and no stack.
+
 ## Rehearsal (offline, before the live run)
 
 ```bash

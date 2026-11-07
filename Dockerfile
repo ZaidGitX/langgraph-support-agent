@@ -10,24 +10,27 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# The base image's Debian packages are brought to the current security fixes at build time, so a
+# fix published after the base image was cut does not fail the image scan (fixable findings fail it).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
-    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        > /etc/apt/sources.list.d/github-cli.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends gh \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Sprint 4: the orchestrator host carries the platform CLIs (aws, az, gcloud, kubectl) so a
+# Sprint 4: the orchestrator host carries the platform CLIs (gh, aws, az, gcloud, kubectl) so a
 # run is never constrained by what is installed on a person's machine. Build with
-# --build-arg WITH_CLOUD_CLIS=0 for a smaller image that keeps every cloud runner in plan mode.
+# --build-arg WITH_CLOUD_CLIS=0 for the deployed support app: a smaller image that keeps every
+# cloud runner in plan mode and carries no CI tooling (live run 24: the image scan failed the
+# deployed image on a fresh HIGH finding inside the gh binary, a tool the support app never runs).
 ARG WITH_CLOUD_CLIS=1
 RUN if [ "$WITH_CLOUD_CLIS" = "1" ]; then \
       set -eux; \
       apt-get update; \
-      apt-get install -y --no-install-recommends unzip apt-transport-https lsb-release; \
+      apt-get install -y --no-install-recommends gnupg unzip apt-transport-https lsb-release; \
+      curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg; \
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list; \
+      apt-get update; \
+      apt-get install -y --no-install-recommends gh; \
       arch="$(uname -m)"; \
       curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${arch}.zip" -o /tmp/awscliv2.zip; \
       unzip -q /tmp/awscliv2.zip -d /tmp; /tmp/aws/install; rm -rf /tmp/aws /tmp/awscliv2.zip; \
