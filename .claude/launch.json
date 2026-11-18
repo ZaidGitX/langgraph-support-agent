@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sel-nexus-backend",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/zahmed1/Desktop/DevOps-Sel-Nexus/devops-sel-nexus/devsecops-backend && export PATH=/opt/anaconda3/envs/DevOps-Sel-Nexus-backend/bin:/opt/homebrew/bin:/usr/local/bin:$PATH && exec python -m uvicorn main:app --port 8000"
+      ],
+      "port": 8000
+    },
+    {
+      "name": "sel-nexus-frontend",
+      "runtimeExecutable": "/bin/zsh",
+      "runtimeArgs": [
+        "-c",
+        "cd /Users/zahmed1/Desktop/DevOps-Sel-Nexus/devops-sel-nexus/devsecops-frontend && export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH && exec npm run dev"
+      ],
+      "port": 5173
+    }
+  ]
+}

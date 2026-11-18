@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevOps SEL Nexus – Documentation</title>
+<style>
+:root{--bg:#f7f8fa;--panel:#fff;--text:#1d2330;--muted:#5d6678;--line:#e2e6ee;--accent:#2f6fed;--accent-soft:#e8effd;--ok:#1f7a4d;--warn:#9a6700;--bad:#b3261e;--code:#f0f2f6;--side:#fff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--panel:#171b23;--text:#e6e9ef;--muted:#9aa4b5;--line:#272d39;--accent:#6c9bff;--accent-soft:#1c2740;--ok:#4cc38a;--warn:#e0a93a;--bad:#ff7b72;--code:#1f2430;--side:#13171e}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;font:15px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text)}
+.layout{display:flex;min-height:100vh}
+nav{position:sticky;top:0;align-self:flex-start;height:100vh;width:270px;flex:none;overflow:auto;background:var(--side);border-right:1px solid var(--line);padding:20px 16px}
+nav h1{font-size:16px;margin:0 0 4px}
+nav p{margin:0 0 16px;color:var(--muted);font-size:12px}
+nav a{display:block;padding:5px 10px;border-radius:6px;color:var(--muted);text-decoration:none;font-size:13.5px}
+nav a:hover{background:var(--accent-soft);color:var(--accent)}
+nav .grp{margin:14px 0 4px 10px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);opacity:.8}
+main{flex:1;min-width:0;max-width:1060px;padding:32px 40px 80px}
+section{margin-bottom:56px}
+h2{font-size:24px;margin:0 0 6px;padding-top:8px}
+h3{font-size:17px;margin:28px 0 8px}
+h4{font-size:14px;margin:18px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+p.lead{color:var(--muted);margin:0 0 18px}
+a{color:var(--accent)}
+code{background:var(--code);padding:1px 5px;border-radius:4px;font:12.5px ui-monospace,Consolas,monospace}
+pre{background:var(--code);padding:14px 16px;border-radius:8px;overflow:auto;font:12.5px/1.55 ui-monospace,Consolas,monospace;border:1px solid var(--line)}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:10px 0 18px;font-size:13.5px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:block;overflow-x:auto}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{background:var(--accent-soft);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:12px 0 18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card b{display:block;margin-bottom:4px}
+.card span{color:var(--muted);font-size:13.5px}
+.note,.warn{border-left:4px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:14px 0;font-size:14px}
+.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,var(--panel))}
+.tag{display:inline-block;font-size:11.5px;padding:1px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-right:4px;white-space:nowrap}
+.tag.hitl{background:color-mix(in srgb,var(--warn) 18%,var(--panel));color:var(--warn)}
+.tag.llm{background:color-mix(in srgb,var(--ok) 16%,var(--panel));color:var(--ok)}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0 18px}
+.flow .n{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px}
+.flow .n.h{border-color:var(--warn)}
+.flow .a{color:var(--muted)}
+details{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 14px;margin:8px 0}
+summary{cursor:pointer;font-weight:600}
+footer{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);padding-top:14px}
+@media (max-width:860px){.layout{display:block}nav{position:static;height:auto;width:auto;border-right:0;border-bottom:1px solid var(--line)}main{padding:20px 16px 60px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <h1>DevOps SEL Nexus</h1>
+  <p>Agentic CI/CD · documentation</p>
+  <div class="grp">Overview</div>
+  <a href="architecture.html"><b>Architecture (full) →</b></a>
+  <a href="api-contracts.html"><b>API contracts →</b></a>
+  <a href="#overview">What it is</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#stack">Technology stack</a>
+  <div class="grp">Pipeline</div>
+  <a href="#modes">Quick vs Guided</a>
+  <a href="#flow">Run flow &amp; stages</a>
+  <a href="#hitl">Human-in-the-loop</a>
+  <a href="#agents">Agents</a>
+  <a href="#state">State &amp; graphs</a>
+  <a href="#gates">Quality gates</a>
+  <a href="#selfheal">Self-healing</a>
+  <div class="grp">Components</div>
+  <a href="#scanners">Security scanners</a>
+  <a href="#mcp">MCP servers</a>
+  <a href="#llm">LLM providers</a>
+  <a href="#storage">Storage &amp; artifacts</a>
+  <a href="#frontend">Frontend</a>
+  <a href="#auth">Sign-in &amp; roles</a>
+  <a href="#tools">Tool check &amp; install</a>
+  <a href="#spec">Pipeline rules &amp; skills</a>
+  <a href="#sonarqube">SonarQube</a>
+  <a href="#environments">Environments &amp; Prod</a>
+  <a href="#queue">sel-nexus queue</a>
+  <div class="grp">Reference</div>
+  <a href="#api">REST API</a>
+  <a href="#config">Configuration</a>
+  <a href="#structure">Folder structure</a>
+  <a href="#run">Install &amp; run</a>
+  <a href="#deploy">Deploy &amp; operate</a>
+  <a href="#security">Security notes</a>
+  <a href="#issues">Known issues</a>
+</nav>
+
+<main>
+
+<section id="overview">
+  <h2>What it is</h2>
+  <p class="lead">An agentic CI/CD and DevSecOps platform. Point it at a GitHub repository or a local folder and a team of LLM-assisted agents clones it, works out the tech stack, scans it, builds it, tests it, containerises it, deploys it, tests the running app, asks a human for approval and produces a PDF report. All of it runs on the local machine.</p>
+  <div class="cards">
+    <div class="card"><b>devsecops-backend</b><span>FastAPI + LangGraph agents + two MCP servers (scanner :8051, docker :8052). Python 3.12/3.13.</span></div>
+    <div class="card"><b>devsecops-frontend</b><span>React 19 + Vite + Tailwind v4 + shadcn/ui + Zustand. Live view of every run over SSE.</span></div>
+    <div class="card"><b>Deterministic thresholds</b><span>Green / orange / red per stage from fixed thresholds (Admin › Pipeline defaults, factory values in <code>.env</code>). The LLM never decides.</span></div>
+    <div class="card"><b>Works without an LLM</b><span>Choose provider <code>none</code> and every agent falls back to rules.</span></div>
+  </div>
+  <p>The project was formerly called CIP. The folders are now <code>devsecops-backend</code> and <code>devsecops-frontend</code>, and settings accept the new <code>DEVSECOPS_*</code> names as well as the old <code>CIP_*</code> / <code>cip_*</code> ones. A few identifiers keep the old prefix on purpose: UAT container names (<code>cip-uat-…</code>), the <code>.cip/</code> report folder inside scanned code, and the <code>~/.cip/tools</code> folder, which is still used when it exists.</p>
+</section>
+
+<section id="architecture">
+  <h2>Architecture</h2>
+  <p class="note">The full architecture, with diagrams of the components, the run lifecycle, the run states and the queue flow: <a href="architecture.html">architecture.html</a>.</p>
+  <p class="lead">Browser → REST/SSE → FastAPI → LangGraph → agents → tools (shell, Docker, scanners, LLM).</p>
+<pre><code>┌──────────────┐  /api (Vite proxy)   ┌──────────────────────────── devsecops-backend :8000 ───────────────────────────┐
+│  devsecops-frontend     │ ───────────────────► │ routers  →  PipelineService  →  LangGraph (Quick | Guided)           │
+│  React :5173 │ ◄── SSE events ───── │                                   │                                  │
+└──────────────┘                      │            agents (checkout, planner, security, build, test, …)      │
+                                      │              │            │             │                            │
+                                      │         LLM provider   WorkspaceTools   MCP client (SSE, with        │
+                                      │      (Azure/OpenAI/    (list/read/run/   in-process fallback)        │
+                                      │       Claude/Gemini)    write/install)        │            │         │
+                                      └──────────────────────────────────────────────┼────────────┼─────────┘
+                                                                          ┌──────────▼───┐  ┌─────▼────────┐
+                                                                          │ Scanner MCP  │  │ Docker MCP   │
+                                                                          │   :8051      │  │   :8052      │
+                                                                          └──────────────┘  └──────────────┘
+Storage: PostgreSQL (database_url) — or, without it, data/runs.json · data/settings.json · stream_events.db (SQLite)
+        runs/&lt;task_id&gt;/ (workspace, PDF, reports) on disk · every API call is signed-in (core/auth.py) and audited</code></pre>
+  <h3>How the pieces cooperate</h3>
+  <ol>
+    <li><code>POST /pipelines/start</code> creates a run document, then launches the graph as a background <code>asyncio</code> task (<code>PipelineService.start</code>).</li>
+    <li>Each agent streams events (<code>START / PROGRESS / COMMAND / END / ERROR / SKIPPED</code>) into the event log (SQLite, or PostgreSQL when <code>database_url</code> is set); <code>GET /pipelines/{id}/stream</code> serves them as server-sent events.</li>
+    <li>When an agent calls LangGraph <code>interrupt()</code> the graph pauses; the run is saved as <code>WAITING_INPUT</code> or <code>WAITING_APPROVAL</code> with a <code>pending</code> question. The UI shows a card; the answer is posted and the graph resumes with <code>Command(resume=…)</code>. With PostgreSQL the paused state is a durable checkpoint, so a run that waits for a person survives an API restart.</li>
+    <li>When the graph ends, the final state is stored (the <code>runs</code> table, or <code>data/runs.json</code>), and Docker images and heavy folders are cleaned up. At most <code>max_concurrent_runs</code> runs execute at once.</li>
+  </ol>
+</section>
+
+<section id="stack">
+  <h2>Technology stack</h2>
+  <table>
+    <tr><th>Layer</th><th>Technology</th></tr>
+    <tr><td>API</td><td>FastAPI, Uvicorn, Pydantic v2, python-dotenv, httpx, aiosqlite, PyYAML</td></tr>
+    <tr><td>Database (optional)</td><td>PostgreSQL 16 through psycopg 3 (pool on its own event loop), SQL migrations, <code>langgraph-checkpoint-postgres</code></td></tr>
+    <tr><td>Agents</td><td>LangGraph (0.6.x) with a <code>MemorySaver</code> checkpointer, or <code>AsyncPostgresSaver</code> when <code>database_url</code> is set; LangChain core, structured output</td></tr>
+    <tr><td>LLMs</td><td>langchain-openai (Azure OpenAI / OpenAI), langchain-anthropic, langchain-google-genai</td></tr>
+    <tr><td>Tool protocol</td><td>MCP 1.x (FastMCP server, SSE client)</td></tr>
+    <tr><td>Browser tests</td><td>Selenium 4 + headless Chrome (Selenium Manager fetches the driver)</td></tr>
+    <tr><td>Reports</td><td>reportlab (PDF), self-contained HTML, JUnit XML</td></tr>
+    <tr><td>Secrets &amp; sign-in</td><td>cryptography (Fernet) for saved credentials; PBKDF2-SHA256 passwords and HS256 tokens from the standard library</td></tr>
+    <tr><td>Scanners</td><td>Semgrep, Bandit, CodeQL, Ruff, ESLint, Biome, Trivy, OSV-Scanner, pip-audit, npm audit, Snyk, Gitleaks, TruffleHog, SonarQube, GitHub alerts</td></tr>
+    <tr><td>Frontend</td><td>React 19, Vite 7, Tailwind CSS 4, Radix UI / shadcn, Zustand 5, React Router 7, axios, react-hot-toast, lucide-react</td></tr>
+    <tr><td>Runtime deps</td><td>Git, Docker, Node.js, Chrome (for UI tests). On a server: Caddy and systemd (see Deploy &amp; operate)</td></tr>
+  </table>
+</section>
+
+<section id="modes">
+  <h2>Quick run vs Guided DevOps flow</h2>
+  <p class="lead">The start form has a mode switch. The mode is stored on the run (<code>mode</code>) and selects the graph.</p>
+  <table>
+    <tr><th></th><th>Quick run</th><th>Guided DevOps flow (default)</th></tr>
+    <tr><td>Graph</td><td><code>pipeline_graph_builder.py</code></td><td><code>guided_graph_builder.py</code></td></tr>
+    <tr><td>Stage selection</td><td>Planner decides from the repo and run options</td><td>Questionnaire answers + code → <em>Pipeline Designer</em></td></tr>
+    <tr><td>Pauses</td><td>Security review only</td><td>Questionnaire, security review (only when red), Release review before UAT (always)</td></tr>
+    <tr><td>Stages</td><td>scan → review → build/test/package → deploy → functional → report</td><td>Adds release, UI tests, publish tests, approval, UAT deploy</td></tr>
+    <tr><td>Self-healing</td><td>Build, test setup, scanners (1 attempt)</td><td>Same, up to 3 attempts, plus image CVE hardening and dev-deploy repair</td></tr>
+    <tr><td>Recursion limit</td><td>60</td><td>120</td></tr>
+  </table>
+</section>
+
+<section id="flow">
+  <h2>Run flow &amp; stages</h2>
+  <h3>Guided flow</h3>
+  <div class="flow">
+    <span class="n">checkout</span><span class="a">→</span><span class="n">planner</span><span class="a">→</span><span class="n h">questionnaire ⏸</span><span class="a">→</span><span class="n">pipeline designer</span><span class="a">→</span>
+    <span class="n">security scan</span><span class="a">→</span><span class="n h">security review ⏸</span><span class="a">→</span><span class="n">component lanes (parallel)</span><span class="a">→</span>
+    <span class="n">release</span><span class="a">→</span><span class="n">deploy dev</span><span class="a">→</span><span class="n">functional tests</span><span class="a">→</span><span class="n">UI tests</span><span class="a">→</span><span class="n">publish tests</span><span class="a">→</span>
+    <span class="n h">Release review ⏸</span><span class="a">→</span><span class="n">deploy UAT</span><span class="a">→</span><span class="n">UAT sanity test</span><span class="a">→</span><span class="n">final report</span>
+  </div>
+  <h3>Component lane (one per component, run in parallel with LangGraph <code>Send</code>)</h3>
+  <div class="flow"><span class="n">build</span><span class="a">→</span><span class="n">unit tests</span><span class="a">→</span><span class="n">package + image + image scan</span></div>
+  <p>Unit tests are skipped when <code>run_tests</code> is off; the lane then goes straight from build to the container step.</p>
+
+  <h3>Stage catalogue (<code>config/devops_flow.yml</code>)</h3>
+  <table>
+    <tr><th>Stage id</th><th>Node</th><th>Purpose</th><th>Tools / MCP</th></tr>
+    <tr><td>scan</td><td>security_agent</td><td>SAST, SCA, secrets, misconfigurations</td><td>All scanners · Scanner MCP</td></tr>
+    <tr><td>security_review</td><td>security_review</td><td>Human reviews the scan reports</td><td>Gate thresholds, human approval</td></tr>
+    <tr><td>build_test_package</td><td>component_lanes</td><td>Build, unit-test, package, containerise each component</td><td>Toolchain installer, npm/pip/maven/gradle/go, docker build, trivy image · Docker + Scanner MCP</td></tr>
+    <tr><td>release</td><td>release_agent</td><td>Publish image under a fixed tag</td><td>docker tag/push, registry:2 · Docker MCP</td></tr>
+    <tr><td>deploy_dev</td><td>deploy_agent</td><td>Run images on a private network</td><td>docker run, HTTP health check · Docker MCP</td></tr>
+    <tr><td>functional_tests</td><td>functional_test_agent</td><td>Exercise the running app</td><td>HTTP crawler, OpenAPI GET checks, LLM journeys</td></tr>
+    <tr><td>ui_tests</td><td>ui_test_agent</td><td>Real-browser checks with screenshots</td><td>Selenium, headless Chrome</td></tr>
+    <tr><td>publish_tests</td><td>publish_tests_agent</td><td>One report of all test results</td><td>JUnit XML + HTML</td></tr>
+    <tr><td>approval</td><td>approval_gate</td><td>Release review: human decides whether to go to UAT (always when UAT runs)</td><td>Human review</td></tr>
+    <tr><td>sanity_uat</td><td>uat_deploy_agent</td><td>Start page + the paths that passed the functional tests answer below 500</td><td>Fails the run; the new version is removed / rolled back</td></tr>
+    <tr><td>deploy_uat</td><td>uat_deploy_agent</td><td>Run in UAT (own network and ports)</td><td>docker run · Docker MCP</td></tr>
+    <tr><td>report</td><td>report_agent</td><td>Overall result, root cause, PDF</td><td>Gates, LLM explanation, PDF</td></tr>
+  </table>
+
+  <h3>Questionnaire – a review of the pipeline defaults</h3>
+  <p>The options are set under <b>Admin › Pipeline defaults</b>, in seven numbered sections (Run on, Security, Build, Release, Quality, Deploy, Agent) with the quality-gate thresholds of each section. When a guided run reaches the questionnaire, it shows those defaults as <b>Review pipeline settings</b>: every answer as text, the agent's reason (ⓘ), <b>Change</b> by exception, <b>Approve &amp; run</b>. An admin can <b>lock</b> a default: the run shows it but cannot change it, and the API keeps it. Options with <code>runs: false</code> are <em>coming soon</em>: shown on the Admin page, never selectable (the server refuses them). Unset questions are pre-filled from what discovery found (CI files, Dockerfiles, Kubernetes/Terraform files, test commands).</p>
+  <table>
+    <tr><th>Section</th><th>Id</th><th>Runs today</th><th>Coming soon</th></tr>
+    <tr><td>1. Run on</td><td>ci_platform</td><td>SEL Nexus Software Delivery Platform</td><td>GitLab CI, Jenkins, GitHub Actions, Azure DevOps, Bitbucket Pipelines, CircleCI</td></tr>
+    <tr><td>2. Security</td><td>sast_tool</td><td>Agent decides, Semgrep, Bandit, CodeQL, SonarQube</td><td>Snyk Code, Checkmarx, Fortify</td></tr>
+    <tr><td></td><td>sca_tool</td><td>Agent decides, Trivy, OSV-Scanner, Snyk Open Source, npm audit, pip-audit</td><td>OWASP Dependency-Check, Mend, Black Duck</td></tr>
+    <tr><td></td><td>secrets_tool</td><td>Agent decides, Gitleaks, TruffleHog</td><td>GitGuardian</td></tr>
+    <tr><td></td><td>quality_tool</td><td>Agent decides (Ruff / ESLint), SonarQube</td><td></td></tr>
+    <tr><td>3. Build</td><td>deploy_as</td><td>Container image, Package only</td><td></td></tr>
+    <tr><td>4. Release</td><td>registry (only for a container image)</td><td>SEL Nexus Container Registry, Do not release</td><td>Amazon ECR, Azure Container Registry, Google Artifact Registry, Docker Hub, GitHub Container Registry, JFrog Artifactory</td></tr>
+    <tr><td>5. Quality</td><td>tests</td><td>Unit, Integration, UI (browser)</td><td>Performance / load, Accessibility</td></tr>
+    <tr><td>6. Deploy</td><td>cloud, target</td><td>Follow Admin › Target environments: local machine or AWS EC2, Docker on the server</td><td>Azure, Google Cloud, Kubernetes, Amazon ECS</td></tr>
+    <tr><td></td><td>uat, prod</td><td>UAT on/off (always after a Release review); Prod only while it is switched on</td><td></td></tr>
+    <tr><td>7. Agent</td><td>self_heal_attempts</td><td>0–3, default 2</td><td></td></tr>
+  </table>
+</section>
+
+<section id="hitl">
+  <h2>Human-in-the-loop (HITL)</h2>
+  <p class="lead">Four pause points. Each calls LangGraph <code>interrupt()</code>, so scanners and builds never rerun on resume.</p>
+  <table>
+    <tr><th>Pause</th><th>Status</th><th>Endpoint to resume</th><th>Effect</th></tr>
+    <tr><td>Questionnaire</td><td><code>WAITING_INPUT</code></td><td><code>POST /pipelines/{id}/answers</code></td><td>Answers are validated against the questionnaire; unknown, coming-soon or locked answers fall back to the pre-filled value.</td></tr>
+    <tr><td>Security review</td><td><code>WAITING_APPROVAL</code></td><td><code>POST /pipelines/{id}/approval</code></td><td>Only when the security checks are red (above a threshold); comment required. Approve → continue (the run stays red). Reject → the run fails. Switch off with option <code>security_review: false</code>.</td></tr>
+    <tr><td>Release review (before UAT)</td><td><code>WAITING_APPROVAL</code></td><td><code>POST /pipelines/{id}/approval</code></td><td>Always when UAT runs; a pop-up with every stage's colour, the numbers and what happens next. Comment required to reject, and to approve while something is red. Rejection fails the run.</td></tr>
+    <tr><td>Change request for Prod</td><td><code>WAITING_APPROVAL</code></td><td><code>POST /change-requests/{cr}/decision</code> or <code>POST /pipelines/{id}/approval</code></td><td>Approver role. Approve → deploy to Prod with a sanity test and an automatic rollback. Reject (reason required) → Prod untouched and the run fails. Never approved by the queue's <code>auto_approve</code>.</td></tr>
+  </table>
+  <div class="warn"><b>Paused runs live in memory.</b> The checkpointer is <code>MemorySaver</code>. If the API restarts, any run that was <code>RUNNING</code> or waiting is marked <code>STOPPED</code> at start-up (<code>stop_unfinished_runs</code>).</div>
+</section>
+
+<section id="agents">
+  <h2>Agents</h2>
+  <p class="lead">Each agent is a class with <code>async run(state, config)</code> returning a partial state update and step records for the UI and reports. Friendly aliases are set as node metadata in the graph builders.</p>
+  <table>
+    <tr><th>Agent (alias)</th><th>What it does</th><th>Tools / uses</th></tr>
+    <tr><td><b>CheckoutAgent</b> (Source Controller)</td><td><code>git clone --depth 1</code> for GitHub / GitLab URLs and <code>org/repo</code>. For a private repository it uses the access token entered in the start form (or <code>github_token</code> / <code>gitlab_token</code> from <code>.env</code>), passed to git as an HTTP header through its environment and never stored; git never prompts, so a missing token fails at once. Or it copies a local folder (skips <code>.git</code>, <code>node_modules</code>, venvs, build output) and records git details and uncommitted changes.</td><td>git</td></tr>
+    <tr><td><b>PlannerAgent</b> (Tech-stack Analyst)</td><td>A deterministic rule plan from manifests (Node, Maven/Gradle, Python, Go, .NET, Ruby, PHP, Dockerfile-only, static sites). With an LLM it explores the repo with <code>list_files</code>/<code>read_file</code>, corrects commands, test runner, ports, <code>kind</code> (frontend / web-app / api / service / library / cli), and the app name. Detects a UI that a backend serves and merges them into one <em>web-app</em> component. Restores coverage flags the LLM drops.</td><td>list_files, read_file <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>QuestionnaireAgent</b> (DevOps Consultant)</td><td>Discovers CI files, Dockerfiles, k8s/Terraform, languages; pre-fills and asks the questionnaire; validates answers.</td><td>— <span class="tag hitl">pause</span></td></tr>
+    <tr><td><b>PipelineDesignerAgent</b> (Pipeline Architect)</td><td>Deterministic. Maps components + answers to the execution plan, the <code>spec</code> shown in the UI (including why a stage was skipped) and the run options.</td><td>none</td></tr>
+    <tr><td><b>SecurityAgent</b> (Security Engineer)</td><td>Installs missing scanners, runs up to 4 in parallel, heals broken ones, runs fallbacks, LLM triage of up to 25 critical/high findings, then computes the security gate.</td><td>Scanner MCP <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>SecurityReviewAgent</b> (Security Reviewer)</td><td>Shows gate checks, findings per severity and scanner, top 10 critical/high; waits for approve/reject.</td><td><span class="tag hitl">pause</span></td></tr>
+    <tr><td><b>BuildAgent</b> (Build Engineer)</td><td>Runs build commands per component; installs a missing JDK/Maven/Gradle/Node/Go; on failure the LLM investigates, fixes build files and retries.</td><td>run_command, read/write_file, install_toolchain <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>TestAgent</b> (Test Engineer)</td><td>Runs unit tests, parses JUnit/Jest/go reports and coverage into <code>TC-UT-nnn</code> cases. Repairs a broken test setup (rule-based pip/npm install first, then LLM). When no tests exist and an LLM is chosen it <strong>writes tests</strong>, marks them <em>AI-generated</em> and never edits application code.</td><td>same <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>ContainerAgent</b> (Release Engineer)</td><td>Packages, then builds an image from the repo Dockerfile, an LLM-written one, or a template (Python, JS/TS via nginx, Java, Go, static HTML). Scans the image with Trivy. In the guided flow, hardens the Dockerfile and rescans for CVEs.</td><td>Docker MCP + Scanner MCP <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>ReleaseAgent</b> (Release Engineer)</td><td>Starts <code>registry:2</code> on :5000 if needed and pushes each image as <code>localhost:5000/&lt;repo&gt;/&lt;component&gt;</code>; later stages run the pushed artifact.</td><td>Docker MCP</td></tr>
+    <tr><td><b>DeployAgent</b> (Platform Engineer)</td><td>One class, three environments (dev, <code>"uat"</code> → Test, <code>"prod"</code>). Local Docker: all images on one private network, HTTP health, an nginx gateway in front of frontend + backend. AWS EC2: the same over SSH with replace-and-rollback (see <a href="#environments">Environments &amp; Prod</a>).</td><td>Docker MCP / SSH <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>ChangeRequestAgent</b> / <b>ProdDeployAgent</b> (Change Manager / Platform Engineer)</td><td>Prod only: change request with evidence and risk, pause for an approver; deploy, sanity test, automatic rollback.</td><td>SSH</td></tr>
+    <tr><td><b>FunctionalTestAgent</b> (QA Engineer)</td><td>Crawls same-origin pages for error markers, reads OpenAPI and calls every parameter-less GET, runs LLM-proposed page/expected-text journeys.</td><td>httpx <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>UITestAgent</b> (UI Test Engineer)</td><td>Headless Chrome: page load, console errors, navigation, forms with sample data, LLM journeys; screenshot per check (<code>TC-UI-nnn.png</code>).</td><td>Selenium <span class="tag llm">LLM</span></td></tr>
+    <tr><td><b>PublishTestsAgent</b> (QA Lead)</td><td>Writes <code>junit.xml</code> and <code>test-report.html</code> combining all suites.</td><td>—</td></tr>
+    <tr><td><b>ApprovalGateAgent</b> (Reviewer)</td><td>Release review: app, commit, images, every stage with its colour and reason, findings, tests, image CVEs, next steps; always waits for a decision.</td><td><span class="tag hitl">pause</span></td></tr>
+    <tr><td><b>ReportAgent</b> (Release Manager)</td><td>Overall = <code>FAIL</code> (a step could not run, the run was stopped, or a human rejected), <code>INCOMPLETE</code> (a step was skipped) or <code>PASS</code>, plus <code>quality</code> green / orange / red. Checks above a threshold are listed in the root cause. Writes the PDF.</td><td>reportlab <span class="tag llm">LLM</span></td></tr>
+  </table>
+  <h3>Tool loop</h3>
+  <p><code>agents/tool_loop.py</code> binds tools to the LLM, executes the calls it makes, feeds back results (truncated to 12,000 characters) and stops at a final answer or <code>max_steps</code>. Every tool call is streamed to the UI. If the step limit is hit it returns notes so the next self-healing attempt can build on them.</p>
+  <h3>Workspace tools</h3>
+  <p>All paths are resolved inside the run's workspace; anything outside raises an error. Tools: <code>list_files</code>, <code>read_file</code>, <code>run_command</code>, <code>write_file</code>, <code>install_toolchain</code>. Commands run in a shell (<code>cmd.exe</code> on Windows) with a 30-minute default timeout; on timeout or stop the whole process tree is killed.</p>
+</section>
+
+<section id="state">
+  <h2>State &amp; graphs</h2>
+  <h3>PipelineState</h3>
+  <table>
+    <tr><th>Group</th><th>Fields</th></tr>
+    <tr><td>Task</td><td>task_id, source, source_type, repo, branch, provider, options, run_dir, workspace, source_info, app_name</td></tr>
+    <tr><td>Plan</td><td>components, execution_plan, step_index</td></tr>
+    <tr><td>Results (reducers)</td><td><code>steps</code>, <code>lanes</code>, <code>gates</code> (dict merge) · <code>findings</code>, <code>errors</code> (list append) — so parallel lanes never overwrite each other</td></tr>
+    <tr><td>Outcome</td><td>deploy, functional, stopped_at, overall, report</td></tr>
+    <tr><td>Guided</td><td>mode, detected, answers, spec, release, uat, approval, security_review</td></tr>
+  </table>
+  <h3>Routing</h3>
+  <p>After the designer (or planner in quick mode) every stage node routes through <code>next_node</code>: it reads <code>execution_plan[step_index]</code>. <code>component_lanes</code> fans out one <code>Send</code> per component. If <code>stopped_at</code> is set, the run jumps straight to <code>report_agent</code>.</p>
+  <p><code>lanes_done</code> collects each lane's gates. Only an <em>execution failure</em> (build crashed, Docker down, no Dockerfile) stops the pipeline. A check above a threshold never stops it: the stage turns red and, for security, a human reviews.</p>
+</section>
+
+<section id="gates">
+  <h2>Quality gates</h2>
+  <p class="lead">Computed in <code>utils/quality_gates.py</code> from the thresholds the run started with (Admin › Pipeline defaults over the <code>.env</code> factory values). Each stage gets a colour: <b>green</b> nothing found, <b>orange</b> findings within the thresholds, <b>red</b> above a threshold. A threshold never fails a stage or the run. Lint findings (<code>code_quality</code>) are reported but never turn a stage red.</p>
+  <table>
+    <tr><th>Gate</th><th>Checks</th><th>Default thresholds (.env key)</th></tr>
+    <tr><td>Security</td><td>critical, high (excluding secrets), secrets</td><td>0 / 0 / 0 (<code>gate_critical</code>, <code>gate_high</code>, <code>gate_secrets</code>)</td></tr>
+    <tr><td>Testing</td><td>tests executed ≥ 1, pass rate, line coverage</td><td>100 % / 60 % (<code>gate_pass_rate</code>, <code>gate_coverage</code>)</td></tr>
+    <tr><td>Container</td><td>image built, image scanned, critical CVEs, high CVEs</td><td>0 / 5 (<code>gate_image_critical</code>, <code>gate_image_high</code>)</td></tr>
+    <tr><td>Functional</td><td>deployment healthy, tests executed, pass rate</td><td>100 % (<code>gate_functional_pass_rate</code>)</td></tr>
+    <tr><td>UI</td><td>tests executed, pass rate</td><td>80 % (<code>gate_ui_pass_rate</code>)</td></tr>
+  </table>
+</section>
+
+<section id="selfheal">
+  <h2>Self-healing</h2>
+  <p class="lead">Read the log → find the root cause → fix → retry, up to <code>self_heal_attempts</code> times. The LLM may change build files, test setup, Dockerfiles or scanner installs; it is told never to change application logic or test assertions.</p>
+  <table>
+    <tr><th>Where</th><th>Trigger</th><th>Action</th></tr>
+    <tr><td>Build</td><td>Command fails</td><td>Install missing toolchain → LLM investigation with tools → rebuild</td></tr>
+    <tr><td>Tests</td><td>No cases or all errored</td><td>Rule fix (missing Python module / npm package) → LLM repairs test environment → rerun; if still none, LLM writes tests</td></tr>
+    <tr><td>Scanners</td><td>Not installed / broken install</td><td>Install into <code>.scanners</code> → force reinstall → LLM repairs install → fallback tool of the same type</td></tr>
+    <tr><td>Image CVEs</td><td>Container gate fails (guided)</td><td>Harden Dockerfile → rebuild → rescan</td></tr>
+    <tr><td>Dev deploy</td><td>Container unhealthy (guided)</td><td>Read container log → fix port / CMD / binding → redeploy</td></tr>
+  </table>
+</section>
+
+<section id="scanners">
+  <h2>Security scanners</h2>
+  <p class="lead">One tool per scan type is chosen deterministically from the tech stack and what is set up on the machine; the questionnaire or run form can override it.</p>
+  <table>
+    <tr><th>Scanner</th><th>Category</th><th>Runs by default when</th><th>Fallback</th></tr>
+    <tr><td>Semgrep</td><td>SAST</td><td>always (SAST option 3 in the priority list)</td><td>—</td></tr>
+    <tr><td>Bandit</td><td>SAST</td><td>Python</td><td>—</td></tr>
+    <tr><td>CodeQL</td><td>SAST</td><td>CLI installed and all languages supported</td><td>Semgrep</td></tr>
+    <tr><td>SonarQube</td><td>SAST + quality</td><td><code>sonar_host_url</code> + <code>sonar_token</code> set</td><td>Semgrep</td></tr>
+    <tr><td>Ruff · ESLint · Biome</td><td>Lint (never blocks)</td><td>Python · Node with ESLint config · Node without</td><td>ESLint → Biome</td></tr>
+    <tr><td>Trivy fs</td><td>SCA + IaC</td><td>always</td><td>npm-audit / pip-audit</td></tr>
+    <tr><td>OSV-Scanner</td><td>SCA</td><td>always</td><td>npm-audit / pip-audit</td></tr>
+    <tr><td>pip-audit · npm audit</td><td>SCA</td><td>Python · Node</td><td>—</td></tr>
+    <tr><td>Snyk Open Source</td><td>SCA</td><td><code>snyk_token</code> set</td><td>Trivy</td></tr>
+    <tr><td>Gitleaks · TruffleHog</td><td>Secrets</td><td>always</td><td>Gitleaks → TruffleHog</td></tr>
+    <tr><td>GitHub alerts</td><td>Platform</td><td>GitHub source + <code>github_token</code></td><td>—</td></tr>
+  </table>
+  <h4>Selection priority per scan type</h4>
+  <table>
+    <tr><th>Type</th><th>First available that fits the stack wins</th></tr>
+    <tr><td>SAST</td><td>sonarqube → codeql → semgrep → bandit</td></tr>
+    <tr><td>SCA</td><td>snyk → trivy-fs → osv-scanner → npm-audit → pip-audit</td></tr>
+    <tr><td>Secrets</td><td>gitleaks → trufflehog</td></tr>
+  </table>
+  <h4>Where scanners live</h4>
+  <p>Everything installs into <code>devsecops-backend/.scanners</code> (own venv + binaries via <code>scripts/install_scanners.py</code>), never into the API venv: Semgrep pins old <code>opentelemetry</code>/<code>protobuf</code>/<code>mcp</code> versions that break FastAPI and the LangChain packages. CodeQL (~1 GB) is opt-in with <code>--codeql</code>. Custom rules: <code>scanner_mcp/semgrep_rules.yml</code> and <code>gitleaks.toml</code> (hard-coded credential detection).</p>
+</section>
+
+<section id="mcp">
+  <h2>MCP servers</h2>
+  <p class="lead">Both are FastMCP servers over SSE, started by the API at start-up when not already reachable (<code>start_mcp_servers=false</code> to run them elsewhere).</p>
+  <table>
+    <tr><th>Server</th><th>Port</th><th>Tools</th></tr>
+    <tr><td>Scanner MCP</td><td>8051</td><td><code>list_scanners</code>, <code>run_scanner</code>, <code>trivy_image_scan</code>, <code>ensure_scanner</code></td></tr>
+    <tr><td>Docker MCP</td><td>8052</td><td><code>docker_status</code>, <code>docker_build</code>, <code>docker_run</code>, <code>docker_remove</code>, <code>docker_registry</code>, <code>docker_push</code></td></tr>
+  </table>
+  <div class="note"><b>In-process fallback.</b> <code>MCPToolClient.call_tool</code> checks the port with a 1-second TCP probe. If the server is down, or the MCP call fails, the same function runs inside the API. The step records which path was used (<code>via</code>). <code>GET /health/mcp</code> reports server state. <code>localhost</code> is rewritten to <code>127.0.0.1</code> because Windows tries IPv6 first.</div>
+</section>
+
+<section id="llm">
+  <h2>LLM providers</h2>
+  <table>
+    <tr><th>Provider id</th><th>Keys</th><th>Notes</th></tr>
+    <tr><td><code>azure_openai</code></td><td>openai_base_url, openai_api_key, openai_deployment_name, openai_api_version</td><td>A deployment name means Azure</td></tr>
+    <tr><td><code>openai</code></td><td>openai_api_key, openai_model (openai_base_url optional)</td><td>Leave deployment name empty</td></tr>
+    <tr><td><code>anthropic</code></td><td>anthropic_api_key, anthropic_deployment_name / anthropic_model, anthropic_base_url optional</td><td>max_tokens capped at 16,000</td></tr>
+    <tr><td><code>gemini</code></td><td>google_api_key, gemini_model</td><td>—</td></tr>
+    <tr><td><code>none</code></td><td>—</td><td>Rules only</td></tr>
+  </table>
+  <p>The default is <code>llm_provider</code> in <code>.env</code>, overridable on the Settings page (saved in <code>data/settings.json</code>) and per run on the start form. Keys added in Settings are encrypted, exposed to the process as environment variables, and a value in <code>.env</code> always wins. If a selected provider lacks keys the agents log a warning and run without an LLM. <code>ask_structured()</code> retries twice with exponential back-off and returns <code>None</code> on failure so callers can fall back to rules.</p>
+</section>
+
+<section id="storage">
+  <h2>Storage &amp; artifacts</h2>
+  <p class="lead">Two modes, chosen by <code>database_url</code> in <code>.env</code>. Nothing else changes between them.</p>
+  <table>
+    <tr><th></th><th>Lightweight (no <code>database_url</code>)</th><th>PostgreSQL (<code>database_url</code> set)</th></tr>
+    <tr><td>Runs</td><td><code>data/runs.json</code></td><td><code>runs</code> table (one JSONB document per run)</td></tr>
+    <tr><td>Settings</td><td><code>data/settings.json</code></td><td><code>settings</code> table</td></tr>
+    <tr><td>Live events</td><td><code>stream_events.db</code> (SQLite WAL)</td><td><code>stream_events</code> table</td></tr>
+    <tr><td>Paused runs (checkpoints)</td><td>In memory: lost when the API restarts</td><td>PostgreSQL: kept; a run waiting for a person can be resumed after a restart</td></tr>
+    <tr><td>Audit log</td><td><code>data/audit.log</code> (one JSON object per line)</td><td><code>audit_log</code> table</td></tr>
+    <tr><td>Users</td><td colspan="2"><code>data/users.json</code> in both modes (hashed passwords)</td></tr>
+    <tr><td>Run queue (sel-nexus)</td><td><code>data/queue.json</code></td><td><code>queue_requests</code> table</td></tr>
+  </table>
+  <h3>PostgreSQL</h3>
+<pre><code>cd db
+copy .env.example .env            :: set POSTGRES_PASSWORD   (cp on Linux)
+docker compose up -d              :: Postgres 16, bound to 127.0.0.1:5432, data in the volume devsecops_pgdata
+:: devsecops-backend/.env:
+database_url="postgresql://nexus:&lt;password&gt;@127.0.0.1:5432/nexus"
+python scripts/import_json_to_postgres.py     :: optional: copy existing runs and settings (safe to repeat)</code></pre>
+  <ul>
+    <li><b>Schema.</b> <code>db/migrations/NNN_name.sql</code>. The container applies them on its first start; the API applies any that are missing at start-up (advisory lock, recorded in <code>schema_migrations</code>), so the same files also bring RDS or an existing server up to date. Add a new numbered file for every change; never edit an applied one. The LangGraph checkpoint tables are created by the library.</li>
+    <li><b>Restart behaviour.</b> Runs that were <code>RUNNING</code> are marked <code>STOPPED</code> (their process is gone). Runs waiting for the questionnaire or an approval stay waiting and resume normally.</li>
+    <li><b>Safety.</b> <code>docker compose down</code> keeps the data; <code>down -v</code> deletes it. Never publish port 5432 to a network. Back up with <code>pg_dump</code> (RDS: managed backups).</li>
+    <li><b>Why a separate event loop.</b> psycopg's async mode cannot run on the Windows Proactor loop the API needs for subprocesses, so <code>core/db.py</code> runs the pool on its own thread and bridges calls to it.</li>
+    <li><b>Check.</b> <code>GET /health/db</code> reports <code>{backend: "postgres" | "json", ok}</code>.</li>
+  </ul>
+  <h3>Files on disk (both modes)</h3>
+  <table>
+    <tr><th>What</th><th>Where</th><th>Notes</th></tr>
+    <tr><td>Run files</td><td><code>devsecops-backend/runs/&lt;task_id&gt;/</code></td><td><code>workspace/</code>, <code>report.pdf</code>, <code>test-results/junit.xml</code>, <code>test-results/test-report.html</code>, <code>ui-screenshots/TC-UI-nnn.png</code>, <code>remediation.json</code>, <code>llm_audit.jsonl</code></td></tr>
+    <tr><td>Encryption key</td><td><code>settings_secret_key</code> or <code>devsecops-backend/.settings.key</code></td><td>Generated once if absent. Encrypts credentials saved in Settings.</td></tr>
+    <tr><td>Token signing key</td><td><code>auth_secret_key</code> or <code>devsecops-backend/.auth.key</code></td><td>Generated once if absent</td></tr>
+  </table>
+  <p><b>Cleanup.</b> After a run ends (<code>cleanup_after_run=true</code>) <code>node_modules</code>, venvs, <code>target</code>, <code>.gradle</code> and caches are deleted from the workspace, scanner temp folders older than one hour are removed, and the run's Docker images are untagged. UAT containers stay running. Stopping a run also removes its containers and network. <b>Retention:</b> every six hours the <code>workspace/</code> folder of runs that finished more than <code>workspace_retention_days</code> (default 7) days ago is deleted; reports, test results and the run record stay, and runs that are running or waiting are never touched.</p>
+  <p><b>Task ids</b> look like <code>&lt;app-slug&gt;-YYYYMMDD-HHMMSS-xxxx</code>. Container and network names contain the last 12 characters of the task id (<code>run_key</code>), which is how the dashboard finds the live URLs of a run.</p>
+</section>
+
+<section id="frontend">
+  <h2>Frontend</h2>
+  <p class="lead">Feature-folder layout; each feature owns its pages, components, services and (where needed) store.</p>
+  <table>
+    <tr><th>Route</th><th>Page</th><th>What you can do</th></tr>
+    <tr><td><code>/login</code></td><td>LoginPage</td><td>Sign in with a platform user (see Sign-in &amp; roles)</td></tr>
+    <tr><td><code>/</code></td><td>PipelinePage</td><td>Start form: pipeline name, repository, branch, mode, LLM provider, options, scanner selection</td></tr>
+    <tr><td><code>/pipeline/:taskId</code></td><td>PipelinePage</td><td>Four views: <b>Pipeline</b> (stages and steps), <b>Graph</b> (pan/zoom graph, horizontal/vertical, fit), <b>Logs</b> (tabs All/Errors/HITL/Active, search, stage + step filters, export), <b>LLM log</b> (every prompt and response of the run, live, search, export). Questionnaire and approval dialogs appear here.</td></tr>
+    <tr><td><code>/dashboard</code></td><td>DashboardPage</td><td>Totals, open critical/high findings of each repository's latest run, every run stage by stage, live app URLs</td></tr>
+    <tr><td><code>/runs</code></td><td>RunsPage</td><td>Run list (route exists; not in the sidebar)</td></tr>
+    <tr><td><code>/remediation</code></td><td>RemediationPage / DetailPage</td><td>Detailed Remediation Specification in the SEL Nexus format (react-markdown: table of contents, tables, severity badges, Copy / Download .md); older specs keep the per-stage view</td></tr>
+    <tr><td><code>/queue</code></td><td>QueuePage</td><td>Run requests from sel-nexus (named <code>sel-nexus-&lt;app_name&gt;-DD-MM-HH-MM</code>): status, position, result, cancel / stop / retry; <b>New test request</b> simulator with a Form and an API screen</td></tr>
+    <tr><td><code>/admin/change-requests</code>, <code>/admin/change-requests/:id</code> (only while Prod is enabled; approvers too)</td><td>ChangeRequestsPage / DetailPage</td><td>Prod change requests: status, risk, evidence, plans, sanity checks, rollback, timeline; approve / reject (approver)</td></tr>
+    <tr><td><code>/admin/users</code></td><td>Admin › Users (admins)</td><td>Add, edit (name, email, role, password reset) and delete users. <code>/users</code> redirects here.</td></tr>
+    <tr><td><code>/admin/usage</code></td><td>Admin › Token usage (admins)</td><td>KPIs with trends for 7 / 30 / 90 days or all; tokens over time, cost per day, share per step, per application, per model, per run; table views; prices per model</td></tr>
+    <tr><td><code>/change-password</code></td><td>ChangePasswordPage</td><td>Change your password; forced after a default (<code>admin</code>/<code>admin</code>) or admin-set password</td></tr>
+    <tr><td><code>/admin/llm</code>, <code>/admin/tools</code>, <code>/admin/scanners</code>, <code>/admin/environments</code>, <code>/admin/pipeline-defaults</code></td><td>Admin pages (admins)</td><td>A group in the sidebar. LLM providers (add/test/default); <b>Tools</b> (what is installed, install commands, Install buttons, MCP health); scanners (install state, Repair, SonarQube); Dev / Test / Prod target environments; <b>Pipeline defaults</b> (the pipeline settings in seven sections, locks, coming-soon options and the thresholds above which a human reviews). <code>/settings</code> and <code>/admin/settings</code> redirect to <code>/admin/llm</code>.</td></tr>
+  </table>
+  <h3>Key mechanics</h3>
+  <ul>
+    <li><b>Live run:</b> <code>usePipelineStore</code> opens an <code>EventSource</code> on <code>/pipelines/{id}/stream</code>, derives per-step status from events and reloads the full run when the stream ends or pauses. Re-opened streams use the last event id to avoid duplicates.</li>
+    <li><b>ⓘ step info:</b> hover shows a summary from <code>/pipelines/step-docs</code>; click opens the full HTML step report in a new tab.</li>
+    <li><b>API access:</b> one axios instance (<code>apiRepository</code>) with base <code>/api</code>; the Vite dev server (or Caddy on a server) proxies <code>/api</code> to <code>http://127.0.0.1:8000</code> (override with <code>DEVSECOPS_API_URL</code>) and strips the prefix. The signed-in token is sent on every request, and a 401 signs the user out. Error messages come from FastAPI's <code>detail</code>; structured errors (for example the missing-tools 409) keep their fields.</li>
+    <li><b>Theme:</b> dark by default. <b>Appearance</b> in the sidebar offers light and dark presets (GitHub Light, Solarized, Sepia, Nord, Dracula, Monokai, high contrast, …) and a custom theme from three colours. It is stored under <code>devsecops-ui-theme</code> in the browser. The sidebar collapse state is also remembered per browser.</li>
+  </ul>
+</section>
+
+<section id="auth">
+  <h2>Sign-in &amp; roles</h2>
+  <p class="lead">Every API route except <code>/health</code> and <code>/auth/login</code> needs a signed-in user. <code>core/auth.py</code> uses only the standard library.</p>
+  <table>
+    <tr><th>Role</th><th>Can</th></tr>
+    <tr><td><code>viewer</code></td><td>Read everything: runs, dashboard, reports, tool status</td></tr>
+    <tr><td><code>operator</code></td><td>Also start and stop runs, answer the questionnaire</td></tr>
+    <tr><td><code>approver</code></td><td>Also approve or reject the security review, the Release review and change requests</td></tr>
+    <tr><td><code>admin</code></td><td>Also change Settings and LLM providers, repair scanners, install tools, manage users (Users page), read the audit log</td></tr>
+  </table>
+  <ul>
+    <li><b>Passwords</b> are PBKDF2-SHA256 (200,000 rounds, random salt) in <code>data/users.json</code>. Five wrong attempts for a name block it for 60 seconds. Unknown names take the same time as wrong passwords.</li>
+    <li><b>Tokens</b> are HS256 signed (JWT format), valid <code>auth_token_hours</code> (12). The signing key is <code>auth_secret_key</code> or a generated <code>.auth.key</code>. The role is read from the user store on every request, so deleting a user or changing a role takes effect at once.</li>
+    <li><b>First start.</b> If there are no users, <code>admin</code> is created with the password <code>admin</code> (or <code>admin_password</code>). The default, a password that breaks the policy, and every password an admin sets (new user, reset) must be changed at the next sign-in: until then the API answers <b>403</b> <code>password_change_required</code> to everything but <code>/auth/me</code> and <code>/auth/password</code>, and the UI shows the Change password page.</li>
+    <li><b>Password policy.</b> At least 8 characters with an upper-case letter, a lower-case letter, a digit and a special character (<code>core/auth.py</code> <code>PASSWORD_RULES</code>, shown by <code>GET /auth/password-policy</code>). Enforced by the API, the UI, <code>manage_users.py</code> and the setup check.</li>
+    <li><b>Approvals are signed.</b> The approver recorded on a security review or UAT approval is the signed-in user; the name sent by the client is ignored.</li>
+    <li><b>Audit.</b> <code>audit_log</code> (PostgreSQL) or <code>data/audit.log</code>: sign-ins, failures, denials, every POST / PUT / DELETE, user changes. Admins read it at <code>GET /auth/audit</code>.</li>
+    <li><b>Switching it off.</b> <code>auth_enabled=false</code> makes every caller a local admin and logs a warning. Use it only on a private laptop.</li>
+    <li><b>Command line.</b> <code>python scripts/manage_users.py list | add NAME --role R [--name --email] | update NAME [--role --name --email] | passwd NAME [--temporary] | delete NAME</code> (asks for the password).</li>
+    <li><b>LLM audit log.</b> Every prompt and response (<code>services/llm_audit.py</code>, a LangChain callback on every model) goes to <code>runs/&lt;id&gt;/llm_audit.jsonl</code> (calls outside a run: <code>data/llm_audit.log</code>), secrets masked, 200 KB per entry. Every signed-in user can read it.</li>
+  </ul>
+</section>
+
+<section id="tools">
+  <h2>Tool check &amp; install</h2>
+  <p class="lead">Before a run starts the UI checks that this machine has what the run needs, and tells you how to fix what is missing.</p>
+  <p><code>config/tools.yml</code> lists every tool with a fixed version command, a minimum version, when it is needed, and the install command for Windows and Ubuntu. <code>services/tool_check_service.py</code> runs the checks (Chrome is looked up by file, Docker must answer <code>docker version</code>, a toolchain already downloaded by the platform counts as installed). The same manifest feeds the setup scripts through <code>scripts/tools_manifest.py</code>.</p>
+  <table>
+    <tr><th>Tool</th><th>Tier</th><th>Needed when</th><th>How it gets fixed</th></tr>
+    <tr><td>Git</td><td>system</td><td>the source is a remote repository</td><td>Copy-able command (<code>winget</code> / <code>apt</code>)</td></tr>
+    <tr><td>Docker</td><td>system</td><td>containerise or deploy</td><td>Copy-able command; the engine must be running</td></tr>
+    <tr><td>Chrome</td><td>system</td><td>guided flow with deploy (UI tests)</td><td>Copy-able command</td></tr>
+    <tr><td>JDK, Maven, Gradle, Node, Go</td><td>user-space</td><td>the stack of a local folder (remote repositories are judged after the clone)</td><td><b>Install</b> button (downloads into <code>~/.devsecops/tools</code>, no admin rights), or automatically on first use</td></tr>
+    <tr><td>SonarQube server</td><td>service</td><td>never required (optional)</td><td>Command to start it; see <a href="#sonarqube">SonarQube</a></td></tr>
+  </table>
+  <h3>What you see</h3>
+  <ul>
+    <li><b>Start page, last step:</b> a banner. Green when everything required is there. Amber when a system tool is missing, with the command for this OS, <b>Re-check</b>, and – for Docker or Chrome – a <em>Run anyway</em> box that skips the stages that need them. Missing toolchains are listed with an Install button for admins.</li>
+    <li><b>Settings &gt; Tools:</b> the full inventory with versions.</li>
+    <li><b>The server enforces it:</b> <code>POST /pipelines/start</code> answers 409 with the missing tools. Without Docker, <em>Run anyway</em> switches containerise and deploy off. Git is never skippable.</li>
+  </ul>
+  <h3>Install rules</h3>
+  <ul>
+    <li><code>POST /tools/{id}/install</code> is admin-only, runs one install at a time per tool, and only runs commands from the manifest.</li>
+    <li>Toolchains are downloaded with <code>toolchain_installer.ensure</code>. <code>auto_install_toolchains=false</code> stops runs from downloading on their own; an admin then installs them under Settings &gt; Tools.</li>
+    <li>System tools run their apt command only when <code>allow_system_install=true</code>, on Linux, with <code>sudo -n</code>. Otherwise the answer is 403 with the command to run yourself.</li>
+    <li>After installing Docker on Ubuntu, restart the API so it picks up the new <code>docker</code> group.</li>
+  </ul>
+</section>
+
+<section id="spec">
+  <h2>Pipeline rules &amp; skills</h2>
+  <p class="lead">The shape of a guided pipeline is data, and the prompts the LLM gets are files. Both can be reviewed and changed without touching Python. Pass or fail stays in the quality gates in code.</p>
+  <h3>Stage rules: <code>config/devops_flow.yml</code></h3>
+  <p>Each stage has a <code>when:</code> expression, a list of <code>reasons:</code> for being left out, and <code>locked: true</code> for the stages that are always on (<code>scan</code>, <code>security_review</code>, <code>report</code>).</p>
+<pre><code>- id: functional_tests
+  node: functional_test_agent
+  when: container and "functional" in tests
+  reasons:
+    - {when: container, text: functional tests not selected}
+    - {text: nothing is deployed}          # the last reason has no 'when': it is the default</code></pre>
+  <p>Expressions are parsed with <code>ast</code> and run by a small interpreter that knows <code>and / or / not / == / != / in / not in</code>, literals and these names: <code>container, has_components, tests, uat, approval_before_uat, registry, deploy_as</code>. Calls, attributes, arithmetic and imports are rejected, so the YAML cannot run code. A test runs the previous hard-coded Python rules against the YAML for more than 1,800 combinations of answers and requires identical stages and skip reasons.</p>
+  <h3>Per-repository overrides: <code>nexus.yml</code></h3>
+<pre><code># in the root of the scanned repository
+stages:
+  ui_tests: {enabled: false, reason: this service has no web UI}
+self_heal_attempts: 1          # 0-3</code></pre>
+  <p>A repository can only switch stages <em>off</em>, never the locked ones. Unknown keys, unknown stages, bad values and files over 20 KB are ignored and reported as warnings in the "Derive the pipeline" step. A broken file never stops a run.</p>
+  <h3>Prompts: <code>devsecops-backend/skills/*.md</code></h3>
+  <table>
+    <tr><th>Skill</th><th>Used by</th></tr>
+    <tr><td><code>build_self_heal</code>, <code>test_env_heal</code></td><td>build and test agents (repair a failing build / test setup)</td></tr>
+    <tr><td><code>generate_tests</code> + <code>stacks/&lt;language&gt;.md</code></td><td>test agent (write tests when there are none; Python, JavaScript/TypeScript, Java/Kotlin, Go conventions)</td></tr>
+    <tr><td><code>dockerfile_writer</code>, <code>docker_build_heal</code>, <code>image_cve_heal</code></td><td>container agent</td></tr>
+    <tr><td><code>deploy_heal</code></td><td>deploy agent</td></tr>
+    <tr><td><code>scanner_install_heal</code>, <code>security_triage</code></td><td>security agent</td></tr>
+    <tr><td><code>remediation_specs</code></td><td><code>/pipelines/{id}/remediation</code> and the queue (v2: SEL Nexus specification format)</td></tr>
+  </table>
+  <ul>
+    <li>The ten prompts were moved out of the code word for word (checked by comparing them with the old text).</li>
+    <li><b>Team standards:</b> a git-ignored <code>&lt;skill&gt;.local.md</code> next to a skill is appended under a "Team standards" heading, e.g. "Always use Temurin 17". Edits apply to the next run.</li>
+    <li>Front matter holds <code>name</code>, <code>version</code> and <code>used_by</code>. <code>GET /llm/skills</code> lists them. Details: <code>devsecops-backend/skills/README.md</code>.</li>
+  </ul>
+</section>
+
+<section id="sonarqube">
+  <h2>SonarQube (optional SAST server)</h2>
+  <p class="lead">Without it the scans use Semgrep (and CodeQL when installed). With it configured, SonarQube is chosen for SAST and its quality gate result is read back. If it is configured but down, the run falls back to Semgrep and is not blocked.</p>
+<pre><code>cd sonarqube
+copy .env.example .env             :: set SONAR_DB_PASSWORD   (cp on Linux)
+docker compose up -d               :: SonarQube Community + its own PostgreSQL, at http://127.0.0.1:9000/sonar
+cd ..
+:: creates the token "devsecops" and saves URL + token in the platform (encrypted); admin / admin stays
+:: until the first web sign-in, where SonarQube asks for a new password (--change-admin-password: replace it now)
+set NEXUS_USER=admin &amp; set NEXUS_PASSWORD=...
+devsecops-backend\.venv\Scripts\python devsecops-backend\scripts\bootstrap_sonarqube.py
+:: or:  ... bootstrap_sonarqube.py --write-env      (writes sonar_host_url / sonar_token to devsecops-backend/.env)</code></pre>
+  <ul>
+    <li><b>Memory.</b> About 4 GB of RAM. Linux needs <code>vm.max_map_count=262144</code> (<code>setup_ubuntu.sh</code> sets and persists it). Docker Desktop cannot set it: put <code>SONAR_SEARCH_JAVAADDITIONALOPTS=-Dnode.store.allow_mmap=false</code> in <code>sonarqube/.env</code> (development only), and give Docker at least 4 GB (6 GB is safer: in a 2 GB Docker VM SonarQube was OOM-killed during a scan). On EC2 use a t3.large (8 GB) or larger; <code>setup_ubuntu.sh</code> checks the RAM before installing.</li>
+    <li><b>Web address.</b> Served under <code>/sonar</code> (<code>SONAR_WEB_CONTEXT</code>); on a server Caddy publishes it as <code>https://&lt;domain&gt;/sonar</code> (or <code>http://&lt;server&gt;/sonar</code>) while port 9000 stays on 127.0.0.1. Issue links in run reports use <code>https://DEVSECOPS_DOMAIN/sonar</code>, else <code>http://DEVSECOPS_HOST_IP/sonar</code> (or <code>sonar_public_url</code>). <code>setup_ubuntu.sh</code> moves an older install served at <code>/</code> to <code>/sonar</code>; it keeps its password in <code>sonarqube/.admin-password</code>.</li>
+    <li><b>The scanner.</b> <code>sonar-scanner</code> runs natively when installed, else in Docker (<code>sonarsource/sonar-scanner-cli</code>). On Linux that container uses the host network, because the server listens on <code>127.0.0.1:9000</code> only; on Docker Desktop it reaches the host through <code>host.docker.internal</code>.</li>
+    <li><b>Data.</b> Named volumes; <code>docker compose down -v</code> deletes projects and tokens. SonarQube uses its own PostgreSQL, not the platform's.</li>
+    <li><b>Community edition limits.</b> No branch or pull-request analysis and fewer languages than the paid editions.</li>
+    <li><b>Check.</b> Settings &gt; Tools shows "SonarQube server": not configured, not reachable, status not UP, token invalid, or the server version. It never blocks a run.</li>
+    <li><b>Production.</b> Point the platform at your existing or managed SonarQube under Settings &gt; Scanners instead of running this container.</li>
+    <li>The SonarQube quality gate is read back and reported; it does not change the platform's own security gate.</li>
+  </ul>
+</section>
+
+<section id="environments">
+  <h2>Target environments, EC2 deploys and Prod</h2>
+  <p class="lead"><b>Admin › Target environments</b> sets where <b>Dev</b> (deploy to dev, the functional and UI tests), <b>Test (UAT)</b> and <b>Prod</b> run: Local Docker, AWS EC2 over SSH, Azure or GCP. Azure and GCP are stored but not deployed to yet. Settings keys <code>env:dev|test|prod</code>, secrets sealed (<code>services/environments.py</code>).</p>
+  <ul>
+    <li><b>AWS EC2.</b> Server IP/DNS, SSH user and port, the private key file (kept in memory only), app port, app environment variables. Access keys only for <i>Verify AWS</i> (boto3: STS identity, the instance, its security groups for the SSH and app ports).</li>
+    <li><b>Test connection</b> (asyncssh): user, OS, Docker, disk, whether the platform reaches the app port. The first success pins the host key; a changed key blocks deploys. <b>Prepare server</b> installs Docker and adds the user to the <code>docker</code> group.</li>
+    <li><b>Deploy</b> (<code>services/remote_deploy.py</code>, <code>DeployAgent</code>): <code>docker save | gzip</code> over SSH into <code>docker load</code> (skipped when the image ID is already there); containers <code>cip-&lt;env&gt;-&lt;app&gt;-&lt;component&gt;</code> on network <code>cip-&lt;env&gt;-&lt;app&gt;</code>, <code>--restart unless-stopped</code>; the running version is renamed <code>-previous</code> and stopped; health from the platform, else <code>curl</code> on the server (security group warning); a crash loop fails within seconds; on failure the new containers are removed and the previous ones restarted and checked.</li>
+    <li><b>Prod.</b> Only while <b>Enable Prod deployments</b> is on and Prod is set up: the questionnaire asks <code>prod</code>; stages <code>change_request</code> (<code>ChangeRequestAgent</code>) and <code>deploy_prod</code> (<code>ProdDeployAgent</code>) follow the UAT deploy. The change request <code>CR-YYYYMMDD-NNN</code> holds the evidence (gates, findings, tests, UAT result and approver), a low / medium / high risk with reasons, the implementation and rollback plans, and a timeline.</li>
+    <li><b>Sanity test.</b> The start page plus the GET pages / API paths that passed the functional tests in Dev (at most 20) must answer below 500. A failed start or sanity test rolls back automatically. Change request status: <code>PENDING_APPROVAL → APPROVED → DEPLOYING → COMPLETED | ROLLED_BACK | FAILED</code>, or <code>REJECTED</code> / <code>CANCELLED</code> (run stopped).</li>
+    <li><b>Storage.</b> <code>data/change_requests.json</code> or the <code>change_requests</code> table (<code>db/migrations/003_change_requests.sql</code>). UI: <b>Change requests</b> (<code>/change-requests</code>) and the decision dialog on the run page. The PDF report has a Prod section.</li>
+    <li><b>Testing without AWS.</b> <code>scripts/tests/fake-ec2/Dockerfile</code>: sshd + its own Docker engine. <code>tests/test_remote_deploy.py</code> (opt-in, <code>FAKE_EC2_KEY</code>) covers deploy, replace, a broken version rolled back, and a Prod sanity failure rolled back.</li>
+  </ul>
+</section>
+
+<section id="queue">
+  <h2>Event-driven runs (sel-nexus queue)</h2>
+  <p class="lead">sel-nexus asks for a run with <code>POST /queue/requests</code>; the request waits in a queue until a run slot is free, then runs like any other. The result is written back to the request and, optionally, POSTed to a callback URL.</p>
+  <ul>
+    <li><b>Request.</b> Required: <code>repository</code> (GitHub / GitLab URL), and <code>access_token</code> for a private repository (a public one needs none; a private one without it is refused with 400). Optional: <code>branch</code>, <code>llm_provider</code>, <code>mode</code> (guided / quick), <code>answers</code> (questionnaire; empty = the pre-filled answers), <code>auto_approve</code>, <code>callback_url</code>, <code>reference</code>, <code>options</code>. The pipeline name is <code>sel-nexus-&lt;app_name&gt;-DD-MM-HH-MM</code> (without <code>app_name</code>: the repository's name).</li>
+    <li><b>Poller.</b> <code>services/queue_service.py</code> runs in the API every 5 seconds: it starts the oldest <code>QUEUED</code> requests while fewer than <code>max_concurrent_runs</code> runs execute, answers the questionnaire from the request, approves the security review and the UAT approval when <code>auto_approve</code> is true (recorded as <code>sel-nexus (auto_approve)</code>), and otherwise shows <code>WAITING_APPROVAL</code> until a person decides in the UI. <code>queue_enabled=false</code> switches it off.</li>
+    <li><b>Status.</b> <code>QUEUED → STARTING → RUNNING ⇄ WAITING_APPROVAL → COMPLETED | FAILED | STOPPED</code>, or <code>CANCELLED</code>. <code>result.overall</code> is the pipeline result (PASS / FAIL / INCOMPLETE).</li>
+    <li><b>Result.</b> Overall result, stage summary, findings per severity, test summary, root cause, report URL; for a failed run (or one with critical / high findings) also the remediation spec (<code>remediation_markdown</code>, <code>remediation_url</code>). The callback is sent after the spec is ready, three tries.</li>
+    <li><b>Storage.</b> <code>data/queue.json</code>, or the <code>queue_requests</code> table (<code>db/migrations/002_queue.sql</code>; claimed with <code>FOR UPDATE SKIP LOCKED</code>). Requests claimed but not started when the API stopped go back to the queue.</li>
+    <li><b>Token.</b> Sealed with the settings key until the run starts, then deleted; never returned. A request that never started (failed to start, cancelled) keeps it for Retry. A public-repository request has no token and can be retried once, while it never ran.</li>
+    <li><b>No sign-in.</b> <code>POST /queue/requests</code> and <code>GET /queue/requests/{id}</code> are open by design: only the sel-nexus server (and your own IP) may reach port 80.</li>
+    <li><b>UI.</b> <b>Queued requests</b> (<code>/queue</code>): status, position, run link, PDF, remediation spec; operators cancel / stop / retry.</li>
+    <li><b>Simulator.</b> <b>New test request</b> on that page sends a request built from every field (questionnaire answers from <code>GET /pipelines/questionnaire</code>) to the real endpoint, then follows it: status, the JSON sel-nexus polls, and the callback, received by a built-in test receiver (<code>/queue/test-callback/{token}</code>, known tokens only, in memory). <b>Copy as curl</b> masks the token.</li>
+    <li><b>Prod.</b> <code>auto_approve</code> never approves a change request; the result carries <code>change_request</code> and, once deployed, <code>prod_url</code>.</li>
+  </ul>
+</section>
+
+<section id="api">
+  <h2>REST API</h2>
+  <p class="note">Every endpoint with its request fields, request and response JSON, errors and a client quick start: <a href="api-contracts.html">api-contracts.html</a>.</p>
+  <p class="lead">Base URL <code>http://localhost:8000</code> (behind Caddy: <code>/api</code>). Send <code>Authorization: Bearer &lt;token&gt;</code> on every call except <code>/health</code> and <code>/auth/login</code>; GET routes also accept <code>?access_token=</code> for links, images and server-sent events. Interactive docs at <code>/docs</code> when <code>environment="development"</code>; hidden in production.</p>
+  <h3>Pipelines</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td>POST</td><td>/pipelines/check-repo</td><td><code>{source, branch, access_token}</code> → <code>{reachable, needs_token, branch_found, host, message}</code>. Runs <code>git ls-remote</code> to check that this machine can read the repository. The start form calls it and asks for a token when <code>needs_token</code> is true.</td></tr>
+    <tr><td>POST</td><td>/pipelines/start</td><td><code>{source, branch, llm_provider, options, mode, pipeline_name, skip_missing, access_token}</code> → <code>{task_id, provider, mode}</code>. Source must be a URL, <code>org/repo</code> or an existing folder. <b>400</b> for a URL with credentials in it, shell characters, or a bad branch name. <code>access_token</code> is used for the clone only and never stored. <b>409</b> <code>{message, missing, can_skip, tools}</code> when a required system tool is missing (<code>skip_missing: true</code> goes ahead without Docker or Chrome; Git can never be skipped). <b>429</b> while <code>max_concurrent_runs</code> runs are executing.</td></tr>
+    <tr><td>GET</td><td>/pipelines</td><td>Recent runs</td></tr>
+    <tr><td>GET</td><td>/pipelines/dashboard</td><td>Totals + every run with stage summary, tests, findings, live app URLs</td></tr>
+    <tr><td>GET</td><td>/pipelines/graph</td><td>Nodes and edges of the quick-run LangGraph</td></tr>
+    <tr><td>GET</td><td>/pipelines/scanners</td><td>Scanner catalogue with installed/configured state</td></tr>
+    <tr><td>POST</td><td>/pipelines/scanners/{name}/repair</td><td>Reinstall one scanner</td></tr>
+    <tr><td>GET</td><td>/pipelines/step-docs</td><td>Text for the ⓘ cards</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}</td><td>Full run (steps, gates, components, report, live app URLs)</td></tr>
+    <tr><td>POST</td><td>/pipelines/{id}/stop</td><td>Stop a running or paused run (409 if already finished)</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/stream?after=N</td><td>SSE events until <code>SYSTEM_END</code> or <code>SYSTEM_PAUSE</code></td></tr>
+    <tr><td>POST</td><td>/pipelines/{id}/answers</td><td><code>{answers}</code> resumes a run waiting for the questionnaire</td></tr>
+    <tr><td>POST</td><td>/pipelines/{id}/approval</td><td><code>{decision: approve|reject, by, comment}</code> resumes a security review or UAT approval</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/steps/{step}/report.html</td><td>Self-contained HTML report of one step</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/test-results/{junit.xml|test-report.html}</td><td>Published test results</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/screenshots/TC-UI-nnn.png</td><td>UI test screenshot</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/report.pdf</td><td>PDF report</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/remediation</td><td>Generate the Detailed Remediation Specification (SEL Nexus format, <code>format: "sel-nexus-v1"</code>) and save it</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/remediation-saved</td><td>Load saved spec</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/remediation.md</td><td>The saved spec as a markdown file</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/llm-log?after=N</td><td>LLM audit entries (prompt / response per call) after line N</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/llm-log/stream?after=N</td><td>SSE: new LLM audit entries while the run executes</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/llm-log.jsonl</td><td>Download the run's LLM audit log</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/remediation/stream</td><td>SSE while the spec is written: <code>delta</code> events (<code>text</code>, character <code>offset</code>; Last-Event-ID resumes), then <code>done</code> (the saved spec) or <code>error</code>. Starts a spec unless one is being written; a second page follows the same job.</td></tr>
+    <tr><td>GET</td><td>/pipelines/{id}/remediation/status</td><td><code>{running, chars}</code>: is a spec being written</td></tr>
+    <tr><td>GET</td><td>/admin/token-usage?days=30</td><td>Admins only (every <code>/admin</code> path, reading included): KPIs for the period and the previous one, per day / step / model / application / run, cost at the set prices (<code>days=0</code>: everything)</td></tr>
+    <tr><td>PUT</td><td>/admin/token-prices</td><td><code>{prices: {model: {input, output}}}</code> in USD per 1M tokens (0–1000, at most 50 models)</td></tr>
+    <tr><td>GET</td><td>/pipelines/questionnaire</td><td>The guided flow's questions (Prod only while it is switched on), for forms that send answers ahead of a run</td></tr>
+    <tr><td>GET</td><td>/change-requests, /change-requests/{id}</td><td>Change requests for Prod (list, detail)</td></tr>
+    <tr><td>POST</td><td>/change-requests/{id}/decision</td><td>Approver: <code>{decision: approve|reject, comment}</code> (a rejection needs a comment); resumes the run</td></tr>
+    <tr><td>GET</td><td>/pipelines/remediation-history</td><td>All saved specs</td></tr>
+  </table>
+  <h3>Auth (roles: viewer &lt; operator &lt; approver &lt; admin)</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td>POST</td><td>/auth/login</td><td><code>{username, password}</code> → <code>{token, expires, user}</code>. Open. 429 after five failures in a minute.</td></tr>
+    <tr><td>GET</td><td>/auth/me</td><td>The signed-in user and whether authentication is on</td></tr>
+    <tr><td>POST</td><td>/auth/password</td><td>Change your own password (needs the current one; the new one must meet the policy and differ)</td></tr>
+    <tr><td>GET</td><td>/auth/password-policy</td><td>The password rules</td></tr>
+    <tr><td>GET / POST</td><td>/auth/users</td><td>Admin: list / create users (<code>{username, password, role, name, email}</code>; the user must change the password at the first sign-in)</td></tr>
+    <tr><td>PATCH</td><td>/auth/users/{name}</td><td>Admin: change name, email, role or reset the password (not your own role, not the last admin)</td></tr>
+    <tr><td>DELETE</td><td>/auth/users/{name}</td><td>Admin: delete (not yourself, not the last admin)</td></tr>
+    <tr><td>GET</td><td>/auth/audit?limit=N</td><td>Admin: recent audit records, newest first</td></tr>
+  </table>
+  <h3>Queue (sel-nexus)</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td>POST</td><td>/queue/requests</td><td><b>No sign-in.</b> <code>{repository, access_token?, app_name?, branch?, llm_provider?, mode?, answers?, auto_approve?, callback_url?, reference?, options?}</code> → 201 <code>{id, status, pipeline_name, app_name, position}</code>. <code>access_token</code> only for a private repository: without it the repository is read with <code>git ls-remote</code> and a private one gets 400. 422 for a missing field, 400 for an unsafe URL / branch.</td></tr>
+    <tr><td>GET</td><td>/queue/requests/{id}</td><td><b>No sign-in.</b> Status, position, run id, result, remediation spec</td></tr>
+    <tr><td>GET</td><td>/queue</td><td>The queue for the UI</td></tr>
+    <tr><td>POST</td><td>/queue/{id}/cancel</td><td>Operator: cancel a queued request, or stop its run</td></tr>
+    <tr><td>POST</td><td>/queue/{id}/retry</td><td>Operator: queue a request that never started again</td></tr>
+    <tr><td>POST</td><td>/queue/test-callback</td><td>Operator: a new test receiver for the simulator → <code>{token, callback_url}</code></td></tr>
+    <tr><td>POST / GET</td><td>/queue/test-callback/{token}</td><td>POST: <b>no sign-in</b>, known tokens only (the platform's callback); GET (signed in): what was received</td></tr>
+  </table>
+  <h3>Tools</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td>GET</td><td>/tools/check?source=&amp;containerize=&amp;deploy=&amp;mode=</td><td>Status of every tool and which ones this run needs (<code>blocking</code> = stops the run)</td></tr>
+    <tr><td>POST</td><td>/tools/{id}/install</td><td>Admin: install a toolchain (JDK, Maven, Gradle, Node, Go). System tools only with <code>allow_system_install=true</code>; servers (SonarQube) never.</td></tr>
+  </table>
+  <h3>LLM</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td>GET</td><td>/llm/providers</td><td>Providers, configured state, form fields, default (values never returned)</td></tr>
+    <tr><td>PUT / DELETE</td><td>/llm/providers/{provider}</td><td>Save (encrypted) / remove keys</td></tr>
+    <tr><td>PUT</td><td>/llm/default</td><td>Set the default provider (must be configured)</td></tr>
+    <tr><td>POST</td><td>/llm/test</td><td>One-word prompt to verify the key</td></tr>
+    <tr><td>GET</td><td>/llm/skills</td><td>The prompt files the agents use (name, version, where used, team addendum present)</td></tr>
+  </table>
+  <h3>Settings &amp; health</h3>
+  <table>
+    <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+    <tr><td>GET</td><td>/settings</td><td>SonarQube and the environments (secrets shown as <code>saved: true</code>)</td></tr>
+    <tr><td>PUT</td><td>/settings/sonarqube</td><td>SonarQube URL + token</td></tr>
+    <tr><td>PUT</td><td>/settings/environments/{dev|test|prod}</td><td><code>{provider: local|aws|azure|gcp, enabled (Prod), values}</code>; empty secret keeps the saved one; a new host or port clears the pinned host key</td></tr>
+    <tr><td>POST</td><td>/settings/environments/{name}/test</td><td>SSH test (user, OS, Docker, disk, app port); pins the host key on first success</td></tr>
+    <tr><td>POST</td><td>/settings/environments/{name}/prepare</td><td>Install Docker on the server over SSH</td></tr>
+    <tr><td>POST</td><td>/settings/environments/{name}/verify-aws</td><td>STS identity, the instance, its security groups (SSH and app port)</td></tr>
+    <tr><td>GET</td><td>/health (open), /health/mcp, /health/db</td><td>API, MCP server and storage status</td></tr>
+  </table>
+  <h3>Run options (<code>options</code> in the start request)</h3>
+  <table>
+    <tr><th>Option</th><th>Default</th><th>Meaning</th></tr>
+    <tr><td>run_tests</td><td>true</td><td>Run unit tests in each lane</td></tr>
+    <tr><td>containerize</td><td>true</td><td>Build images</td></tr>
+    <tr><td>deploy</td><td>true</td><td>Deploy and run functional tests (quick flow)</td></tr>
+    <tr><td>continue_on_fail</td><td>true</td><td>Keep going after a failed gate</td></tr>
+    <tr><td>keep_running</td><td>false</td><td>Do not remove dev containers after tests</td></tr>
+    <tr><td>security_review</td><td>true</td><td>Pause for a human to review security reports</td></tr>
+    <tr><td>scanners</td><td>automatic</td><td>Explicit list of scanner names</td></tr>
+  </table>
+  <p>The guided designer also sets <code>scan_plan</code>, <code>self_heal_attempts</code>, <code>heal_cves</code>, <code>heal_deploy</code>, <code>explain_tests</code>, <code>remove_after_ui</code> and <code>recorded_for_later</code> internally.</p>
+</section>
+
+<section id="config">
+  <h2>Configuration (<code>devsecops-backend/.env</code>)</h2>
+  <p class="lead">Lower-case keys, as in sdlc-api; the upper-case form is also accepted. Copy <code>.env.example</code> to <code>.env</code>.</p>
+  <table>
+    <tr><th>Group</th><th>Keys</th></tr>
+    <tr><td>General</td><td><code>environment</code> (development | production), <code>devsecops_runs_dir</code>, <code>devsecops_stream_db</code>, <code>cors_origins</code>, <code>DEVSECOPS_HOST_IP</code> (public IP for UAT links on a server; <code>setup_ubuntu.sh</code> sets it from the EC2 metadata), <code>DEVSECOPS_DOMAIN</code> (with <code>setup_ubuntu.sh --domain</code>: UAT links become <code>https://&lt;container&gt;.&lt;domain&gt;</code> and SonarQube links <code>https://&lt;domain&gt;/sonar</code>; empty = IP links). The old <code>cip_*</code> / <code>CIP_*</code> names still work.</td></tr>
+    <tr><td>LLM</td><td><code>llm_provider</code>, Azure/OpenAI, Anthropic and Gemini keys listed above, plus <code>*_temperature</code> and <code>*_max_tokens</code></td></tr>
+    <tr><td>Tokens</td><td><code>github_token</code> (default token for private github.com repos, GitHub alerts), <code>gitlab_token</code> (default token for private repos on any other host, e.g. GitLab), <code>snyk_token</code>, <code>sonar_host_url</code>, <code>sonar_token</code></td></tr>
+    <tr><td>MCP</td><td><code>scanner_mcp_url</code>, <code>docker_mcp_url</code>, <code>start_mcp_servers</code></td></tr>
+    <tr><td>Gates</td><td><code>gate_critical</code>, <code>gate_high</code>, <code>gate_secrets</code>, <code>gate_pass_rate</code>, <code>gate_coverage</code>, <code>gate_image_critical</code>, <code>gate_image_high</code>, <code>gate_functional_pass_rate</code>, <code>gate_ui_pass_rate</code></td></tr>
+    <tr><td>UI tests</td><td><code>chrome_binary</code>, <code>chromedriver_path</code> (only for portable Chrome / offline)</td></tr>
+    <tr><td>Sign-in</td><td><code>auth_enabled</code> (false = every caller is a local admin; laptops only), <code>admin_username</code>, <code>admin_password</code> (optional; empty = <code>admin</code>), <code>auth_secret_key</code>, <code>auth_token_hours</code> (12)</td></tr>
+    <tr><td>Queue / SonarQube links</td><td><code>queue_enabled</code> (true), <code>sonar_public_url</code> (address in SonarQube issue links; default <code>https://DEVSECOPS_DOMAIN/sonar</code>, else <code>http://DEVSECOPS_HOST_IP/sonar</code> for the bundled server)</td></tr>
+    <tr><td>Database</td><td><code>database_url</code> (empty = lightweight mode), <code>migrations_dir</code></td></tr>
+    <tr><td>Server limits</td><td><code>max_concurrent_runs</code> (3, 0 = unlimited), <code>workspace_retention_days</code> (7, 0 = keep)</td></tr>
+    <tr><td>Tool installs</td><td><code>auto_install_toolchains</code> (false = runs never download a JDK / Node on their own), <code>allow_system_install</code> (true = the Install button may run the apt command; Linux, passwordless sudo)</td></tr>
+    <tr><td>Other</td><td><code>settings_secret_key</code> (Fernet key), <code>cleanup_after_run</code></td></tr>
+  </table>
+  <p>Frontend: <code>devsecops-frontend/.env</code> (<code>VITE_API_URL</code>). Leave it unset to use the <code>/api</code> proxy.</p>
+</section>
+
+<section id="structure">
+  <h2>Folder structure</h2>
+  <p class="lead">Condensed. Full file-by-file listing: <a href="FOLDER_STRUCTURE.md">FOLDER_STRUCTURE.md</a>.</p>
+<pre><code>devops-sel-nexus/
+├── README.md · start_agentic.bat · .gitlab-ci.yml · .gitattributes · docs/
+├── db/                         docker-compose.yml (PostgreSQL) · migrations/NNN_*.sql
+├── sonarqube/                  docker-compose.yml (SonarQube + its own Postgres)
+├── deploy/                     Caddyfile.template · devsecops-backend.service.template
+├── scripts/                    setup_ubuntu.sh · setup_windows.ps1 · tests/ubuntu_logic_test.sh
+├── devsecops-backend/
+│   ├── main.py                 app + lifespan + health
+│   ├── core/                   settings, GATES, auth, db, checkpointer
+│   ├── routers/                pipeline · llm · settings · auth · tools
+│   ├── services/               pipeline_service · stream_event_writer · step_report_html · pdf_report · tool_check_service · audit · retention
+│   ├── graph_builders/         pipeline (quick) · guided · lane
+│   ├── agents/                 16 agents + tool_loop
+│   ├── agent_states/           PipelineState, LaneState
+│   ├── agent_tools/            workspace_tools · toolchain_installer
+│   ├── llmapi/                 llm_provider · structured_llm · skills
+│   ├── skills/                 the LLM prompts as markdown (+ stacks/, optional *.local.md)
+│   ├── tests/                  pytest suite (lightweight and PostgreSQL modes)
+│   ├── mcp_services/           clients/ · servers/{scanner_mcp, docker_mcp}
+│   ├── models/ · repositories/ (json + postgres) · config/ (devops_flow.yml, tools.yml, step_docs.yml) · utils/ · scripts/ · assets/ · data/
+└── devsecops-frontend/
+    └── src/{core, features/{auth,pipeline,dashboard,runs,remediation,settings}, shared/{components,ui}}</code></pre>
+</section>
+
+<section id="run">
+  <h2>Install &amp; run</h2>
+  <h3>Prerequisites</h3>
+  <p>Run <code>scripts\setup_windows.ps1</code> to see what is missing (add <code>-Install</code> to install it with winget). Windows 10/11, Python 3.12 or 3.13 (use a real install; a venv breaks if its base Python is removed), Node.js, Git, Docker Desktop (for containers and image scans), Chrome (for UI tests), and an LLM key unless you use provider <code>none</code>.</p>
+  <h3>One click</h3>
+  <pre><code>start_agentic.bat</code></pre>
+  <p>It first runs <code>scripts\setup_windows.ps1 -Preflight</code>: Python, Node.js, Git, Docker Desktop <em>running</em>, <code>devsecops-backend\.env</code> present (created from <code>.env.example</code> if missing) and ports 8000 / 5173 free. If anything is missing it lists what to do and stops; a missing Chrome is only a warning. <code>start_agentic.bat --skip-checks</code> bypasses the check.</p>
+  <p>Then it picks Python 3.12/3.13, creates or repairs <code>devsecops-backend\.venv</code> (an existing <code>venv</code> folder is used as-is), installs requirements, installs scanners once into <code>.scanners</code>, starts the API on :8000 (which starts both MCP servers), runs <code>npm install</code> if needed, starts the app on :5173 and opens the browser. Edit <code>devsecops-backend\.env</code> to add your keys, then restart the API.</p>
+  <h3>Manual</h3>
+<pre><code>:: backend (once)
+cd devsecops-backend
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\pip install -r requirements.txt
+.venv\Scripts\python scripts\install_scanners.py
+copy .env.example .env
+
+:: API on :8000 (no --reload: runs write into devsecops-backend\runs and would restart it)
+.venv\Scripts\python -m uvicorn main:app --port 8000
+
+:: frontend, second window
+cd devsecops-frontend
+npm install
+npm run dev</code></pre>
+  <h3>First run</h3>
+  <ol>
+    <li>Open <code>http://localhost:5173</code> and sign in as <code>admin</code> / <code>admin</code> (or <code>admin_password</code> from <code>.env</code>), then choose a new password. The user is created only once: later changes to <code>admin_password</code> have no effect, so reset it with <code>.venv\Scripts\python scripts\manage_users.py passwd admin</code> (in <code>devsecops-backend</code>). Add more users on the <b>Users</b> page.</li>
+    <li>Admin → LLM providers: add a model and press Test, or choose <code>none</code>.</li>
+    <li>On the Pipeline page enter a GitHub / GitLab URL or local folder, keep <em>Guided</em> mode, and start. For a private repository the form asks for a read-only access token (GitHub: Contents read-only; GitLab: <code>read_repository</code>). The last step checks the tools this run needs and shows how to install anything that is missing.</li>
+    <li>Answer the questionnaire, review the security reports, and approve the UAT deploy when asked.</li>
+    <li>Open the Dashboard for the result, live app URLs, the PDF and the test report.</li>
+  </ol>
+</section>
+
+<section id="deploy">
+  <h2>Deploy &amp; operate</h2>
+  <p class="lead">The platform runs directly on a machine and uses its installed tools and Docker engine. Local is Windows; the dev server is an Ubuntu EC2 instance. Run it on a dedicated machine: it executes code from the repositories it scans.</p>
+  <h3>Ubuntu 22.04 / 24.04 (EC2)</h3>
+  <p><b>Instance:</b> Ubuntu 24.04 (Canonical AMI), x86_64, at least <b>t3.large (8 GB RAM)</b> with SonarQube (t3.xlarge is comfortable; 4 GB is enough with <code>--no-sonarqube</code>), <b>50 GB gp3</b> root volume. Security group: SSH and port 80 from <em>your</em> IP only; add 32768-60999 from your IP to open deployed UAT apps.</p>
+<pre><code>git clone -b &lt;branch&gt; &lt;repository&gt; &amp;&amp; cd devops-sel-nexus
+scp devsecops-backend/.env ubuntu@&lt;ec2&gt;:~/devops-sel-nexus/devsecops-backend/.env   # from your PC: LLM keys (+ admin_password, optional)
+./scripts/setup_ubuntu.sh --check     # prerequisites + what would be installed; changes nothing
+./scripts/setup_ubuntu.sh             # everything in one go (see below); run it again any time - what is in place is skipped</code></pre>
+  <p>One run does three things, in this order:</p>
+  <ol>
+    <li><b>Prerequisites</b> - Ubuntu 22.04/24.04, root or passwordless sudo, RAM (8 GB with SonarQube, else 4), free disk (40 GB with SonarQube, else 25; 5 on a re-run), HTTPS to pypi / nodejs.org / Docker Hub / GitHub, a full checkout, <code>devsecops-backend/.env</code> with the keys of <code>llm_provider</code> (and, optionally, an <code>admin_password</code> that meets the password policy), and ports 80 / 8000 / 9000 / 5432 free (or held by the platform itself). If anything is missing it prints a numbered <b>"Do this first"</b> list and stops - nothing is installed. A missing <code>.env</code> is created from <code>.env.example</code> for you to fill in.</li>
+    <li><b>Install</b> - it prints <code>skip</code> / <code>install</code> per component, then installs what is missing: Python 3.12+ venv and requirements, git / Docker / Chrome / C/C++ build tools for native npm and pip modules (<code>config/tools.yml</code>; Chrome is skipped on ARM), the scanners, Node + the frontend build, Caddy (replacing an nginx set up by an older version), <b>PostgreSQL</b> and <b>SonarQube</b> in Docker (admin password changed, token written to <code>.env</code>), and <code>DEVSECOPS_HOST_IP</code> from the EC2 metadata so deployed app links use the public IP (with <code>--domain</code>: <code>DEVSECOPS_DOMAIN</code> and <code>https://&lt;container&gt;.&lt;domain&gt;</code>).</li>
+    <li><b>Start and check</b> - the <code>devsecops-backend</code> service behind Caddy; then it checks the API, Caddy, SonarQube and one real LLM call, and prints the URL.</li>
+  </ol>
+  <ul>
+    <li>Options: <code>--no-sonarqube</code>, <code>--no-postgres</code>, <code>--public-host H</code>, <code>--domain NAME</code> (<code>--server-name</code> still works), <code>--service-user</code>, <code>--no-docker --no-chrome --no-scanners --no-frontend --no-caddy --no-service</code> (<code>--no-nginx</code> still works). <code>--with-postgres</code> / <code>--with-sonarqube</code> are still accepted (both are on by default). <code>MIN_RAM_GB</code> / <code>MIN_DISK_GB</code> change the thresholds, <code>NET_CHECK=0</code> skips the network check.</li>
+    <li>Do not copy <code>.venv</code>, <code>.scanners</code>, <code>node_modules</code>, <code>data/</code> or <code>runs/</code> from Windows: they are built for Windows or tied to keys of that machine. Only <code>.env</code>.</li>
+    <li>On 22.04 the script adds the third-party deadsnakes PPA for Python 3.12. The Node download is checked against nodejs.org's SHA-256 list.</li>
+    <li>It sets up <code>devsecops-backend.service</code> (127.0.0.1:8000, <code>NoNewPrivileges</code>) and <code>/etc/caddy/Caddyfile</code>, which serves the built frontend and proxies <code>/api</code> (flushing the live logs at once). With <code>--domain</code> Caddy gets Let's Encrypt certificates for the domain and, on demand, for each running UAT app at <code>https://&lt;container&gt;.&lt;domain&gt;</code>; without it there is no TLS. Keep ports 80/443 closed to everyone but your network (security group or VPN).</li>
+    <li>Changing <code>.env</code> later: <code>sudo systemctl restart devsecops-backend</code>. Logs: <code>journalctl -u devsecops-backend -f</code>.</li>
+  </ul>
+  <h3>Windows</h3>
+<pre><code>scripts\setup_windows.ps1                 :: report what is installed
+scripts\setup_windows.ps1 -Install        :: install what is missing with winget
+scripts\setup_windows.ps1 -Preflight      :: the gate start_agentic.bat runs first (also .env and ports 8000 / 5173)
+start_agentic.bat                         :: gate, then venv, packages, scanners, API, app, browser
+start_agentic.bat --skip-checks           :: without the gate</code></pre>
+  <p>Step-by-step instructions for both Windows and the Ubuntu server are in the repository's <code>README.md</code>.</p>
+  <h3>Operating it</h3>
+  <table>
+    <tr><th>Topic</th><th>How</th></tr>
+    <tr><td>Concurrency</td><td><code>max_concurrent_runs</code> (3). A new run gets HTTP 429 while the limit is reached.</td></tr>
+    <tr><td>Disk</td><td><code>cleanup_after_run</code> after each run; <code>workspace_retention_days</code> (7) for finished runs' code copies</td></tr>
+    <tr><td>Backups</td><td><code>pg_dump</code> of the <code>nexus</code> database, plus <code>runs/</code> for PDFs and test results; RDS has managed backups. Also <code>.env</code>, <code>.auth.key</code>, <code>.settings.key</code> (without them sign-ins and saved credentials cannot be read), <code>data/</code>, <code>db/.env</code>, <code>sonarqube/.env</code> and <code>sonarqube/.admin-password</code>.</td></tr>
+    <tr><td>Logs</td><td><code>journalctl -u devsecops-backend</code>; per-run events in the UI; audit at <code>GET /auth/audit</code></td></tr>
+    <tr><td>Users</td><td><code>scripts/manage_users.py</code> or <code>/auth/users</code></td></tr>
+    <tr><td>Health</td><td><code>/health</code> (no sign-in), <code>/health/db</code> and <code>/health/mcp</code> (signed in), <code>setup_ubuntu.sh --check</code></td></tr>
+  </table>
+  <h3>Tests &amp; CI</h3>
+<pre><code>cd devsecops-backend
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q                                           # lightweight mode
+set TEST_DATABASE_URL=postgresql://nexus:pw@127.0.0.1:5432/nexus &amp; python -m pytest -q   # PostgreSQL mode</code></pre>
+  <p><code>.gitlab-ci.yml</code> runs ShellCheck, both test modes (PostgreSQL as a service), the Ubuntu script logic tests, the frontend build, and the full Ubuntu setup in a clean image (with a minimal <code>.env</code>; a second run must skip what is in place); Gitleaks and Trivy scan the repository itself (informational for now). Tests use temporary files and never touch your <code>data/</code> folder or keys.</p>
+</section>
+
+<section id="security">
+  <h2>Security notes</h2>
+  <ul>
+    <li><b>Sign-in and roles.</b> See <a href="#auth">Sign-in &amp; roles</a>. The API still runs commands from scanned repositories on the machine, so keep it on a private network or behind a VPN. The local MCP servers have no authentication of their own and listen on localhost.</li>
+    <li><b>Installing tools is powerful.</b> The Install button only runs fixed commands from <code>config/tools.yml</code> (never text from a request), only for admins. System tools (apt) need <code>allow_system_install=true</code> and passwordless sudo, which is root-equivalent: leave it off unless you need it. Membership of the <code>docker</code> group is root-equivalent too: use a dedicated machine.</li>
+    <li><b>Default passwords.</b> The platform and SonarQube both start with <code>admin</code> / <code>admin</code> and force a new password at the first sign-in: sign in to both right after installing.</li>
+    <li><b>Unauthenticated queue.</b> <code>/queue/requests</code> has no sign-in (sel-nexus integration): anyone who reaches the API can start runs, which execute repository code on the server. Allow port 80 only from the sel-nexus server and your own IP.</li>
+    <li><b>LLM log.</b> Prompts contain code and findings of the scanned repositories; secret values from <code>.env</code> are masked, but treat the files like the run reports.</li>
+    <li><b>Network exposure.</b> PostgreSQL and SonarQube bind to <code>127.0.0.1</code>; Caddy is the only public side (the app, <code>/api</code>, <code>/sonar</code> and, with a domain, the UAT apps). Use <code>--domain</code> for HTTPS (or a load balancer in front) and restrict ports 80/443 with a security group or VPN.</li>
+    <li><b>Audit.</b> Every state-changing call, sign-in, failed sign-in, denied request and user change is recorded with the actor. Request bodies are not recorded because they may contain secrets.</li>
+    <li><b>The API runs arbitrary commands.</b> Build, test and install commands come from the target repository (and from the LLM) and are executed in a shell on the host. Only point it at code you trust, or run it in a disposable VM.</li>
+    <li><b>Credentials.</b> Secrets saved in Settings are Fernet-encrypted; the API never returns them. Repository access tokens (from the start form, or <code>github_token</code> / <code>gitlab_token</code>) reach <code>git</code> as an HTTP header through its environment (<code>GIT_CONFIG_*</code>), so they are not on the command line, in the clone's <code>.git/config</code>, the run, its checkpoints, logs or reports; a token from the form is held in memory only until the clone ends. URLs with credentials in them are refused. Keep <code>.env</code> and <code>.settings.key</code> out of git (both are ignored).</li>
+    <li><b>Path safety.</b> Workspace tools reject paths outside the run workspace; screenshot and test-result endpoints validate file names and reject path separators in the task id.</li>
+    <li><b>UAT on a server.</b> UAT containers can bind <code>0.0.0.0</code> on a random port (32768-60999); <code>DEVSECOPS_HOST_IP</code> (set by <code>setup_ubuntu.sh</code>) makes their links use the public IP. With <code>DEVSECOPS_DOMAIN</code> they are served by Caddy at <code>https://&lt;container&gt;.&lt;domain&gt;</code> instead (a certificate only for a running <code>cip-*</code> container published on <code>0.0.0.0</code>), so the high ports can stay closed. Treat them as reachable by anyone the security group lets in.</li>
+  </ul>
+</section>
+
+<section id="issues">
+  <h2>Known issues &amp; observations</h2>
+  <p class="lead">Found while reading the code. None blocks normal use.</p>
+  <table>
+    <tr><th>Item</th><th>Detail</th></tr>
+    <tr><td>Legacy MongoDB code</td><td>Removed on this branch (<code>utils/mongo_connection.py</code>, <code>utils/memory_mongo.py</code>). Storage is JSON files.</td></tr>
+    <tr><td>Committed data files</td><td><code>data/settings.json</code> and <code>runs.json</code> are no longer tracked on this branch and are git-ignored. They remain in the git history, so rotate the SonarQube token that was stored in <code>settings.json</code>.</td></tr>
+    <tr><td>Paused runs in lightweight mode</td><td>Without <code>database_url</code> the checkpoints are in memory and a restart stops runs waiting for a person. Use PostgreSQL to keep them.</td></tr>
+    <tr><td>Buttons per role</td><td>The UI hides the Users page from non-admins but not every button a role cannot use; the API answers 403 and the UI shows the message.</td></tr>
+    <tr><td>Tokens are in <code>localStorage</code></td><td>Sign-in tokens live 12 hours in the browser's <code>localStorage</code> and can appear in URLs of links and event streams (<code>?access_token=</code>, GET only). Use HTTPS, and expect them in server access logs.</td></tr>
+    <tr><td>One server, one machine</td><td>Runs execute as processes on the machine that runs the API. <code>max_concurrent_runs</code> protects it, but there is no scale-out and no isolation between runs (no per-run containers).</td></tr>
+    <tr><td>SonarQube memory</td><td>The Community edition needs about 4 GB of RAM. In a Docker Desktop VM with 2 GB the engine stopped responding, and in a real run SonarQube was OOM-killed mid-scan (the run fell back to Semgrep): raise Docker's memory first (<code>.wslconfig</code> / Settings &gt; Resources).</td></tr>
+    <tr><td>SonarQube token on the command line</td><td>When <code>sonar-scanner</code> runs in Docker, the token is passed as <code>-e SONAR_TOKEN=…</code>, so local users can see it in the process list while a scan runs. Treat the token as visible to anyone with a shell on the machine, and rotate it if it was exposed.</td></tr>
+    <tr><td>SonarQube default password</td><td>SonarQube is reachable at <code>/sonar</code> through Caddy and starts with <code>admin</code> / <code>admin</code> until someone signs in to its web UI and sets a new one. Do that right after installing. Its token creation was checked against a real <code>sonarqube:community</code> container under <code>/sonar</code>.</td></tr>
+    <tr><td>Verification status</td><td>Verified by automated tests and real runs: sign-in and roles, tool check and install, PostgreSQL storage (including resuming a paused run after killing the API), stage rules, prompts, run limit and retention, the Compose files, the Caddy config (<code>caddy validate</code>, with and without a domain), ShellCheck on the Ubuntu scripts and their logic tests in a clean Ubuntu container (including the prerequisite gate: a missing <code>.env</code>, missing LLM keys, too little RAM / disk). <code>start_agentic.bat</code> with its prerequisite gate and a full guided run with Azure OpenAI were run on Windows. <b>Not run end to end</b> where it was written (a 2 GB Docker VM, no systemd): the install phase of <code>setup_ubuntu.sh</code> (apt / venv / Node / frontend / PostgreSQL / SonarQube; the CI job <code>ubuntu-setup-e2e</code> is its first real run, the EC2 instance the first full one), the systemd unit, <code>setup_windows.ps1 -Install</code>. <code>bootstrap_sonarqube.py</code> was run against a real <code>sonarqube:community</code> container under <code>/sonar</code> (token created with <code>admin</code>/<code>admin</code> still in place).</td></tr>
+    <tr><td>Cloud and CI choices are recorded only</td><td>GitLab/Jenkins/Kubernetes/AWS/Azure/GCP answers and the <code>prod</code> environment are stored for a future stage; everything runs on local Docker.</td></tr>
+    <tr><td>Stale text</td><td>Fixed on this branch: the folder name in the README, the MongoDB text and the <code>config/pipeline.yaml</code> comment.</td></tr>
+    <tr><td>Unused UI</td><td><code>DerivedPipeline</code> is imported but commented out in PipelinePage; <code>/runs</code> has no sidebar link.</td></tr>
+  </table>
+</section>
+
+<footer>Updated on branch <code>feature/streamed-remediation-admin</code>. If the code changes, re-check the agent, gate, endpoint and configuration tables.</footer>
+</main>
+</div>
+</body>
+</html>
